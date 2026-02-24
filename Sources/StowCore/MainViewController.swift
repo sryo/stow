@@ -1,0 +1,1154 @@
+import AppKit
+import ObjectiveC
+
+nonisolated(unsafe) private var datePickerKey: UInt8 = 0
+nonisolated(unsafe) private var taskIdKey: UInt8 = 0
+nonisolated(unsafe) private var panelKey: UInt8 = 0
+
+@MainActor
+final class MainViewController: NSViewController {
+    let model: AppModel
+
+    // Coordinators and child view controllers
+    private let searchCoordinator = SearchCoordinator()
+    private let nodeListViewController = NodeListViewController()
+    private let settingsViewController = SettingsContentViewController()
+
+    // UI Components
+    private let workspaceSwitcher = WorkspaceSwitcherView(style: .defaultStyle)
+    private let searchField = SearchBarView(style: .defaultSearch)
+    private let pasteButton = IconTitleButton(
+        title: "Paste from clipboard",
+        symbolName: "plus",
+        style: .pasteAction
+    )
+
+    // Page navigation
+    private let pageController = ScrollWheelPageController()
+    private var topBar = NSView()
+
+    // Content containers (show/hide for page switching)
+    private let contentStack = NSStackView()
+
+    // Swipe state
+    private var isSwiping = false
+    private var lastAddNewHapticTime: TimeInterval = 0
+
+    // State
+    private var isReloadScheduled = false
+    private var hasLoaded = false
+    private var lastWorkspaceId: UUID?
+    private var pendingWorkspaceRenameId: UUID?
+    private var customColorWorkspaceId: UUID?
+
+    init(model: AppModel) {
+        self.model = model
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func loadView() {
+        let view = NSView()
+        view.wantsLayer = true
+        self.view = view
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupChildViewControllers()
+        setupUI()
+        setupSearchCoordinator()
+        setupNodeListCallbacks()
+        bindModel()
+        reloadData()
+
+        // Listen for favicon updates
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFaviconUpdate),
+            name: .init("UpdateLinkFavicon"),
+            object: nil
+        )
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        if let window = view.window {
+            pageController.attach(to: window)
+        }
+        updatePageWidth()
+        pageController.jumpToPage(currentPageIndex())
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updatePageWidth()
+    }
+
+    // MARK: - Setup
+
+    private func setupChildViewControllers() {
+        addChild(nodeListViewController)
+        addChild(settingsViewController)
+    }
+
+    private func setupUI() {
+        // Workspace switcher
+        workspaceSwitcher.translatesAutoresizingMaskIntoConstraints = false
+        workspaceSwitcher.onWorkspaceSelected = { [weak self] workspaceId in
+            guard let self else { return }
+            self.model.selectWorkspace(id: workspaceId)
+            if let idx = self.model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
+                self.pageController.jumpToPage(idx + 1)
+            }
+        }
+        workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
+            self?.showWorkspaceContextMenu(for: workspaceId, at: point)
+        }
+        workspaceSwitcher.onAddWorkspace = { [weak self] in
+            self?.promptCreateWorkspace()
+        }
+        workspaceSwitcher.onWorkspaceRename = { [weak self] workspaceId, newName in
+            self?.model.renameWorkspace(id: workspaceId, newName: newName)
+        }
+        workspaceSwitcher.onSettingsSelected = { [weak self] in
+            guard let self else { return }
+            self.model.selectSettings()
+            self.pageController.jumpToPage(0)
+        }
+
+        // Search field
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.placeholder = "Search…"
+        searchField.onTextChange = { [weak self] text in
+            self?.nodeListViewController.clearSelections()
+            self?.searchCoordinator.updateQuery(text)
+        }
+
+        // Paste button
+        pasteButton.translatesAutoresizingMaskIntoConstraints = false
+        pasteButton.target = self
+        pasteButton.action = #selector(pasteFromClipboard)
+
+        // Node list view
+        nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
+
+        // Settings view
+        settingsViewController.appModel = model
+        settingsViewController.view.translatesAutoresizingMaskIntoConstraints = false
+        settingsViewController.view.isHidden = true
+
+        // Build content stack (search + nodeList + paste)
+        let bottomBar = NSView()
+        bottomBar.translatesAutoresizingMaskIntoConstraints = false
+        bottomBar.addSubview(pasteButton)
+
+        contentStack.orientation = .vertical
+        contentStack.spacing = 10
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.alignment = .centerX
+        contentStack.addArrangedSubview(searchField)
+        contentStack.addArrangedSubview(nodeListViewController.view)
+        contentStack.addArrangedSubview(bottomBar)
+
+        // Top bar layout
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(workspaceSwitcher)
+
+        // Main layout: top bar + content area
+        view.addSubview(topBar)
+        view.addSubview(contentStack)
+        view.addSubview(settingsViewController.view)
+
+        let pad = LayoutConstants.windowPadding
+
+        NSLayoutConstraint.activate([
+            pasteButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
+            pasteButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor),
+            pasteButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
+            pasteButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+
+            bottomBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            bottomBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+
+            searchField.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 2),
+            searchField.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -2),
+
+            bottomBar.heightAnchor.constraint(equalToConstant: pasteButton.style.height),
+
+            workspaceSwitcher.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            workspaceSwitcher.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            workspaceSwitcher.topAnchor.constraint(equalTo: topBar.topAnchor),
+            workspaceSwitcher.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
+
+            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
+            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: pad),
+            topBar.heightAnchor.constraint(equalToConstant: 30),
+
+            // Content stack fills area below topBar
+            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
+            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            contentStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
+            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
+
+            // Settings view pinned to same content area
+            settingsViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
+            settingsViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            settingsViewController.view.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
+            settingsViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
+        ])
+
+        // Setup page controller
+        pageController.delegate = self
+        pageController.excludedView = workspaceSwitcher
+    }
+
+    private func setupSearchCoordinator() {
+        searchCoordinator.onQueryChanged = { [weak self] _ in
+            self?.reloadData()
+        }
+    }
+
+    private func setupNodeListCallbacks() {
+        nodeListViewController.nodeProvider = { [weak self] in
+            guard let self else { return [] }
+            return self.searchCoordinator.filter(nodes: self.model.currentWorkspace.items)
+        }
+
+        nodeListViewController.workspacesProvider = { [weak self] in
+            self?.model.workspaces ?? []
+        }
+
+        nodeListViewController.findNodeById = { [weak self] id in
+            self?.model.nodeById(id)
+        }
+
+        nodeListViewController.findNodeLocation = { [weak self] id in
+            self?.model.location(of: id)
+        }
+
+        nodeListViewController.findNodeInNodes = { [weak self] id, nodes in
+            self?.model.findNode(id: id, in: nodes)
+        }
+
+        nodeListViewController.onNodeSelected = { [weak self] nodeId in
+            guard let self, let node = self.model.nodeById(nodeId) else { return }
+            if case .link(let link) = node {
+                self.openLink(link)
+            }
+        }
+
+        nodeListViewController.onFolderToggled = { [weak self] folderId, _ in
+            guard let self else { return }
+            if self.searchCoordinator.isSearchActive { return }
+            if let node = self.model.nodeById(folderId), case .folder(let folder) = node {
+                self.model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
+            }
+        }
+
+        nodeListViewController.onNodeMoved = { [weak self] nodeId, targetParentId, targetIndex in
+            self?.model.moveNode(id: nodeId, toParentId: targetParentId, index: targetIndex)
+        }
+
+        nodeListViewController.onNodeDeleted = { [weak self] nodeId in
+            self?.model.deleteNode(id: nodeId)
+        }
+
+        nodeListViewController.onNodeRenamed = { [weak self] nodeId, newName in
+            self?.model.renameNode(id: nodeId, newName: newName)
+        }
+
+        nodeListViewController.onNodeMovedToWorkspace = { [weak self] nodeId, workspaceId in
+            self?.model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
+        }
+
+        nodeListViewController.onBulkNodesMovedToWorkspace = { [weak self] nodeIds, workspaceId in
+            self?.model.moveNodesToWorkspace(nodeIds: nodeIds, toWorkspaceId: workspaceId)
+        }
+
+        nodeListViewController.onBulkNodesGrouped = { [weak self] nodeIds, folderName in
+            self?.model.groupNodesInNewFolder(nodeIds: nodeIds, folderName: folderName)
+        }
+
+        nodeListViewController.onBulkNodesCopied = { [weak self] nodeIds in
+            self?.handleBulkCopyLinks(nodeIds)
+        }
+
+        nodeListViewController.onBulkNodesDeleted = { [weak self] nodeIds in
+            guard let self else { return }
+            for nodeId in nodeIds {
+                self.model.deleteNode(id: nodeId)
+            }
+        }
+
+        nodeListViewController.onNewFolderRequested = { [weak self] parentId in
+            self?.createFolderAndBeginRename(parentId: parentId)
+        }
+
+        nodeListViewController.onTaskToggled = { [weak self] taskId in
+            self?.model.toggleTaskCompletion(id: taskId)
+        }
+
+        nodeListViewController.onSnippetClicked = { [weak self] snippetId in
+            self?.copySnippetToClipboard(snippetId)
+        }
+
+        nodeListViewController.onTaskDueDateRequested = { [weak self] taskId in
+            self?.showDatePickerForTask(taskId)
+        }
+
+        nodeListViewController.onTaskDueDateCleared = { [weak self] taskId in
+            self?.model.updateTaskDueDate(id: taskId, dueDate: nil)
+        }
+
+        nodeListViewController.onSnippetEditRequested = { [weak self] snippetId in
+            self?.showSnippetEditor(snippetId)
+        }
+
+        nodeListViewController.onNewTaskRequested = { [weak self] parentId in
+            self?.createTaskAndBeginRename(parentId: parentId)
+        }
+
+        nodeListViewController.onNewSnippetRequested = { [weak self] parentId in
+            self?.createSnippetAndBeginRename(parentId: parentId)
+        }
+    }
+
+    private func bindModel() {
+        model.onChange = { [weak self] in
+            guard let self else { return }
+            if self.isReloadScheduled { return }
+            self.isReloadScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.isReloadScheduled = false
+                self.reloadData()
+            }
+        }
+    }
+
+    // MARK: - Data Reload
+
+    private func reloadData() {
+        // Cancel any in-progress inline rename if node is deleted
+        if let renameId = nodeListViewController.inlineRenameNodeId,
+           model.nodeById(renameId) == nil {
+            nodeListViewController.cancelInlineRename()
+        }
+
+        reloadWorkspaceMenu()
+
+        // Notify settings view that workspaces may have changed
+        settingsViewController.notifyWorkspacesChanged()
+
+        // Clear selections when workspace changes
+        let currentWorkspaceId = model.currentWorkspace.id
+        if hasLoaded && currentWorkspaceId != lastWorkspaceId {
+            nodeListViewController.clearSelections()
+            lastWorkspaceId = currentWorkspaceId
+        }
+
+        // Update page width
+        updatePageWidth()
+
+        // Show/hide content based on settings selection
+        if model.state.isSettingsSelected {
+            nodeListViewController.clearSelections()
+            showSettingsContent()
+            applyBackgroundColor(for: .settingsBackground)
+        } else {
+            showWorkspaceContent()
+            applyBackgroundColor(for: model.currentWorkspace.colorId)
+            let filteredNodes = searchCoordinator.filter(nodes: model.currentWorkspace.items)
+            let forceExpand = searchCoordinator.isSearchActive
+            nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
+            nodeListViewController.reloadData(with: filteredNodes, forceExpand: forceExpand)
+        }
+
+        hasLoaded = true
+    }
+
+    private func reloadWorkspaceMenu() {
+        let workspaces = model.workspaces
+
+        workspaceSwitcher.workspaces = workspaces.map { workspace in
+            WorkspaceSwitcherView.WorkspaceItem(
+                id: workspace.id,
+                name: workspace.name,
+                colorId: workspace.colorId
+            )
+        }
+
+        workspaceSwitcher.isSettingsSelected = model.state.isSettingsSelected
+
+        if model.state.isSettingsSelected {
+            workspaceSwitcher.selectedWorkspaceId = nil
+            workspaceSwitcher.workspaceColor = .settingsBackground
+        } else {
+            let selectedId = model.currentWorkspace.id
+            workspaceSwitcher.selectedWorkspaceId = selectedId
+            workspaceSwitcher.workspaceColor = model.currentWorkspace.colorId
+        }
+
+        handlePendingWorkspaceRename()
+    }
+
+    private func applyBackgroundColor(for colorId: WorkspaceColorId) {
+        let bgColor = colorId.backgroundColor
+        view.layer?.backgroundColor = bgColor.cgColor
+        view.window?.backgroundColor = bgColor
+    }
+
+    // MARK: - Page Navigation
+
+    /// Returns the total number of pages: settings + workspaces + add-new.
+    private func totalPageCount() -> Int {
+        model.workspaces.count + 2
+    }
+
+    /// Returns the current page index based on model state.
+    private func currentPageIndex() -> Int {
+        if model.state.isSettingsSelected { return 0 }
+        if let idx = model.workspaces.firstIndex(where: { $0.id == model.currentWorkspace.id }) {
+            return idx + 1
+        }
+        return 1
+    }
+
+    /// Returns the color for a page index.
+    private func colorForPage(_ pageIndex: Int) -> WorkspaceColorId {
+        if pageIndex == 0 { return .settingsBackground }
+        let workspaceIdx = pageIndex - 1
+        if workspaceIdx < model.workspaces.count {
+            return model.workspaces[workspaceIdx].colorId
+        }
+        if let last = model.workspaces.last {
+            return last.colorId
+        }
+        return .settingsBackground
+    }
+
+    /// Width of the content area (used as page width for swipe calculations).
+    private var contentAreaWidth: CGFloat {
+        view.bounds.width - 2 * LayoutConstants.windowPadding
+    }
+
+    /// Syncs the page controller's page width with the current content area width.
+    private func updatePageWidth() {
+        let width = contentAreaWidth
+        if width > 0 {
+            pageController.pageWidth = width
+        }
+    }
+
+    // MARK: - Content Show/Hide
+
+    private func showSettingsContent() {
+        contentStack.isHidden = true
+        settingsViewController.view.isHidden = false
+    }
+
+    private func showWorkspaceContent() {
+        settingsViewController.view.isHidden = true
+        contentStack.isHidden = false
+    }
+
+    // MARK: - Workspace Management
+
+    private func showWorkspaceContextMenu(for workspaceId: UUID, at point: NSPoint) {
+        // Temporarily select the workspace for context menu actions
+        let previousWorkspaceId = model.currentWorkspace.id
+        if previousWorkspaceId != workspaceId {
+            model.selectWorkspace(id: workspaceId)
+        }
+
+        let menu = NSMenu()
+        let canDelete = model.workspaces.count > 1
+        guard let workspaceIndex = model.workspaces.firstIndex(where: { $0.id == workspaceId }) else { return }
+        let canMoveLeft = workspaceIndex > 0
+        let canMoveRight = workspaceIndex < model.workspaces.count - 1
+
+        let renameItem = NSMenuItem(title: "Rename Workspace…", action: #selector(renameWorkspaceFromMenu), keyEquivalent: "")
+        renameItem.target = self
+        menu.addItem(renameItem)
+
+        let colorItem = NSMenuItem(title: "Change Color", action: nil, keyEquivalent: "")
+        let colorSubmenu = NSMenu()
+        for colorId in WorkspaceColorId.allCases {
+            let colorMenuItem = NSMenuItem(title: colorId.name, action: #selector(changeColorTo(_:)), keyEquivalent: "")
+            colorMenuItem.target = self
+            colorMenuItem.representedObject = colorId
+            colorMenuItem.image = createColorPreviewImage(color: colorId.color)
+            if colorId == model.currentWorkspace.colorId {
+                colorMenuItem.state = .on
+            }
+            colorSubmenu.addItem(colorMenuItem)
+        }
+        colorSubmenu.addItem(NSMenuItem.separator())
+        let customColorItem = NSMenuItem(title: "Custom Color…", action: #selector(chooseCustomColor), keyEquivalent: "")
+        customColorItem.target = self
+        colorSubmenu.addItem(customColorItem)
+        colorItem.submenu = colorSubmenu
+        menu.addItem(colorItem)
+
+        if canMoveLeft || canMoveRight {
+            menu.addItem(NSMenuItem.separator())
+
+            if canMoveLeft {
+                let moveLeftItem = NSMenuItem(title: "Move Left", action: #selector(moveWorkspaceLeft), keyEquivalent: "")
+                moveLeftItem.target = self
+                menu.addItem(moveLeftItem)
+            }
+
+            if canMoveRight {
+                let moveRightItem = NSMenuItem(title: "Move Right", action: #selector(moveWorkspaceRight), keyEquivalent: "")
+                moveRightItem.target = self
+                menu.addItem(moveRightItem)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let shareItem = NSMenuItem(title: "Share Workspace…", action: #selector(shareWorkspaceFromMenu), keyEquivalent: "")
+        shareItem.target = self
+        menu.addItem(shareItem)
+
+        let exportItem = NSMenuItem(title: "Export Workspace…", action: #selector(exportWorkspaceFromMenu), keyEquivalent: "")
+        exportItem.target = self
+        menu.addItem(exportItem)
+
+        let importItem = NSMenuItem(title: "Import Workspace…", action: #selector(importWorkspaceFromMenu), keyEquivalent: "")
+        importItem.target = self
+        menu.addItem(importItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete Workspace…", action: #selector(deleteWorkspaceFromMenu), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.isEnabled = canDelete
+        menu.addItem(deleteItem)
+
+        if view.window != nil {
+            let pointInView = view.convert(point, from: nil)
+            menu.popUp(positioning: nil, at: pointInView, in: view)
+        }
+    }
+
+    @objc private func renameWorkspaceFromMenu() {
+        let workspace = model.currentWorkspace
+        workspaceSwitcher.beginInlineRename(workspaceId: workspace.id)
+    }
+
+    @objc private func changeColorTo(_ sender: NSMenuItem) {
+        guard let colorId = sender.representedObject as? WorkspaceColorId else { return }
+        let workspace = model.currentWorkspace
+        model.updateWorkspaceColor(id: workspace.id, colorId: colorId)
+    }
+
+    @objc private func chooseCustomColor() {
+        customColorWorkspaceId = model.currentWorkspace.id
+        let colorPanel = NSColorPanel.shared
+        colorPanel.color = model.currentWorkspace.colorId.color
+        colorPanel.setTarget(self)
+        colorPanel.setAction(#selector(customColorChanged(_:)))
+        colorPanel.isContinuous = true
+        colorPanel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func customColorChanged(_ sender: Any?) {
+        guard let workspaceId = customColorWorkspaceId else { return }
+        let hex = NSColorPanel.shared.color.hexString
+        model.updateWorkspaceColor(id: workspaceId, colorId: .custom(hex))
+    }
+
+    private func createColorPreviewImage(color: NSColor, size: CGFloat = 12) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+
+        let rect = NSRect(x: 0, y: 0, width: size, height: size)
+        let path = NSBezierPath(ovalIn: rect)
+        color.setFill()
+        path.fill()
+
+        // Add subtle border
+        let borderColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.20)
+        borderColor.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+
+        image.unlockFocus()
+        return image
+    }
+
+    @objc private func shareWorkspaceFromMenu() {
+        let workspace = model.currentWorkspace
+        do {
+            let url = try model.shareWorkspace(id: workspace.id)
+            showSharePanel(url: url, workspaceName: workspace.name)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Share Failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    private func showSharePanel(url: String, workspaceName: String) {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Share \"\(workspaceName)\""
+        panel.isFloatingPanel = true
+
+        let contentView = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
+
+        let label = NSTextField(labelWithString: "Anyone with this link can view and import your workspace:")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+
+        let textField = NSTextField(string: url)
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.isEditable = false
+        textField.isSelectable = true
+        textField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textField.lineBreakMode = .byTruncatingMiddle
+
+        let copyButton = NSButton(title: "Copy Link", target: nil, action: nil)
+        copyButton.translatesAutoresizingMaskIntoConstraints = false
+        copyButton.bezelStyle = .rounded
+        copyButton.keyEquivalent = "\r"
+
+        contentView.addSubview(label)
+        contentView.addSubview(textField)
+        contentView.addSubview(copyButton)
+
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+
+            textField.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
+            textField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            textField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+
+            copyButton.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 16),
+            copyButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            copyButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -16),
+        ])
+
+        panel.contentView = contentView
+
+        // Store URL for copy action
+        let urlToCopy = url
+        let panelRef = panel
+        copyButton.target = self
+        copyButton.action = #selector(copyShareLink(_:))
+        objc_setAssociatedObject(copyButton, &panelKey, panelRef, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(copyButton, &taskIdKey, urlToCopy as NSString, .OBJC_ASSOCIATION_RETAIN)
+
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func copyShareLink(_ sender: NSButton) {
+        guard let urlString = objc_getAssociatedObject(sender, &taskIdKey) as? NSString else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(urlString as String, forType: .string)
+
+        // Update button title briefly to confirm
+        sender.title = "Copied!"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            sender.title = "Copy Link"
+        }
+    }
+
+    @objc private func exportWorkspaceFromMenu() {
+        let workspace = model.currentWorkspace
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.init(filenameExtension: "stow")!]
+        savePanel.nameFieldStringValue = "\(workspace.name).stow"
+        savePanel.canCreateDirectories = true
+
+        guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
+        do {
+            let data = try model.exportWorkspace(id: workspace.id)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Export Failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    @objc private func importWorkspaceFromMenu() {
+        let openPanel = NSOpenPanel()
+        openPanel.allowedContentTypes = [.init(filenameExtension: "stow")!]
+        openPanel.allowsMultipleSelection = false
+
+        guard openPanel.runModal() == .OK, let url = openPanel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            try model.importWorkspace(from: data)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Import Failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    @objc private func deleteWorkspaceFromMenu() {
+        let workspace = model.currentWorkspace
+        if workspace.items.isEmpty {
+            model.deleteWorkspace(id: workspace.id)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete workspace?"
+        alert.informativeText = "This will permanently delete the workspace and all its contents."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete")
+        if let deleteButton = alert.buttons.last {
+            deleteButton.hasDestructiveAction = true
+        }
+        if alert.runModal() == .alertSecondButtonReturn {
+            model.deleteWorkspace(id: workspace.id)
+        }
+    }
+
+    @objc private func moveWorkspaceLeft() {
+        let workspace = model.currentWorkspace
+        model.moveWorkspace(id: workspace.id, direction: .left)
+    }
+
+    @objc private func moveWorkspaceRight() {
+        let workspace = model.currentWorkspace
+        model.moveWorkspace(id: workspace.id, direction: .right)
+    }
+
+    func promptCreateWorkspace() {
+        let workspaceId = model.createWorkspace(name: "Untitled Workspace", colorId: .randomColor())
+        if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
+            pageController.jumpToPage(idx + 1)
+        }
+        scheduleWorkspaceInlineRename(for: workspaceId)
+    }
+
+    private func scheduleWorkspaceInlineRename(for workspaceId: UUID) {
+        pendingWorkspaceRenameId = workspaceId
+    }
+
+    private func handlePendingWorkspaceRename() {
+        guard let workspaceId = pendingWorkspaceRenameId else { return }
+        pendingWorkspaceRenameId = nil
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.workspaceSwitcher.beginInlineRename(workspaceId: workspaceId)
+        }
+    }
+
+    // MARK: - Node Management
+
+    func createTaskAndBeginRename(parentId: UUID?) {
+        if let parentId {
+            model.setFolderExpanded(id: parentId, isExpanded: true)
+        }
+        let newId = model.addTask(title: "Untitled Task", parentId: parentId)
+        nodeListViewController.scheduleInlineRename(for: newId)
+    }
+
+    func createSnippetAndBeginRename(parentId: UUID?) {
+        if let parentId {
+            model.setFolderExpanded(id: parentId, isExpanded: true)
+        }
+        let newId = model.addSnippet(title: "Untitled Snippet", content: "", language: nil, parentId: parentId)
+        nodeListViewController.scheduleInlineRename(for: newId)
+    }
+
+    func createFolderAndBeginRename(parentId: UUID?) {
+        if let parentId {
+            model.setFolderExpanded(id: parentId, isExpanded: true)
+        }
+        let newId = model.addFolder(name: "Untitled", parentId: parentId)
+        nodeListViewController.scheduleInlineRename(for: newId)
+    }
+
+    @objc private func pasteFromClipboard() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+        let lines = pasted.components(separatedBy: .newlines)
+
+        let taskPattern = try! NSRegularExpression(pattern: #"^\s*-?\s*\[([ xX]?)\]\s*(.+)"#)
+        var snippetLines: [String] = []
+        var createdAnything = false
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // 1. Check for task pattern
+            let range = NSRange(line.startIndex..., in: line)
+            if let match = taskPattern.firstMatch(in: line, range: range),
+               let checkRange = Range(match.range(at: 1), in: line),
+               let textRange = Range(match.range(at: 2), in: line) {
+                let checkMark = String(line[checkRange])
+                let taskTitle = String(line[textRange]).trimmingCharacters(in: .whitespaces)
+                let isCompleted = checkMark.lowercased() == "x"
+                let taskId = model.addTask(title: taskTitle, parentId: nil)
+                if isCompleted {
+                    model.toggleTaskCompletion(id: taskId)
+                }
+                createdAnything = true
+                continue
+            }
+
+            // 2. Check for URLs
+            let urls = extractUrls(from: trimmed)
+            if !urls.isEmpty {
+                for url in urls {
+                    let linkId = model.addLink(urlString: url.absoluteString, title: titleForUrl(url), parentId: nil)
+                    fetchTitleForNewLink(id: linkId, url: url)
+                }
+                createdAnything = true
+                continue
+            }
+
+            // 3. Accumulate as snippet text
+            snippetLines.append(line)
+        }
+
+        // Create snippet from accumulated non-URL, non-task lines
+        if !snippetLines.isEmpty {
+            let content = snippetLines.joined(separator: "\n")
+            let firstLine = snippetLines.first ?? "Snippet"
+            let title = firstLine.count > 50 ? String(firstLine.prefix(50)) + "…" : firstLine
+            model.addSnippet(title: title, content: content, language: nil, parentId: nil)
+            createdAnything = true
+        }
+
+        _ = createdAnything
+    }
+
+    @objc func paste(_ sender: Any?) {
+        // Don't intercept paste when a text field is active (inline rename, search)
+        if nodeListViewController.inlineRenameNodeId != nil { return }
+        if view.window?.firstResponder is NSTextView { return }
+        // Don't paste when settings are showing
+        if model.state.isSettingsSelected { return }
+        pasteFromClipboard()
+    }
+
+    private func openLink(_ link: Link) {
+        guard let url = URL(string: link.url) else { return }
+        BrowserManager.open(url: url)
+    }
+
+    // MARK: - URL Utilities
+
+    private func normalizedUrl(from input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lower = trimmed.lowercased()
+
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            return URL(string: trimmed)
+        }
+
+        if lower.hasPrefix("localhost") {
+            return URL(string: "http://\(trimmed)")
+        }
+
+        return nil
+    }
+
+    private func extractUrls(from text: String) -> [URL] {
+        let pattern = #"(?i)\b(?:https?://[^\s<>"',;]+|localhost(?::\d+)?(?:/[^\s<>"',;]*)?)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var urls: [URL] = []
+
+        regex.enumerateMatches(in: text, range: range) { match, _, _ in
+            guard let matchRange = match?.range,
+                  let stringRange = Range(matchRange, in: text) else { return }
+            let candidate = stripTrailingPunctuation(from: String(text[stringRange]))
+            if let url = normalizedUrl(from: candidate) {
+                urls.append(url)
+            }
+        }
+
+        return urls
+    }
+
+    private func stripTrailingPunctuation(from value: String) -> String {
+        var trimmed = value
+        while let last = trimmed.last, ".,;:)]}?!".contains(last) {
+            trimmed.removeLast()
+        }
+        return trimmed
+    }
+
+    private func titleForUrl(_ url: URL) -> String {
+        if let host = url.host {
+            return host
+        }
+        return url.absoluteString
+    }
+
+    private func fetchTitleForNewLink(id: UUID, url: URL) {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        LinkTitleService.shared.fetchTitle(for: url, linkId: id) { [weak self] title in
+            guard let self, let title else { return }
+            _ = self.model.updateLinkTitleIfDefault(id: id, newTitle: title)
+        }
+    }
+
+    @objc private func handleFaviconUpdate(_ notification: Notification) {
+        guard let linkId = notification.userInfo?["linkId"] as? UUID,
+              let path = notification.userInfo?["path"] as? String else { return }
+        model.updateLinkFaviconPath(id: linkId, path: path)
+    }
+
+    // MARK: - Task & Snippet Actions
+
+    private func copySnippetToClipboard(_ snippetId: UUID) {
+        guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snippet.content, forType: .string)
+    }
+
+    private func showDatePickerForTask(_ taskId: UUID) {
+        guard let node = model.nodeById(taskId), case .task(let task) = node else { return }
+
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+                            styleMask: [.titled, .closable],
+                            backing: .buffered, defer: false)
+        panel.title = "Set Due Date"
+        panel.isFloatingPanel = true
+
+        let datePicker = NSDatePicker()
+        datePicker.datePickerStyle = .textFieldAndStepper
+        datePicker.datePickerMode = .single
+        datePicker.dateValue = task.dueDate ?? Date()
+        datePicker.translatesAutoresizingMaskIntoConstraints = false
+
+        let saveButton = NSButton(title: "Save", target: nil, action: nil)
+        saveButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let clearButton = NSButton(title: "Clear", target: nil, action: nil)
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
+        contentView.addSubview(datePicker)
+        contentView.addSubview(saveButton)
+        contentView.addSubview(clearButton)
+
+        NSLayoutConstraint.activate([
+            datePicker.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            datePicker.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+
+            saveButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            saveButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+
+            clearButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
+            clearButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+        ])
+
+        panel.contentView = contentView
+
+        saveButton.target = self
+        saveButton.tag = 1
+        clearButton.target = self
+        clearButton.tag = 0
+
+        // Store task ID and panel reference for the action
+        panel.representedURL = URL(string: "task://\(taskId.uuidString)")
+
+        saveButton.action = #selector(datePickerSave(_:))
+        clearButton.action = #selector(datePickerClear(_:))
+
+        // Store references
+        objc_setAssociatedObject(saveButton, &datePickerKey, datePicker, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(saveButton, &taskIdKey, taskId, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(clearButton, &taskIdKey, taskId, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(saveButton, &panelKey, panel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(clearButton, &panelKey, panel, .OBJC_ASSOCIATION_RETAIN)
+
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func datePickerSave(_ sender: NSButton) {
+        guard let datePicker = objc_getAssociatedObject(sender, &datePickerKey) as? NSDatePicker,
+              let taskId = objc_getAssociatedObject(sender, &taskIdKey) as? UUID,
+              let panel = objc_getAssociatedObject(sender, &panelKey) as? NSPanel else { return }
+        model.updateTaskDueDate(id: taskId, dueDate: datePicker.dateValue)
+        panel.close()
+    }
+
+    @objc private func datePickerClear(_ sender: NSButton) {
+        guard let taskId = objc_getAssociatedObject(sender, &taskIdKey) as? UUID,
+              let panel = objc_getAssociatedObject(sender, &panelKey) as? NSPanel else { return }
+        model.updateTaskDueDate(id: taskId, dueDate: nil)
+        panel.close()
+    }
+
+    private func showSnippetEditor(_ snippetId: UUID) {
+        guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
+
+        let editor = SnippetEditorView(snippet: snippet) { [weak self] updatedContent, updatedLanguage in
+            self?.model.updateSnippetContent(id: snippetId, content: updatedContent)
+            self?.model.updateSnippetLanguage(id: snippetId, language: updatedLanguage)
+        }
+
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                            styleMask: [.titled, .closable, .resizable],
+                            backing: .buffered, defer: false)
+        panel.title = "Edit snippet: \(snippet.title)"
+        panel.isFloatingPanel = true
+        panel.contentView = editor
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Bulk Operations
+
+    private func handleBulkCopyLinks(_ nodeIds: [UUID]) {
+        let nodes = nodeIds.compactMap { id in
+            model.findNode(id: id, in: model.currentWorkspace.items)
+        }
+        let urls = nodes.compactMap { node -> String? in
+            if case .link(let link) = node {
+                return link.url
+            }
+            return nil
+        }
+
+        guard !urls.isEmpty else { return }
+
+        let joined = urls.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(joined, forType: .string)
+    }
+}
+
+// MARK: - ScrollWheelPageDelegate
+
+extension MainViewController: ScrollWheelPageDelegate {
+
+    func pagerDidUpdateOffset(_ offset: CGFloat) {
+        if !isSwiping {
+            let isFractional = abs(offset - offset.rounded()) > 0.001
+            if isFractional {
+                isSwiping = true
+            } else {
+                applyBackgroundColor(for: colorForPage(Int(offset.rounded())))
+                return
+            }
+        }
+
+        let currentPage = CGFloat(currentPageIndex())
+        let delta = offset - currentPage
+        let distance = min(abs(delta), 0.5)
+
+        // Slide content 1:1 with finger
+        let tx = -delta * contentAreaWidth
+        let slideTransform = CATransform3DMakeTranslation(tx, 0, 0)
+
+        // Fade based on distance from current page
+        let alpha = 1.0 - (distance * 2.0)
+
+        // Apply to whichever content view is visible
+        let visibleView: NSView = model.state.isSettingsSelected ? settingsViewController.view : contentStack
+        visibleView.layer?.transform = slideTransform
+        visibleView.alphaValue = alpha
+
+        // Interpolate background color
+        let fromPage = max(0, Int(floor(offset)))
+        let toPage = min(totalPageCount() - 1, fromPage + 1)
+        let fraction = offset - CGFloat(fromPage)
+
+        let fromColor = colorForPage(fromPage).backgroundColor
+        let toColor = colorForPage(toPage).backgroundColor
+
+        if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
+            view.layer?.backgroundColor = blended.cgColor
+            view.window?.backgroundColor = blended
+            workspaceSwitcher.swipeShadowColor = blended
+        }
+
+        // Update workspace switcher sliding highlight
+        workspaceSwitcher.visualPageOffset = offset
+
+        // Continuous haptic while dragging into the add-new zone
+        let lastWorkspacePage = CGFloat(totalPageCount() - 2)
+        if offset > lastWorkspacePage + 0.01 {
+            let now = CACurrentMediaTime()
+            if now - lastAddNewHapticTime >= 0.05 {
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                lastAddNewHapticTime = now
+            }
+        }
+    }
+
+    func pagerDidSnapToPage(_ pageIndex: Int) {
+        workspaceSwitcher.visualPageOffset = nil
+        workspaceSwitcher.swipeShadowColor = nil
+
+        let pageCount = totalPageCount()
+
+        // Reset transforms on both content views
+        contentStack.layer?.transform = CATransform3DIdentity
+        settingsViewController.view.layer?.transform = CATransform3DIdentity
+
+        if pageIndex == 0 {
+            model.selectSettings()
+        } else if pageIndex >= pageCount - 1 {
+            isSwiping = false
+            contentStack.alphaValue = 1.0
+            settingsViewController.view.alphaValue = 1.0
+            promptCreateWorkspace()
+            return
+        } else {
+            let workspaceIdx = pageIndex - 1
+            if workspaceIdx < model.workspaces.count {
+                model.selectWorkspace(id: model.workspaces[workspaceIdx].id)
+            }
+        }
+
+        reloadData()
+
+        // Fade in the new content
+        contentStack.alphaValue = 0.0
+        settingsViewController.view.alphaValue = 0.0
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = ThemeConstants.Animation.durationNormal
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            contentStack.animator().alphaValue = 1.0
+            settingsViewController.view.animator().alphaValue = 1.0
+        })
+
+        applyBackgroundColor(for: colorForPage(pageIndex))
+        isSwiping = false
+    }
+
+    func pagerPageCount() -> Int {
+        totalPageCount()
+    }
+
+    func pagerCurrentPage() -> Int {
+        currentPageIndex()
+    }
+}

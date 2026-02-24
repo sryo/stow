@@ -1,0 +1,20 @@
+# Notarization credentials for Arcmark
+# Copy this file to .notarization-config and fill in your values
+# NEVER commit .notarization-config to git!
+
+# Your Apple ID email (used for App Store Connect / Developer Portal)
+APPLE_ID="your-email@example.com"
+
+# Your Team ID (10 characters, found in Apple Developer portal)
+# Go to: https://developer.apple.com/account → Membership
+TEAM_ID="ABC123XYZ"
+
+# App-specific password for notarization
+# Generate at: https://appleid.apple.com/account/manage → Security → App-Specific Passwords
+# Format: xxxx-xxxx-xxxx-xxxx
+APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+
+# Your Developer ID Application certificate name
+# Find with: security find-identity -v -p codesigning | grep "Developer ID Application"
+# Copy the full name including quotes, example:
+SIGNING_IDENTITY="Developer ID Application: Your Name (ABC123XYZ)"

@@ -1,0 +1,15 @@
+format_version = 2
+
+[apps.Stow]
+identifier = 'com.stow.app'
+product = 'Stow'
+version = '0.1.0'
+description = 'A workspace-based bookmark manager for macOS'
+license = 'MIT'
+category = 'public.app-category.productivity'
+icon = 'Resources/AppIcon.png'
+
+[apps.Stow.plist]
+CFBundleIdentifier = 'com.stow.app'
+CFBundleShortVersionString = '$(VERSION)'
+CFBundleVersion = '$(VERSION)'

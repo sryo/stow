@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arcmark - Shared Workspace</title>
+<style>
+  :root {
+    --bg: #f0f0f0;
+    --accent: #333;
+    --text: #1a1a1a;
+    --text-secondary: #666;
+    --card-bg: rgba(255,255,255,0.6);
+    --hover-bg: rgba(0,0,0,0.04);
+    --border: rgba(0,0,0,0.08);
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+  .container {
+    width: 100%;
+    max-width: 480px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .header .subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .tree {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .node {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.15s;
+    cursor: default;
+  }
+  .node:last-child { border-bottom: none; }
+  a.node:hover { background: var(--hover-bg); }
+  .node-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .node-icon img {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+  }
+  .node-icon svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: var(--text-secondary);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .node-title {
+    font-size: 13px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .node-url {
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 140px;
+  }
+  .folder-toggle {
+    cursor: pointer;
+    user-select: none;
+  }
+  .folder-toggle svg {
+    transition: transform 0.2s;
+  }
+  .folder-toggle.collapsed svg {
+    transform: rotate(-90deg);
+  }
+  .folder-children {
+    padding-left: 20px;
+  }
+  .folder-children.hidden { display: none; }
+  .task-check {
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--text-secondary);
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .task-check.completed {
+    background: var(--text-secondary);
+    position: relative;
+  }
+  .task-check.completed::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 0px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .task-completed .node-title {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+  }
+  .actions {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .btn {
+    display: block;
+    text-align: center;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: opacity 0.15s;
+    cursor: pointer;
+    border: none;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-secondary {
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .error {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+  }
+  .branding {
+    margin-top: 32px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .branding a { color: var(--text-secondary); }
+  .snippet-content {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <div class="error" id="loading">Loading workspace...</div>
+</div>
+<script>
+(async function() {
+  const container = document.getElementById('app');
+  const fragment = window.location.hash.slice(1);
+
+  if (!fragment) {
+    container.innerHTML = '<div class="error"><p>No workspace data found in this link.</p></div>';
+    return;
+  }
+
+  try {
+    const data = await decodeFragment(fragment);
+    const exported = JSON.parse(new TextDecoder().decode(data));
+    render(exported);
+  } catch (e) {
+    container.innerHTML = '<div class="error"><p>Failed to load workspace. The link may be invalid or corrupted.</p><p style="margin-top:8px;font-size:12px">' + escapeHtml(e.message) + '</p></div>';
+  }
+
+  async function decodeFragment(frag) {
+    // base64url -> base64
+    let b64 = frag.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const compressed = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+
+    // decompress (raw deflate via DecompressionStream)
+    const ds = new DecompressionStream('raw');
+    const writer = ds.writable.getWriter();
+    writer.write(compressed);
+    writer.close();
+
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+
+    // Combine chunks
+    const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
+  }
+
+  // Workspace color map matching WorkspaceColor.swift
+  const colorMap = {
+    ember:      { r: 1.00, g: 0.635, b: 0.635 },
+    ruby:       { r: 1.00, g: 0.722, b: 0.416 },
+    coral:      { r: 1.00, g: 0.941, b: 0.522 },
+    tangerine:  { r: 0.847, g: 0.976, b: 0.600 },
+    moss:       { r: 0.369, g: 0.914, b: 0.710 },
+    ocean:      { r: 0.325, g: 0.918, b: 0.992 },
+    indigo:     { r: 0.639, g: 0.702, b: 1.00  },
+    graphite:   { r: 0.855, g: 0.698, b: 1.00  },
+  };
+
+  function getWorkspaceColor(colorId) {
+    if (colorId && colorId.startsWith && colorId.startsWith('#')) {
+      return colorId;
+    }
+    const c = colorMap[colorId];
+    if (c) {
+      return 'rgb(' + Math.round(c.r*255) + ',' + Math.round(c.g*255) + ',' + Math.round(c.b*255) + ')';
+    }
+    return colorMap.ember ? 'rgb(255,162,162)' : '#f0f0f0';
+  }
+
+  function render(exported) {
+    const ws = exported.workspace;
+    const bgColor = getWorkspaceColor(ws.colorId);
+
+    // Apply workspace color as page background with 0.92 alpha
+    document.body.style.background = bgColor;
+    document.body.style.opacity = '1';
+
+    let html = '<div class="header">';
+    html += '<h1>' + escapeHtml(ws.name) + '</h1>';
+    html += '<p class="subtitle">Shared Arcmark workspace</p>';
+    html += '</div>';
+
+    html += '<div class="tree">';
+    html += renderNodes(ws.items || []);
+    html += '</div>';
+
+    html += '<div class="actions">';
+    html += '<a class="btn btn-primary" href="arcmark://import#' + fragment + '">Open in Arcmark</a>';
+    html += '<a class="btn btn-secondary" href="https://arcmark.app">Get Arcmark</a>';
+    html += '</div>';
+
+    html += '<div class="branding">Shared via <a href="https://arcmark.app">Arcmark</a></div>';
+
+    container.innerHTML = html;
+
+    // Attach folder toggle handlers
+    container.querySelectorAll('.folder-toggle').forEach(toggle => {
+      toggle.addEventListener('click', () => {
+        const children = toggle.closest('.node').nextElementSibling;
+        if (children && children.classList.contains('folder-children')) {
+          children.classList.toggle('hidden');
+          toggle.classList.toggle('collapsed');
+        }
+      });
+    });
+  }
+
+  function renderNodes(nodes) {
+    let html = '';
+    for (const node of nodes) {
+      if (node.type === 'link' && node.link) {
+        html += renderLink(node.link);
+      } else if (node.type === 'folder' && node.folder) {
+        html += renderFolder(node.folder);
+      } else if (node.type === 'task' && node.task) {
+        html += renderTask(node.task);
+      } else if (node.type === 'snippet' && node.snippet) {
+        html += renderSnippet(node.snippet);
+      }
+    }
+    return html;
+  }
+
+  function renderLink(link) {
+    const host = extractHost(link.url);
+    const faviconUrl = 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=32';
+    return '<a class="node" href="' + escapeAttr(link.url) + '" target="_blank" rel="noopener">'
+      + '<span class="node-icon"><img src="' + escapeAttr(faviconUrl) + '" alt="" loading="lazy"></span>'
+      + '<span class="node-title">' + escapeHtml(link.title) + '</span>'
+      + '<span class="node-url">' + escapeHtml(host) + '</span>'
+      + '</a>';
+  }
+
+  function renderFolder(folder) {
+    const expanded = folder.isExpanded !== false;
+    let html = '<div class="node">'
+      + '<span class="node-icon folder-toggle' + (expanded ? '' : ' collapsed') + '">'
+      + '<svg viewBox="0 0 16 16"><polyline points="4,6 8,10 12,6"/></svg>'
+      + '</span>'
+      + '<span class="node-icon"><svg viewBox="0 0 16 16"><path d="M2 4h4l2 2h6v7H2V4z"/></svg></span>'
+      + '<span class="node-title">' + escapeHtml(folder.name) + '</span>'
+      + '</div>';
+
+    html += '<div class="folder-children' + (expanded ? '' : ' hidden') + '">';
+    html += renderNodes(folder.children || []);
+    html += '</div>';
+    return html;
+  }
+
+  function renderTask(task) {
+    const completed = task.isCompleted;
+    return '<div class="node' + (completed ? ' task-completed' : '') + '">'
+      + '<div class="task-check' + (completed ? ' completed' : '') + '"></div>'
+      + '<span class="node-title">' + escapeHtml(task.title) + '</span>'
+      + '</div>';
+  }
+
+  function renderSnippet(snippet) {
+    return '<div class="node">'
+      + '<span class="node-icon"><svg viewBox="0 0 16 16"><polyline points="5,3 9,8 5,13"/><polyline points="11,3 11,13"/></svg></span>'
+      + '<span class="node-title">' + escapeHtml(snippet.title) + '</span>'
+      + (snippet.language ? '<span class="snippet-content">' + escapeHtml(snippet.language) + '</span>' : '')
+      + '</div>';
+  }
+
+  function extractHost(url) {
+    try { return new URL(url).hostname; }
+    catch { return url; }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function escapeAttr(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+})();
+</script>
+</body>
+</html>
