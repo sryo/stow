@@ -1,6 +1,6 @@
 # App Assets Guide
 
-This document describes how to add icons and images to Arcmark.
+This document describes how to add icons and images to Stow.
 
 ## App Icon
 
@@ -17,7 +17,7 @@ Swift Bundler supports three icon formats:
 Create a `Resources/` directory in the project root and place your icon there:
 
 ```
-arcmark/
+stow/
 ├── Resources/
 │   └── AppIcon.png          # 1024x1024px PNG
 │   └── AppIcon.icns         # Optional: Native macOS icon
@@ -93,9 +93,9 @@ Icon Composer is deprecated but still works. Create a `.icon` file using the leg
 Add the icon path to your `Bundler.toml`:
 
 ```toml
-[apps.Arcmark]
-identifier = 'com.arcmark.app'
-product = 'Arcmark'
+[apps.Stow]
+identifier = 'com.stow.app'
+product = 'Stow'
 version = '0.1.0'
 icon = 'Resources/AppIcon.png'  # or 'Resources/AppIcon.icns'
 # ... rest of config
@@ -104,15 +104,15 @@ icon = 'Resources/AppIcon.png'  # or 'Resources/AppIcon.icns'
 **Using ICNS for macOS only (with PNG fallback):**
 
 ```toml
-[apps.Arcmark]
-identifier = 'com.arcmark.app'
-product = 'Arcmark'
+[apps.Stow]
+identifier = 'com.stow.app'
+product = 'Stow'
 version = '0.1.0'
 icon = 'Resources/AppIcon.png'  # Default icon
 # ... rest of config
 
 # Use ICNS on macOS for better quality
-[[apps.Arcmark.overlays]]
+[[apps.Stow.overlays]]
 condition = "platform(macOS)"
 icon = "Resources/AppIcon.icns"
 ```
@@ -134,14 +134,14 @@ The DMG background image provides a professional look to your installer.
 ### Design Guidelines
 
 **Layout Considerations:**
-- The Arcmark.app icon will be positioned at approximately (125, 150)
+- The Stow.app icon will be positioned at approximately (125, 150)
 - The Applications folder will be at approximately (375, 150)
 - Leave space in these areas for the icons (roughly 128x128 + padding)
 
 **Design Tips:**
 1. **Keep it subtle**: The background should enhance, not distract
 2. **Use transparency**: Consider a subtle gradient or transparent elements
-3. **Add instructions**: "Drag Arcmark to Applications" text is helpful
+3. **Add instructions**: "Drag Stow to Applications" text is helpful
 4. **Brand colors**: Use your app's color scheme
 5. **Test in Finder**: Mount the DMG to see how it looks in practice
 
@@ -150,14 +150,14 @@ The DMG background image provides a professional look to your installer.
 ```
 ┌────────────────────────────────────────────────┐
 │                                                │
-│         Drag Arcmark to Applications          │
+│         Drag Stow to Applications             │
 │                                                │
 │      ╔═══════╗                ╔═══════╗      │
 │      ║       ║                ║       ║      │
 │      ║   🎯   ║       →        ║   📁   ║      │
 │      ║       ║                ║       ║      │
 │      ╚═══════╝                ╚═══════╝      │
-│     Arcmark.app            Applications       │
+│     Stow.app               Applications       │
 │                                                │
 └────────────────────────────────────────────────┘
 ```
@@ -185,7 +185,7 @@ You can create the background using:
 
 ### Color Palette
 
-Arcmark uses these workspace colors:
+Stow uses these workspace colors:
 - Blush: `#FF8BA0`
 - Apricot: `#FFBD9A`
 - Butter: `#FFE48E`
@@ -220,7 +220,7 @@ After adding your icon to Bundler.toml:
 open .build/bundler/
 
 # Verify in Get Info panel
-# Right-click Arcmark.app → Get Info
+# Right-click Stow.app → Get Info
 ```
 
 ### Test the DMG Background
@@ -232,7 +232,7 @@ After adding the background image:
 ./scripts/build.sh --dmg
 
 # Open the DMG
-open .build/dmg/Arcmark-0.1.0.dmg
+open .build/dmg/Stow-0.1.0.dmg
 
 # The background should appear in the Finder window
 ```

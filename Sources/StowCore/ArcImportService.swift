@@ -231,7 +231,7 @@ final class ArcImportService: Sendable {
                 // Parse Arc data - this is CPU intensive
                 let arcData = try self.parseArcData(data)
 
-                // Convert to Arcmark workspaces - also CPU intensive
+                // Convert to Stow workspaces - also CPU intensive
                 let workspaces = try self.convertToWorkspaces(arcData)
 
                 // Calculate statistics
@@ -273,7 +273,7 @@ final class ArcImportService: Sendable {
         }
     }
 
-    /// Convert Arc data to Arcmark workspaces
+    /// Convert Arc data to Stow workspaces
     private func convertToWorkspaces(_ arcData: ArcData) throws -> [ImportWorkspace] {
         // Find container with spaces and items
         var containerObject: ArcContainerObject?

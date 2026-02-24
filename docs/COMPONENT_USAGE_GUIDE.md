@@ -1,6 +1,6 @@
 # Component Usage Guide
 
-This guide provides practical examples for using Arcmark's base classes and design system components.
+This guide provides practical examples for using Stow's base classes and design system components.
 
 ## Table of Contents
 1. [ThemeConstants](#themeconstants)

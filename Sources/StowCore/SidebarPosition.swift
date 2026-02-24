@@ -1,6 +1,6 @@
 //
 //  SidebarPosition.swift
-//  Arcmark
+//  Stow
 //
 //  Represents the preferred positioning of the sidebar when attached to a browser window.
 //

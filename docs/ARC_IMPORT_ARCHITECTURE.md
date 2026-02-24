@@ -1,10 +1,10 @@
 # Arc Browser Import Architecture
 
-This document describes how Arc browser stores bookmarks and how Arcmark imports them.
+This document describes how Arc browser stores bookmarks and how Stow imports them.
 
 ## Overview
 
-Arc Browser stores its sidebar data (spaces, pinned tabs, folders) in a JSON file called `StorableSidebar.json`. Arcmark's import feature parses this file and converts Arc's structure into Arcmark workspaces with preserved folder hierarchy.
+Arc Browser stores its sidebar data (spaces, pinned tabs, folders) in a JSON file called `StorableSidebar.json`. Stow's import feature parses this file and converts Arc's structure into Stow workspaces with preserved folder hierarchy.
 
 ## Arc Data Storage Location
 
@@ -250,7 +250,7 @@ func buildNodeHierarchy(parentId: String, items: [String: ArcItem]) -> [Node] {
                 id: UUID(),
                 name: item.title ?? "Untitled Folder",
                 children: childNodes,
-                isExpanded: true
+                isExpanded: false
             )
             nodes.append(.folder(folder))
         }
@@ -276,7 +276,7 @@ func buildNodeHierarchy(parentId: String, items: [String: ArcItem]) -> [Node] {
 }
 ```
 
-### Phase 5: Apply to Arcmark
+### Phase 5: Apply to Stow
 
 For each ImportWorkspace:
 
@@ -301,7 +301,7 @@ For each ImportWorkspace:
 
 ## Data Mapping
 
-| Arc Concept | Arcmark Concept | Notes |
+| Arc Concept | Stow Concept | Notes |
 |-------------|-----------------|-------|
 | Space | Workspace | Each Arc space becomes a separate workspace |
 | Pinned container | Workspace root | Only pinned tabs are imported |
@@ -371,7 +371,7 @@ For each ImportWorkspace:
 }
 ```
 
-### Output: Arcmark Structure
+### Output: Stow Structure
 ```
 Workspace: "Work" (color: ember)
 ├── Folder: "Development"
@@ -394,7 +394,7 @@ Workspace: "Work" (color: ember)
    - Process "github-link":
      - Create Link node for GitHub
 4. **Create workspace** → Name: "Work", Color: ember, Nodes: [dev-folder, github-link]
-5. **Add to Arcmark** → Call AppModel methods
+5. **Add to Stow** → Call AppModel methods
 
 ## Codable Implementation
 
@@ -545,12 +545,12 @@ Favicons are NOT copied from Arc's cache. Instead:
 1. Links are created with `faviconPath: nil`
 2. When links are displayed in the UI, `NodeCollectionViewItem` automatically requests favicons
 3. `FaviconService` fetches fresh favicons asynchronously
-4. Favicons are cached in `~/Library/Application Support/Arcmark/Icons/`
+4. Favicons are cached in `~/Library/Application Support/Stow/Icons/`
 
 This approach ensures:
 - Fresh, up-to-date favicons
 - No dependency on Arc's cache structure
-- Consistent with how Arcmark handles all favicons
+- Consistent with how Stow handles all favicons
 
 ## Performance Characteristics
 
@@ -669,13 +669,13 @@ Detect changes and only import new/modified bookmarks:
 - Only process changed items
 
 ### Export to Arc
-Reverse operation: Export Arcmark workspaces to Arc format.
+Reverse operation: Export Stow workspaces to Arc format.
 
 ## References
 
 - **ArcImportService.swift**: Implementation of parsing and import logic
 - **SettingsContentViewController.swift**: UI for triggering import
-- **Models.swift**: Arcmark's data model (Workspace, Node, Folder, Link)
+- **Models.swift**: Stow's data model (Workspace, Node, Folder, Link)
 - **AppModel.swift**: State management and mutation methods
 
 ## Appendix: Arc Version Compatibility

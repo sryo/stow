@@ -1,6 +1,6 @@
 # Distribution Guide
 
-This document describes how to build and distribute Arcmark for beta testing and release.
+This document describes how to build and distribute Stow for beta testing and release.
 
 **See also:**
 - [ASSETS.md](ASSETS.md) - App icon and DMG background specifications
@@ -98,22 +98,22 @@ For distribution to beta testers and public release:
 
 The generated DMG includes:
 
-- **Drag-and-Drop Installation**: Users drag Arcmark.app to the Applications folder symlink
+- **Drag-and-Drop Installation**: Users drag Stow.app to the Applications folder symlink
 - **Professional Layout**: Custom Finder window with icon arrangement
-- **Version in Filename**: DMG named `Arcmark-X.Y.Z.dmg` based on VERSION file
+- **Version in Filename**: DMG named `Stow-X.Y.Z.dmg` based on VERSION file
 - **Compressed Format**: Uses UDZO (zlib compression) for smaller file size
 - **Verified Code Signing**: Includes ad-hoc code signature for local development
 
 ### DMG Structure
 
 ```
-Arcmark X.Y.Z/
-├── Arcmark.app          # The application bundle
+Stow X.Y.Z/
+├── Stow.app             # The application bundle
 └── Applications/        # Symlink to /Applications
 ```
 
 When mounted, users see:
-- The Arcmark app on the left
+- The Stow app on the left
 - Applications folder shortcut on the right
 - Instructions to drag-and-drop
 
@@ -133,7 +133,7 @@ When mounted, users see:
 
 3. **Test the DMG**:
    ```bash
-   open .build/dmg/Arcmark-0.2.0-beta.1.dmg
+   open .build/dmg/Stow-0.2.0-beta.1.dmg
    ```
 
 4. **Distribute**:
@@ -173,25 +173,25 @@ When mounted, users see:
 
 Share these instructions with beta testers:
 
-### Installing Arcmark
+### Installing Stow
 
-1. **Download** the DMG file (e.g., `Arcmark-0.2.0.dmg`)
+1. **Download** the DMG file (e.g., `Stow-0.2.0.dmg`)
 
 2. **Open** the downloaded DMG file by double-clicking it
 
-3. **Drag** the Arcmark icon to the Applications folder icon
+3. **Drag** the Stow icon to the Applications folder icon
 
-4. **Eject** the Arcmark disk image from Finder
+4. **Eject** the Stow disk image from Finder
 
-5. **Launch** Arcmark from your Applications folder or Spotlight
+5. **Launch** Stow from your Applications folder or Spotlight
 
 6. **First Launch**: macOS may show a security prompt since the app isn't notarized yet. Click "Open" to proceed.
 
-### Updating Arcmark
+### Updating Stow
 
 To update to a new version:
 
-1. **Quit** Arcmark if it's running
+1. **Quit** Stow if it's running
 2. **Download** the new DMG file
 3. **Follow** the same installation steps above (this will replace the old version)
 
@@ -232,9 +232,9 @@ See [PRODUCTION_SIGNING.md](PRODUCTION_SIGNING.md) for complete setup instructio
 ```
 .build/
 ├── bundler/
-│   └── Arcmark.app              # Built application bundle
+│   └── Stow.app                 # Built application bundle
 └── dmg/
-    ├── Arcmark-X.Y.Z.dmg        # Distributable DMG
+    ├── Stow-X.Y.Z.dmg           # Distributable DMG
     └── dmg-staging/             # Temporary (cleaned up automatically)
 ```
 

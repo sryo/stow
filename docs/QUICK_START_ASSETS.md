@@ -1,6 +1,6 @@
 # Quick Start: Adding Icons and Images
 
-This is a quick reference for adding assets to Arcmark. For detailed specifications, see [ASSETS.md](ASSETS.md).
+This is a quick reference for adding assets to Stow. For detailed specifications, see [ASSETS.md](ASSETS.md).
 
 ## 1. App Icon
 
@@ -11,7 +11,7 @@ This is a quick reference for adding assets to Arcmark. For detailed specificati
 cp /path/to/your-icon.png Resources/AppIcon.png
 
 # 2. Update Bundler.toml
-# Add this line under [apps.Arcmark]:
+# Add this line under [apps.Stow]:
 icon = 'Resources/AppIcon.png'
 
 # 3. Rebuild
@@ -65,7 +65,7 @@ cp /path/to/background.png Resources/dmg-background.png
 ./scripts/build.sh
 open .build/bundler/
 
-# Right-click Arcmark.app → Get Info to see the icon
+# Right-click Stow.app → Get Info to see the icon
 ```
 
 ### Check DMG
@@ -73,7 +73,7 @@ open .build/bundler/
 ```bash
 # Build DMG and open it
 ./scripts/build.sh --dmg
-open .build/dmg/Arcmark-0.1.0.dmg
+open .build/dmg/Stow-0.1.0.dmg
 
 # Verify the background appears in the Finder window
 ```
@@ -118,7 +118,7 @@ sips -g pixelWidth -g pixelHeight Resources/dmg-background.png
 ## File Structure
 
 ```
-arcmark/
+stow/
 ├── Resources/
 │   ├── AppIcon.png          # Your 1024x1024 app icon
 │   ├── AppIcon.icns         # (Optional) Native macOS icon
@@ -150,17 +150,17 @@ arcmark/
 ```toml
 format_version = 2
 
-[apps.Arcmark]
-identifier = 'com.arcmark.app'
-product = 'Arcmark'
+[apps.Stow]
+identifier = 'com.stow.app'
+product = 'Stow'
 version = '0.1.0'
 description = 'A workspace-based bookmark manager for macOS'
 license = 'MIT'
 category = 'public.app-category.productivity'
 icon = 'Resources/AppIcon.icns'  # <-- Add this line
 
-[apps.Arcmark.plist]
-CFBundleIdentifier = 'com.arcmark.app'
+[apps.Stow.plist]
+CFBundleIdentifier = 'com.stow.app'
 CFBundleShortVersionString = '$(VERSION)'
 CFBundleVersion = '$(VERSION)'
 ```

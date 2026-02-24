@@ -1,6 +1,6 @@
 # Production Code Signing & Notarization Setup
 
-This guide walks you through setting up production-ready code signing and notarization for Arcmark.
+This guide walks you through setting up production-ready code signing and notarization for Stow.
 
 ## Prerequisites
 
@@ -77,7 +77,7 @@ Notarization requires an app-specific password (not your Apple ID password).
 2. Sign in with your Apple ID
 3. In the **Security** section, click **App-Specific Passwords**
 4. Click **+** or **Generate Password**
-5. Enter a label: "Arcmark Notarization"
+5. Enter a label: "Stow Notarization"
 6. Copy the generated password (format: `xxxx-xxxx-xxxx-xxxx`)
 
 **IMPORTANT**: Save this password - you won't see it again!
@@ -89,7 +89,7 @@ Create a credentials file (git-ignored) to store your notarization info:
 ```bash
 # Create the config file
 cat > .notarization-config <<'EOF'
-# Notarization credentials for Arcmark
+# Notarization credentials for Stow
 # This file is git-ignored - never commit it!
 
 # Your Apple ID email
@@ -232,7 +232,7 @@ If you plan to use CI/CD (GitHub Actions, etc.):
 2. Use `xcrun notarytool store-credentials` to store in keychain
 3. Reference stored credentials by name:
    ```bash
-   xcrun notarytool submit app.zip --keychain-profile "arcmark-notarization"
+   xcrun notarytool submit app.zip --keychain-profile "stow-notarization"
    ```
 
 ## Verification After Distribution
@@ -241,10 +241,10 @@ If you plan to use CI/CD (GitHub Actions, etc.):
 
 ```bash
 # Check code signature
-codesign -dvvv .build/bundler/Arcmark.app
+codesign -dvvv .build/bundler/Stow.app
 
 # Check notarization
-spctl -a -vvv -t install .build/bundler/Arcmark.app
+spctl -a -vvv -t install .build/bundler/Stow.app
 
 # Should output: "accepted" and "source=Notarized Developer ID"
 ```

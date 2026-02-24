@@ -1,6 +1,6 @@
 //
 //  WorkspaceManagementView.swift
-//  Arcmark
+//  Stow
 //
 
 import AppKit

@@ -1,4 +1,4 @@
-# Arcmark Refactoring Plan
+# Stow Refactoring Plan
 
 **Date:** 2026-02-10
 **Status:** Phase 5 Complete - All Refactoring Complete ✅
@@ -85,7 +85,7 @@
 
 ## Executive Summary
 
-This document outlines a comprehensive refactoring plan for the Arcmark codebase to:
+This document outlines a comprehensive refactoring plan for the Stow codebase to:
 1. **Eliminate code duplication** (6+ instances of hover state logic, 3+ inline editing implementations)
 2. **Improve folder structure** with clear separation of concerns
 3. **Break down large view controllers** (MainViewController: 900+ lines, SettingsContentViewController: 400+ lines)
@@ -303,14 +303,14 @@ All UI components have similar `Style` structs with static presets:
 ### 2.1 Current Structure (Flat)
 
 ```
-Sources/ArcmarkCore/
+Sources/StowCore/
 ├── (28 Swift files, all in one directory)
 ```
 
 ### 2.2 New Hierarchical Structure
 
 ```
-Sources/ArcmarkCore/
+Sources/StowCore/
 │
 ├── Application/
 │   ├── AppDelegate.swift
@@ -388,12 +388,12 @@ Sources/ArcmarkCore/
 
 ### 3.1 ThemeConstants (New File)
 
-**Location:** `Sources/ArcmarkCore/Utilities/Theme/ThemeConstants.swift`
+**Location:** `Sources/StowCore/Utilities/Theme/ThemeConstants.swift`
 
 ```swift
 import AppKit
 
-/// Centralized design system constants for Arcmark
+/// Centralized design system constants for Stow
 struct ThemeConstants {
 
     // MARK: - Colors
@@ -492,7 +492,7 @@ struct ThemeConstants {
 
 ### 3.2 BaseControl (New File)
 
-**Location:** `Sources/ArcmarkCore/Components/Base/BaseControl.swift`
+**Location:** `Sources/StowCore/Components/Base/BaseControl.swift`
 
 ```swift
 import AppKit
@@ -647,7 +647,7 @@ class BaseControl: NSControl {
 
 ### 3.3 BaseView (New File)
 
-**Location:** `Sources/ArcmarkCore/Components/Base/BaseView.swift`
+**Location:** `Sources/StowCore/Components/Base/BaseView.swift`
 
 ```swift
 import AppKit
@@ -754,7 +754,7 @@ class BaseView: NSView {
 
 ### 3.4 InlineEditableTextField (New Component)
 
-**Location:** `Sources/ArcmarkCore/Components/Base/InlineEditableTextField.swift`
+**Location:** `Sources/StowCore/Components/Base/InlineEditableTextField.swift`
 
 ```swift
 import AppKit
@@ -927,7 +927,7 @@ final class NodeRowView: BaseView {
 6. ✅ Wrote unit tests for base classes (759 lines of tests)
 
 **Deliverables:**
-- ✅ New folders created: `Sources/ArcmarkCore/Components/Base/` and `Sources/ArcmarkCore/Utilities/Theme/`
+- ✅ New folders created: `Sources/StowCore/Components/Base/` and `Sources/StowCore/Utilities/Theme/`
 - ✅ Base classes compile successfully (verified with `swift build`)
 - ✅ ThemeConstants documented with comprehensive constants
 - ✅ No existing code modified - purely additive changes
@@ -1242,7 +1242,7 @@ final class MainViewController: NSViewController {
 **New test files to create:**
 
 ```
-Tests/ArcmarkTests/
+Tests/StowTests/
 ├── Components/
 │   ├── Base/
 │   │   ├── BaseControlTests.swift
@@ -1286,7 +1286,7 @@ Tests/ArcmarkTests/
 
 ### 5.2 Visual Regression Testing
 
-Since Arcmark is a UI-heavy application, visual regression testing is critical.
+Since Stow is a UI-heavy application, visual regression testing is critical.
 
 **Manual testing checklist:**
 - [ ] All buttons have correct hover states
@@ -1339,9 +1339,9 @@ Since Arcmark is a UI-heavy application, visual regression testing is critical.
 
 1. **Create test file first** (TDD approach)
 ```swift
-// Tests/ArcmarkTests/Components/IconTitleButtonTests.swift
+// Tests/StowTests/Components/IconTitleButtonTests.swift
 import XCTest
-@testable import ArcmarkCore
+@testable import StowCore
 
 final class IconTitleButtonTests: XCTestCase {
     func testHoverStateChanges() {
@@ -1394,8 +1394,8 @@ swift test --filter IconTitleButtonTests
 
 6. **Commit incrementally**
 ```bash
-git add Sources/ArcmarkCore/Components/Buttons/IconTitleButton.swift
-git add Tests/ArcmarkTests/Components/IconTitleButtonTests.swift
+git add Sources/StowCore/Components/Buttons/IconTitleButton.swift
+git add Tests/StowTests/Components/IconTitleButtonTests.swift
 git commit -m "refactor: migrate IconTitleButton to BaseControl"
 ```
 
@@ -1705,7 +1705,7 @@ Complete mapping of files from flat structure to new hierarchy:
 
 ## Conclusion
 
-This refactoring has successfully improved the Arcmark codebase with measurable results across all 5 phases:
+This refactoring has successfully improved the Stow codebase with measurable results across all 5 phases:
 
 1. ✅ **Eliminated 1,145+ lines** of duplicate code through base classes and ThemeConstants
 2. ✅ **Centralized design constants** - all colors, fonts, spacing, opacity values now in ThemeConstants

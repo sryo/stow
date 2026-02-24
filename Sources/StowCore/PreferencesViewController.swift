@@ -1,6 +1,6 @@
 //
 //  PreferencesViewController.swift
-//  Arcmark
+//  Stow
 //
 
 import AppKit

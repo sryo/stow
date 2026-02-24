@@ -82,11 +82,13 @@ The application follows a unidirectional data flow pattern:
 
 The data model is defined in `Models.swift`:
 
-- **AppState** - Root container holding workspaces and selected workspace ID
-- **Workspace** - Named container with emoji, color, and hierarchical items
-- **Node** - Enum representing either a `Folder` or `Link`
+- **AppState** - Root container holding workspaces, selected workspace ID, schema version, and settings selection state
+- **Workspace** - Named container with color and hierarchical items
+- **Node** - Enum representing a `Folder`, `Link`, `TaskItem`, or `Snippet`
   - `Folder` - Contains nested children and isExpanded state
-  - `Link` - URL, title, and optional favicon path
+  - `Link` - URL (String), title, and optional favicon path
+  - `TaskItem` - Title, completion state, optional due date and notes
+  - `Snippet` - Title, content, optional language, creation date
 
 All models are Codable and use UUID-based identification. The Node enum uses custom encoding to serialize the tagged union structure.
 
@@ -96,16 +98,21 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **FaviconService** - Async favicon fetching with disk caching and failure cooldown
 - **LinkTitleService** - HTML title extraction from URLs
 - **BrowserManager** - Manages browser selection and URL opening
+- **ShareService** - Workspace sharing via compressed URLs
+- **WorkspaceExporter** - Exports workspaces with embedded favicons to JSON
+- **WorkspaceImporter** - Imports workspace files and restores favicons
 
 **UI Components**:
-- **MainViewController** - Collection view-based hierarchical list with animations (reduced from 1352 to 596 lines through Phase 3 refactoring)
-- **NodeListViewController** - Manages collection view, drag-drop, context menus (extracted from MainViewController)
+- **MainViewController** - Collection view-based hierarchical list with animations (~1240 lines)
+- **NodeListViewController** - Manages collection view, drag-drop, context menus (~1150 lines, extracted from MainViewController)
 - **SearchCoordinator** - Handles search/filtering logic (extracted from MainViewController)
 - **WorkspaceManagementView** - Manages workspace list in settings
 - **NodeCollectionViewItem** - Reusable cell with icon, title, hover states, delete button
+- **SnippetEditorView** - Editor UI for code snippets with language selection
 - **SearchBarView** - Search field that filters nodes
 - **IconTitleButton** - Custom button for paste action
 - **ListFlowLayout** - Custom NSCollectionViewLayout for vertical list
+- **ScrollWheelPageController** - Scroll-wheel page navigation for workspace switching
 
 ### UI Component Architecture (Post-Refactoring)
 
@@ -246,10 +253,9 @@ The codebase (originally Arcmark) underwent a comprehensive refactoring (2026-02
 - Eliminated ~520 lines of duplicate code
 
 **Phase 3 - ViewController Decomposition**:
-- Extracted `NodeListViewController` from `MainViewController` (~800 lines)
-- Extracted `SearchCoordinator` from `MainViewController` (~65 lines)
-- Reduced `MainViewController` from 1352 to 596 lines (56% reduction)
-- Created `WorkspaceManagementView` for settings (~380 lines)
+- Extracted `NodeListViewController` from `MainViewController` (~1150 lines)
+- Extracted `SearchCoordinator` from `MainViewController` (~60 lines)
+- Created `WorkspaceManagementView` for settings (~460 lines)
 
 **Phase 4 - Remaining Components**:
 - Migrated `SearchBarView`, `WorkspaceSwitcherView`, `SidebarPositionSelector` to use ThemeConstants

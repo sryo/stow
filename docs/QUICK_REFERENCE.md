@@ -4,36 +4,36 @@
 
 ### Check Bundle Identifier in Info.plist
 ```bash
-defaults read .build/bundler/Arcmark.app/Contents/Info.plist CFBundleIdentifier
-# Expected: com.arcmark.app
+defaults read .build/bundler/Stow.app/Contents/Info.plist CFBundleIdentifier
+# Expected: com.stow.app
 ```
 
 ### Check Code Signature Identifier
 ```bash
-codesign -dvv .build/bundler/Arcmark.app 2>&1 | grep "^Identifier="
-# Expected: Identifier=com.arcmark.app
+codesign -dvv .build/bundler/Stow.app 2>&1 | grep "^Identifier="
+# Expected: Identifier=com.stow.app
 ```
 
 ### Verify Info.plist is Valid
 ```bash
-plutil -lint .build/bundler/Arcmark.app/Contents/Info.plist
-# Expected: .build/bundler/Arcmark.app/Contents/Info.plist: OK
+plutil -lint .build/bundler/Stow.app/Contents/Info.plist
+# Expected: .build/bundler/Stow.app/Contents/Info.plist: OK
 ```
 
 ### Verify Code Signature is Valid
 ```bash
-codesign --verify --verbose=4 .build/bundler/Arcmark.app
+codesign --verify --verbose=4 .build/bundler/Stow.app
 # Expected: (no output means valid)
 ```
 
 ### View Complete Info.plist
 ```bash
-cat .build/bundler/Arcmark.app/Contents/Info.plist
+cat .build/bundler/Stow.app/Contents/Info.plist
 ```
 
 ### View Complete Code Signature Details
 ```bash
-codesign -dvv .build/bundler/Arcmark.app
+codesign -dvv .build/bundler/Stow.app
 ```
 
 ### Run All Verifications at Once
@@ -59,11 +59,11 @@ codesign -dvv .build/bundler/Arcmark.app
 mint run swift-bundler bundle -c release
 
 # 2. Add CFBundleIdentifier to Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string 'com.arcmark.app'" \
-    .build/bundler/Arcmark.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string 'com.stow.app'" \
+    .build/bundler/Stow.app/Contents/Info.plist
 
 # 3. Code sign
-codesign --force --deep --sign - .build/bundler/Arcmark.app
+codesign --force --deep --sign - .build/bundler/Stow.app
 
 # 4. Verify
 ./scripts/verify-build.sh
@@ -73,20 +73,20 @@ codesign --force --deep --sign - .build/bundler/Arcmark.app
 
 ### Install to Applications Folder
 ```bash
-cp -R .build/bundler/Arcmark.app /Applications/
+cp -R .build/bundler/Stow.app /Applications/
 ```
 
 ### Remove Old Version First (recommended)
 ```bash
-rm -rf /Applications/Arcmark.app
-cp -R .build/bundler/Arcmark.app /Applications/
+rm -rf /Applications/Stow.app
+cp -R .build/bundler/Stow.app /Applications/
 ```
 
 ## Permissions Management
 
 ### Reset Accessibility Permissions
 ```bash
-tccutil reset Accessibility com.arcmark.app
+tccutil reset Accessibility com.stow.app
 ```
 
 ### Open System Settings to Accessibility
@@ -100,12 +100,12 @@ open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibil
 
 1. Check bundle identifier exists:
    ```bash
-   defaults read .build/bundler/Arcmark.app/Contents/Info.plist CFBundleIdentifier
+   defaults read .build/bundler/Stow.app/Contents/Info.plist CFBundleIdentifier
    ```
 
 2. Check signature matches:
    ```bash
-   codesign -dvv .build/bundler/Arcmark.app 2>&1 | grep "^Identifier="
+   codesign -dvv .build/bundler/Stow.app 2>&1 | grep "^Identifier="
    ```
 
 3. Rebuild if needed:
@@ -115,23 +115,23 @@ open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibil
 
 4. Reinstall:
    ```bash
-   rm -rf /Applications/Arcmark.app
-   cp -R .build/bundler/Arcmark.app /Applications/
+   rm -rf /Applications/Stow.app
+   cp -R .build/bundler/Stow.app /Applications/
    ```
 
 5. Reset TCC permissions:
    ```bash
-   tccutil reset Accessibility com.arcmark.app
+   tccutil reset Accessibility com.stow.app
    ```
 
-6. Restart Arcmark
+6. Restart Stow
 
 ### Permission State Not Updating
 
-1. Fully quit Arcmark (⌘Q)
+1. Fully quit Stow (⌘Q)
 2. Relaunch from Applications
 3. Grant permission in System Settings
-4. Switch back to Arcmark (triggers app activation observer)
+4. Switch back to Stow (triggers app activation observer)
 5. Click "Refresh Status" button in Preferences if needed
 
 ### Swift Bundler Not Found

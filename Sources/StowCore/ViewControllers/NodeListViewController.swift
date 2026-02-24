@@ -1,6 +1,6 @@
 //
 //  NodeListViewController.swift
-//  Arcmark
+//  Stow
 //
 
 import AppKit

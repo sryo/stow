@@ -1,11 +1,11 @@
-# Arcmark Architecture
+# Stow Architecture
 
 **Last Updated:** 2026-02-10
 **Status:** Post-Refactoring (All 5 Phases Complete)
 
 ## Overview
 
-Arcmark is a macOS bookmark management application built with Swift and AppKit. It uses a workspace-based organization system with hierarchical folders and links, featuring drag-and-drop, inline editing, and automatic favicon/title fetching.
+Stow is a macOS bookmark management application built with Swift and AppKit. It uses a workspace-based organization system with hierarchical folders and links, featuring drag-and-drop, inline editing, and automatic favicon/title fetching.
 
 ## Architecture Patterns
 
@@ -36,59 +36,74 @@ User Action → MainViewController → AppModel → AppState → DataStore → D
 ## Project Structure
 
 ```
-Sources/ArcmarkCore/
+Sources/StowCore/
 ├── Components/
 │   ├── Base/
-│   │   ├── BaseControl.swift          # Base for interactive controls
-│   │   ├── BaseView.swift             # Base for custom views
-│   │   └── InlineEditableTextField.swift
-│   ├── Buttons/
-│   │   ├── IconTitleButton.swift      # Extends BaseControl
-│   │   ├── CustomTextButton.swift     # Extends BaseControl
-│   │   └── CustomToggle.swift         # Extends BaseControl
-│   ├── Lists/
-│   │   ├── NodeRowView.swift          # Extends BaseView
-│   │   ├── WorkspaceRowView.swift     # Extends BaseView
-│   │   └── ... (collection view items, layout)
-│   ├── Inputs/
-│   │   └── SearchBarView.swift
-│   └── Navigation/
-│       └── WorkspaceSwitcherView.swift
+│   │   ├── BaseControl.swift              # Base for interactive controls
+│   │   ├── BaseView.swift                 # Base for custom views
+│   │   └── InlineEditableTextField.swift  # Reusable inline editing
+│   └── Settings/
+│       └── WorkspaceManagementView.swift  # Workspace list in settings (~460 lines)
 ├── ViewControllers/
-│   ├── MainViewController.swift       # Main coordinator (596 lines, down from 1352)
-│   ├── NodeListViewController.swift   # Manages collection view (~800 lines)
-│   ├── SearchCoordinator.swift        # Handles search/filtering (~65 lines)
-│   └── ... (preferences, settings)
-├── Models/
-│   ├── Models.swift                   # AppState, Workspace, Node (Link/Folder)
-│   ├── WorkspaceColor.swift
-│   └── SidebarPosition.swift
-├── State/
-│   ├── AppModel.swift                 # Central state manager
-│   └── DataStore.swift                # Persistence layer
-├── Services/
-│   ├── FaviconService.swift           # Async favicon fetching
-│   ├── LinkTitleService.swift         # HTML title extraction
-│   ├── BrowserManager.swift           # Browser selection & URL opening
-│   └── ... (window attachment, Arc import)
-└── Utilities/
-    ├── NodeFiltering.swift            # Recursive filtering
-    └── Theme/
-        └── ThemeConstants.swift       # Design system constants
+│   ├── NodeListViewController.swift       # Collection view, drag-drop, context menus (~1150 lines)
+│   └── SearchCoordinator.swift            # Search/filtering logic (~60 lines)
+├── Utilities/
+│   └── Theme/
+│       └── ThemeConstants.swift           # Design system constants
+│
+│  (remaining files are at the root level)
+│
+├── AppDelegate.swift                      # App lifecycle
+├── MainViewController.swift               # Main coordinator (~1240 lines)
+├── Models.swift                           # AppState, Workspace, Node (Link/Folder/Task/Snippet)
+├── AppModel.swift                         # Central state manager
+├── DataStore.swift                        # Persistence layer (JSON + favicon storage)
+├── Constants.swift                        # UserDefaults keys, pasteboard types, notifications
+├── WorkspaceColor.swift                   # Workspace color definitions
+├── SidebarPosition.swift                  # Sidebar position enum
+├── NodeFiltering.swift                    # Recursive tree filtering
+│
+├── FaviconService.swift                   # Async favicon fetching with disk caching
+├── LinkTitleService.swift                 # HTML title extraction from URLs
+├── BrowserManager.swift                   # Browser selection & URL opening
+├── WindowAttachmentService.swift          # Browser window attachment via Accessibility API
+├── ArcImportService.swift                 # Import bookmarks from Arc browser
+├── ShareService.swift                     # Workspace sharing via compressed URLs
+├── WorkspaceExporter.swift                # Export workspaces with embedded favicons
+├── WorkspaceImporter.swift                # Import workspace files
+│
+├── NodeCollectionViewItem.swift           # Collection view item for nodes
+├── NodeRowView.swift                      # Node row view (extends BaseView)
+├── WorkspaceCollectionViewItem.swift      # Collection view item for workspaces
+├── WorkspaceRowView.swift                 # Workspace row view (extends BaseView)
+├── WorkspaceSwitcherView.swift            # Workspace navigation switcher
+├── SearchBarView.swift                    # Search field
+├── SidebarPositionSelector.swift          # Sidebar position picker
+├── ListFlowLayout.swift                   # Custom NSCollectionViewLayout
+├── SnippetEditorView.swift                # Editor UI for code snippets
+├── ScrollWheelPageController.swift        # Scroll-wheel page navigation
+├── IconTitleButton.swift                  # Custom button (extends BaseControl)
+├── CustomTextButton.swift                 # Text button (extends BaseControl)
+├── CustomToggle.swift                     # Toggle switch (extends BaseControl)
+│
+├── PreferencesViewController.swift        # Preferences tab view controller
+├── PreferencesWindowController.swift      # Preferences window
+└── SettingsContentViewController.swift    # Settings content
 ```
 
 ## Core Data Model
 
 ```swift
 AppState                      // Root container
+├── schemaVersion: Int
 ├── workspaces: [Workspace]
-└── selectedWorkspaceId: UUID?
+├── selectedWorkspaceId: UUID?
+└── isSettingsSelected: Bool
 
 Workspace                     // Named container
 ├── id: UUID
 ├── name: String
-├── emoji: String
-├── color: WorkspaceColorId
+├── colorId: WorkspaceColorId
 └── items: [Node]             // Root-level items
 
 Node                          // Recursive tree structure
@@ -97,11 +112,24 @@ Node                          // Recursive tree structure
 │   ├── name: String
 │   ├── isExpanded: Bool
 │   └── children: [Node]      // Nested items
-└── .link(Link)
+├── .link(Link)
+│   ├── id: UUID
+│   ├── title: String
+│   ├── url: String
+│   └── faviconPath: String?
+├── .task(TaskItem)
+│   ├── id: UUID
+│   ├── title: String
+│   ├── isCompleted: Bool
+│   ├── dueDate: Date?
+│   ├── notes: String?
+│   └── createdAt: Date
+└── .snippet(Snippet)
     ├── id: UUID
     ├── title: String
-    ├── url: URL
-    └── faviconPath: String?
+    ├── content: String
+    ├── language: String?
+    └── createdAt: Date
 ```
 
 ## Key Design Decisions
@@ -118,11 +146,11 @@ Node                          // Recursive tree structure
 - **Hover state management** - centralized in base classes, no duplicate tracking area code
 - **Design consistency** - all components use ThemeConstants for colors/fonts/spacing
 
-### ViewController Decomposition (Phase 3)
-- **MainViewController** (596 lines) - Coordinator between search, list, and settings
-- **NodeListViewController** (~800 lines) - Collection view, drag-drop, context menus
-- **SearchCoordinator** (~65 lines) - Search/filtering logic
-- **WorkspaceManagementView** (~380 lines) - Settings workspace management
+### ViewController Decomposition
+- **MainViewController** (~1240 lines) - Coordinator between search, list, and settings
+- **NodeListViewController** (~1150 lines) - Collection view, drag-drop, context menus
+- **SearchCoordinator** (~60 lines) - Search/filtering logic
+- **WorkspaceManagementView** (~460 lines) - Settings workspace management
 
 ## Component Patterns
 
@@ -178,13 +206,13 @@ CATransaction.setAnimationDuration(ThemeConstants.Animation.durationFast)
 - **Model tests** - JSON round-trip, move operations, filtering
 - **ThemeConstants tests** - Validates all design values (16 tests)
 - **Base class tests** - Currently skipped (Swift 6 concurrency + XCTest issues)
-- **Total: 20 tests** - All passing, zero failures
+- **Total: 32 tests** - All passing, zero failures
 
 ## Refactoring Impact (2026-02-10)
 
 **Code Reduction:**
-- Eliminated 1,145 lines of duplicate code (14.1% reduction)
-- MainViewController: 1352 → 596 lines (56% reduction)
+- Eliminated duplicate code patterns via base classes and ThemeConstants
+- Extracted NodeListViewController, SearchCoordinator, WorkspaceManagementView from MainViewController
 
 **Improvements:**
 - Zero functional regressions

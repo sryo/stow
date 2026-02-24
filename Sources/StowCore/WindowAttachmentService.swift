@@ -1,6 +1,6 @@
 //
 //  WindowAttachmentService.swift
-//  Arcmark
+//  Stow
 //
 //  Service for attaching Stow window to browser windows using macOS Accessibility API.
 //

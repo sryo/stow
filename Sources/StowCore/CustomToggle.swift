@@ -1,6 +1,6 @@
 import AppKit
 
-/// A custom toggle switch control that matches Arcmark's design aesthetic
+/// A custom toggle switch control that matches Stow's design aesthetic
 final class CustomToggle: BaseControl {
     private let titleLabel = NSTextField(labelWithString: "")
     private let switchContainer = NSView()

@@ -1,6 +1,6 @@
 import AppKit
 
-/// Centralized design system constants for Arcmark.
+/// Centralized design system constants for Stow.
 ///
 /// `ThemeConstants` provides a single source of truth for all design values used throughout
 /// the application. This ensures consistency and makes it easy to update the visual design

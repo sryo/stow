@@ -53,7 +53,7 @@ Your Team ID is shown there (10 characters).
 
 1. Go to https://appleid.apple.com/account/manage
 2. Security → App-Specific Passwords
-3. Generate password with label "Arcmark Notarization"
+3. Generate password with label "Stow Notarization"
 4. Copy the password (format: `xxxx-xxxx-xxxx-xxxx`)
 
 ### 4. Create Configuration File
@@ -77,7 +77,7 @@ Edit `.notarization-config` and fill in:
 ## What You'll See
 
 ```
-🔨 Building Arcmark...
+🔨 Building Stow...
 📌 Version: 0.1.0
 ...
 🔏 Code signing app...
@@ -92,12 +92,12 @@ Edit `.notarization-config` and fill in:
   → Submitting to Apple for notarization...
   → This typically takes 2-5 minutes
 
-  Conducting pre-submission checks for Arcmark-0.1.0.dmg...
+  Conducting pre-submission checks for Stow-0.1.0.dmg...
   Submission ID received
     id: 12345678-1234-1234-1234-123456789012
   Successfully uploaded file
     id: 12345678-1234-1234-1234-123456789012
-    path: /path/to/Arcmark-0.1.0.dmg
+    path: /path/to/Stow-0.1.0.dmg
   Waiting for processing to complete...
   Current status: In Progress.......
   Current status: Accepted
@@ -114,12 +114,12 @@ Edit `.notarization-config` and fill in:
 ### Verify Notarization
 
 ```bash
-spctl -a -vvv -t install .build/dmg/Arcmark-0.1.0.dmg
+spctl -a -vvv -t install .build/dmg/Stow-0.1.0.dmg
 ```
 
 Should output:
 ```
-.build/dmg/Arcmark-0.1.0.dmg: accepted
+.build/dmg/Stow-0.1.0.dmg: accepted
 source=Notarized Developer ID
 ```
 
@@ -127,7 +127,7 @@ source=Notarized Developer ID
 
 1. Copy DMG to another Mac (or different user account)
 2. Open the DMG
-3. Drag Arcmark to Applications
+3. Drag Stow to Applications
 4. Launch the app
 5. **Expected**: No security warnings! ✨
 

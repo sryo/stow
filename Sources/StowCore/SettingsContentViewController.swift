@@ -1,6 +1,6 @@
 //
 //  SettingsContentViewController.swift
-//  Arcmark
+//  Stow
 //
 
 import AppKit

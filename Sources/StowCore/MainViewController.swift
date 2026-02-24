@@ -33,6 +33,10 @@ final class MainViewController: NSViewController {
     // Swipe state
     private var isSwiping = false
     private var lastAddNewHapticTime: TimeInterval = 0
+    private var outgoingSnapshotView: NSImageView?
+    private var swipeStartPageIndex: Int = 0
+    private var preloadedPageIndex: Int?
+    private var swipeDirection: Int = 0 // -1 backward, 0 none, +1 forward
 
     // State
     private var isReloadScheduled = false
@@ -338,6 +342,8 @@ final class MainViewController: NSViewController {
     // MARK: - Data Reload
 
     private func reloadData() {
+        if isSwiping { return }
+
         // Cancel any in-progress inline rename if node is deleted
         if let renameId = nodeListViewController.inlineRenameNodeId,
            model.nodeById(renameId) == nil {
@@ -1042,6 +1048,69 @@ final class MainViewController: NSViewController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(joined, forType: .string)
     }
+
+    // MARK: - Swipe Transition Helpers
+
+    private func captureContentSnapshot() -> NSImageView? {
+        let sourceView: NSView = model.state.isSettingsSelected ? settingsViewController.view : contentStack
+        guard !sourceView.isHidden else { return nil }
+
+        let bounds = sourceView.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+
+        guard let bitmapRep = sourceView.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        sourceView.cacheDisplay(in: bounds, to: bitmapRep)
+
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(bitmapRep)
+
+        let imageView = NSImageView()
+        imageView.image = image
+        imageView.imageScaling = .scaleNone
+        imageView.wantsLayer = true
+
+        let frameInView = sourceView.convert(bounds, to: self.view)
+        imageView.frame = frameInView
+
+        return imageView
+    }
+
+    private func preloadIncomingPage(_ targetPageIndex: Int) {
+        guard targetPageIndex != preloadedPageIndex else { return }
+        preloadedPageIndex = targetPageIndex
+
+        let workspaceCount = model.workspaces.count
+
+        if targetPageIndex == 0 {
+            showSettingsContent()
+        } else if targetPageIndex >= 1 && targetPageIndex <= workspaceCount {
+            showWorkspaceContent()
+            let workspaceIdx = targetPageIndex - 1
+            let workspace = model.workspaces[workspaceIdx]
+            let filteredNodes = searchCoordinator.filter(nodes: workspace.items)
+            nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
+            nodeListViewController.reloadData(with: filteredNodes, forceExpand: false, animated: false)
+        }
+        // Add-new page: no content to show
+    }
+
+    private func beginSwipeTransition() {
+        swipeStartPageIndex = currentPageIndex()
+        preloadedPageIndex = nil
+        swipeDirection = 0
+
+        if let snapshot = captureContentSnapshot() {
+            outgoingSnapshotView = snapshot
+            view.addSubview(snapshot)
+        }
+    }
+
+    private func cleanupSwipeTransition() {
+        outgoingSnapshotView?.removeFromSuperview()
+        outgoingSnapshotView = nil
+        preloadedPageIndex = nil
+        swipeDirection = 0
+    }
 }
 
 // MARK: - ScrollWheelPageDelegate
@@ -1049,31 +1118,54 @@ final class MainViewController: NSViewController {
 extension MainViewController: ScrollWheelPageDelegate {
 
     func pagerDidUpdateOffset(_ offset: CGFloat) {
+        // Swipe detection
         if !isSwiping {
             let isFractional = abs(offset - offset.rounded()) > 0.001
             if isFractional {
                 isSwiping = true
+                beginSwipeTransition()
             } else {
                 applyBackgroundColor(for: colorForPage(Int(offset.rounded())))
                 return
             }
         }
 
-        let currentPage = CGFloat(currentPageIndex())
-        let delta = offset - currentPage
-        let distance = min(abs(delta), 0.5)
+        let startPage = CGFloat(swipeStartPageIndex)
+        let delta = offset - startPage
+        let width = contentAreaWidth
 
-        // Slide content 1:1 with finger
-        let tx = -delta * contentAreaWidth
-        let slideTransform = CATransform3DMakeTranslation(tx, 0, 0)
+        // Direction tracking — detect changes and preload incoming
+        let newDirection: Int = delta > 0.001 ? 1 : (delta < -0.001 ? -1 : 0)
+        if newDirection != 0 && newDirection != swipeDirection {
+            swipeDirection = newDirection
+            let targetPage = swipeStartPageIndex + newDirection
+            preloadIncomingPage(targetPage)
+        }
 
-        // Fade based on distance from current page
-        let alpha = 1.0 - (distance * 2.0)
+        // Position outgoing snapshot (slides away from center)
+        let txOut = -delta * width
+        outgoingSnapshotView?.layer?.transform = CATransform3DMakeTranslation(txOut, 0, 0)
+        outgoingSnapshotView?.alphaValue = 1.0
 
-        // Apply to whichever content view is visible
-        let visibleView: NSView = model.state.isSettingsSelected ? settingsViewController.view : contentStack
-        visibleView.layer?.transform = slideTransform
-        visibleView.alphaValue = alpha
+        // Position incoming content
+        let targetPage = swipeStartPageIndex + swipeDirection
+        let isAddNewPage = targetPage >= totalPageCount() - 1
+
+        if isAddNewPage {
+            // Add-new page: hide incoming content, just show background
+            contentStack.alphaValue = 0
+            settingsViewController.view.alphaValue = 0
+        } else if swipeDirection != 0 {
+            let incomingView: NSView = (targetPage == 0) ? settingsViewController.view : contentStack
+            let txIn: CGFloat
+            if delta > 0 {
+                txIn = (1.0 - delta) * width
+            } else {
+                txIn = (-1.0 - delta) * width
+            }
+            incomingView.layer?.transform = CATransform3DMakeTranslation(txIn, 0, 0)
+            incomingView.alphaValue = 1.0
+        }
 
         // Interpolate background color
         let fromPage = max(0, Int(floor(offset)))
@@ -1107,18 +1199,20 @@ extension MainViewController: ScrollWheelPageDelegate {
         workspaceSwitcher.visualPageOffset = nil
         workspaceSwitcher.swipeShadowColor = nil
 
-        let pageCount = totalPageCount()
+        cleanupSwipeTransition()
 
-        // Reset transforms on both content views
+        // Reset transforms and alpha on both content views
         contentStack.layer?.transform = CATransform3DIdentity
         settingsViewController.view.layer?.transform = CATransform3DIdentity
+        contentStack.alphaValue = 1.0
+        settingsViewController.view.alphaValue = 1.0
+
+        let pageCount = totalPageCount()
 
         if pageIndex == 0 {
             model.selectSettings()
         } else if pageIndex >= pageCount - 1 {
             isSwiping = false
-            contentStack.alphaValue = 1.0
-            settingsViewController.view.alphaValue = 1.0
             promptCreateWorkspace()
             return
         } else {
@@ -1129,17 +1223,6 @@ extension MainViewController: ScrollWheelPageDelegate {
         }
 
         reloadData()
-
-        // Fade in the new content
-        contentStack.alphaValue = 0.0
-        settingsViewController.view.alphaValue = 0.0
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = ThemeConstants.Animation.durationNormal
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            contentStack.animator().alphaValue = 1.0
-            settingsViewController.view.animator().alphaValue = 1.0
-        })
-
         applyBackgroundColor(for: colorForPage(pageIndex))
         isSwiping = false
     }
