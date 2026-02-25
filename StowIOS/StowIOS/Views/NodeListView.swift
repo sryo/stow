@@ -67,7 +67,8 @@ struct NodeListView: View {
         switch node {
         case .link(let link):
             Button {
-                if let url = URL(string: link.url) {
+                let urlString = link.url.contains("://") ? link.url : "https://\(link.url)"
+                if let url = URL(string: urlString) {
                     UIApplication.shared.open(url)
                 }
             } label: {

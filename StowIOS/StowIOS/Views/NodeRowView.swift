@@ -79,7 +79,8 @@ struct NodeRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            if let url = URL(string: link.url) {
+            let urlString = link.url.contains("://") ? link.url : "https://\(link.url)"
+            if let url = URL(string: urlString) {
                 UIApplication.shared.open(url)
             }
         }
@@ -199,7 +200,8 @@ struct NodeRowView: View {
             let links = Self.collectLinks(from: folder.children)
             if !links.isEmpty {
                 Button {
-                    for urlString in links {
+                    for raw in links {
+                        let urlString = raw.contains("://") ? raw : "https://\(raw)"
                         if let url = URL(string: urlString) {
                             UIApplication.shared.open(url)
                         }

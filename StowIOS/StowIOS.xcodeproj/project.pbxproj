@@ -22,6 +22,9 @@
 		A1000013 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000013 /* SettingsView.swift */; };
 		A1000014 /* WorkspaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000014 /* WorkspaceSettingsView.swift */; };
 		A1000015 /* PinnedLinksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000015 /* PinnedLinksView.swift */; };
+		A1000016 /* WorkspacePagerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000016 /* WorkspacePagerViewController.swift */; };
+		A1000017 /* WorkspacePagerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000017 /* WorkspacePagerRepresentable.swift */; };
+		A1000018 /* AddNewPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AddNewPageView.swift */; };
 		A2000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* ShareViewController.swift */; };
 		A2000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D2000001 /* StowShared */; };
 		A2000003 /* StowShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C2000001 /* StowShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -77,6 +80,9 @@
 		B1000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B1000014 /* WorkspaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsView.swift; sourceTree = "<group>"; };
 		B1000015 /* PinnedLinksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedLinksView.swift; sourceTree = "<group>"; };
+		B1000016 /* WorkspacePagerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePagerViewController.swift; sourceTree = "<group>"; };
+		B1000017 /* WorkspacePagerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePagerRepresentable.swift; sourceTree = "<group>"; };
+		B1000018 /* AddNewPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddNewPageView.swift; sourceTree = "<group>"; };
 		B2000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		B2000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000003 /* StowShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StowShareExtension.entitlements; sourceTree = "<group>"; };
@@ -146,6 +152,7 @@
 		F1000004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F1000006 /* Pager */,
 				B1000003 /* ContentView.swift */,
 				B1000004 /* WorkspaceSidebarView.swift */,
 				B1000005 /* WorkspacePicker.swift */,
@@ -160,6 +167,16 @@
 				B1000015 /* PinnedLinksView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		F1000006 /* Pager */ = {
+			isa = PBXGroup;
+			children = (
+				B1000016 /* WorkspacePagerViewController.swift */,
+				B1000017 /* WorkspacePagerRepresentable.swift */,
+				B1000018 /* AddNewPageView.swift */,
+			);
+			path = Pager;
 			sourceTree = "<group>";
 		};
 		F1000005 /* Products */ = {
@@ -344,6 +361,9 @@
 				A1000013 /* SettingsView.swift in Sources */,
 				A1000014 /* WorkspaceSettingsView.swift in Sources */,
 				A1000015 /* PinnedLinksView.swift in Sources */,
+				A1000016 /* WorkspacePagerViewController.swift in Sources */,
+				A1000017 /* WorkspacePagerRepresentable.swift in Sources */,
+				A1000018 /* AddNewPageView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

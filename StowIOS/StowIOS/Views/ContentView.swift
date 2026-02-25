@@ -22,11 +22,6 @@ struct ContentView: View {
                 NavigationStack {
                     WorkspacePageView()
                         .toolbarBackground(.hidden, for: .navigationBar)
-                        .toolbar {
-                            ToolbarItem(placement: .principal) {
-                                WorkspacePicker()
-                            }
-                        }
                 }
                 .tabItem {
                     Label("Bookmarks", systemImage: "bookmark")

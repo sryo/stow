@@ -125,6 +125,7 @@ public final class CloudSyncManager {
     }
 
     private static func hasCloudKitEntitlement(for containerID: String) -> Bool {
+        #if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil) else { return false }
         let value = SecTaskCopyValueForEntitlement(
             task,
@@ -133,6 +134,10 @@ public final class CloudSyncManager {
         )
         guard let containers = value as? [String] else { return false }
         return containers.contains(containerID)
+        #else
+        // SecTask APIs are macOS-only; on iOS assume entitlement is present
+        return true
+        #endif
     }
 }
 
