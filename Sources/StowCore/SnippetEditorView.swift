@@ -1,12 +1,13 @@
 import AppKit
 
 final class SnippetEditorView: NSView {
+    private let titleField = NSTextField()
     private let textView = NSTextView()
     private let scrollView = NSScrollView()
     private let languagePopup = NSPopUpButton()
     private let saveButton = NSButton(title: "Save", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
-    private var onSave: ((String, String?) -> Void)?
+    private var onSave: ((String, String, String?) -> Void)?
 
     private static let languages = [
         "Plain Text", "Swift", "Python", "JavaScript", "TypeScript",
@@ -14,10 +15,11 @@ final class SnippetEditorView: NSView {
         "Ruby", "SQL", "Markdown", "YAML", "XML"
     ]
 
-    init(snippet: Snippet, onSave: @escaping (String, String?) -> Void) {
+    init(snippet: Snippet, onSave: @escaping (String, String, String?) -> Void) {
         self.onSave = onSave
         super.init(frame: .zero)
         setupViews()
+        titleField.stringValue = snippet.title
         textView.string = snippet.content
         if let language = snippet.language,
            let index = Self.languages.firstIndex(of: language) {
@@ -30,6 +32,14 @@ final class SnippetEditorView: NSView {
     }
 
     private func setupViews() {
+        // Title field
+        titleField.translatesAutoresizingMaskIntoConstraints = false
+        titleField.placeholderString = "Title"
+        titleField.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+
+        let titleLabel = NSTextField(labelWithString: "Title:")
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
         // Language selector
         languagePopup.translatesAutoresizingMaskIntoConstraints = false
         languagePopup.addItems(withTitles: Self.languages)
@@ -63,6 +73,8 @@ final class SnippetEditorView: NSView {
         let languageLabel = NSTextField(labelWithString: "Language:")
         languageLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(titleLabel)
+        addSubview(titleField)
         addSubview(languageLabel)
         addSubview(languagePopup)
         addSubview(scrollView)
@@ -70,8 +82,15 @@ final class SnippetEditorView: NSView {
         addSubview(cancelButton)
 
         NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+
+            titleField.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+            titleField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            titleField.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+
             languageLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            languageLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            languageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
 
             languagePopup.leadingAnchor.constraint(equalTo: languageLabel.trailingAnchor, constant: 8),
             languagePopup.centerYAnchor.constraint(equalTo: languageLabel.centerYAnchor),
@@ -90,10 +109,11 @@ final class SnippetEditorView: NSView {
     }
 
     @objc private func handleSave() {
+        let title = titleField.stringValue
         let content = textView.string
         let selectedLanguage = languagePopup.titleOfSelectedItem
         let language = selectedLanguage == "Plain Text" ? nil : selectedLanguage
-        onSave?(content, language)
+        onSave?(title, content, language)
         window?.close()
     }
 

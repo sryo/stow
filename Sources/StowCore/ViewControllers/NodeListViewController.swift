@@ -278,6 +278,50 @@ final class NodeListViewController: NSViewController {
         }
     }
 
+    /// Shows a brief "Copied!" overlay on the row for the given node ID
+    func showCopiedFeedback(for nodeId: UUID) {
+        guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }),
+              let item = collectionView.item(at: IndexPath(item: index, section: 0)) else { return }
+
+        let label = NSTextField(labelWithString: "Copied!")
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        label.isBezeled = false
+        label.drawsBackground = true
+        label.alignment = .center
+        label.wantsLayer = true
+        label.layer?.cornerRadius = 4
+        label.sizeToFit()
+        label.frame.size.width += 12
+        label.frame.size.height += 4
+
+        let rowView = item.view
+        label.frame.origin = NSPoint(
+            x: rowView.bounds.maxX - label.frame.width - 12,
+            y: (rowView.bounds.height - label.frame.height) / 2
+        )
+        label.alphaValue = 0
+        rowView.addSubview(label)
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            label.animator().alphaValue = 1
+        }, completionHandler: { [weak label] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak label] in
+                guard let label else { return }
+                NSAnimationContext.runAnimationGroup({ ctx in
+                    ctx.duration = 0.3
+                    label.animator().alphaValue = 0
+                }, completionHandler: { [weak label] in
+                    MainActor.assumeIsolated {
+                        label?.removeFromSuperview()
+                    }
+                })
+            }
+        })
+    }
+
     // MARK: - Private Methods
 
     @objc private func handleScrollBoundsChanged() {

@@ -1062,6 +1062,7 @@ final class MainViewController: NSViewController {
         guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(snippet.content, forType: .string)
+        nodeListViewController.showCopiedFeedback(for: snippetId)
     }
 
     private func showDatePickerForTask(_ taskId: UUID) {
@@ -1143,9 +1144,15 @@ final class MainViewController: NSViewController {
     private func showSnippetEditor(_ snippetId: UUID) {
         guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
 
-        let editor = SnippetEditorView(snippet: snippet) { [weak self] updatedContent, updatedLanguage in
-            self?.model.updateSnippetContent(id: snippetId, content: updatedContent)
-            self?.model.updateSnippetLanguage(id: snippetId, language: updatedLanguage)
+        let editor = SnippetEditorView(snippet: snippet) { [weak self] updatedTitle, updatedContent, updatedLanguage in
+            guard let self else { return }
+            let trimmedTitle = updatedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedTitle.isEmpty && trimmedTitle != snippet.title {
+                self.model.renameNode(id: snippetId, newName: trimmedTitle)
+            }
+            self.model.updateSnippetContent(id: snippetId, content: updatedContent)
+            self.model.updateSnippetLanguage(id: snippetId, language: updatedLanguage)
+            self.model.autoDeriveTitleIfNeeded(id: snippetId)
         }
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),

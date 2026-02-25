@@ -749,4 +749,109 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(model.workspaces[2].name, "Second")
         XCTAssertEqual(model.workspaces[3].name, "Third")
     }
+
+    // MARK: - SnippetTitleDerivation Tests
+
+    func testDeriveTitleFromFirstMeaningfulLine() {
+        let content = "func hello() { print(\"world\") }"
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: nil)
+        XCTAssertEqual(title, "func hello() { print(\"world\") }")
+    }
+
+    func testDeriveTitleWithLanguagePrefix() {
+        let content = "func hello() {}"
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: "Swift")
+        XCTAssertEqual(title, "Swift: func hello() {}")
+    }
+
+    func testDeriveTitleSkipsComments() {
+        let content = """
+        // This is a comment
+        # Another comment
+        func realCode() {}
+        """
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: nil)
+        XCTAssertEqual(title, "func realCode() {}")
+    }
+
+    func testDeriveTitleSkipsImports() {
+        let content = """
+        import Foundation
+        from os import path
+        require 'json'
+
+        class MyClass {}
+        """
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: nil)
+        XCTAssertEqual(title, "class MyClass {}")
+    }
+
+    func testDeriveTitleSkipsShebangs() {
+        let content = """
+        #!/usr/bin/env python3
+        # comment
+        import sys
+
+        def main():
+        """
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: "Python")
+        XCTAssertEqual(title, "Python: def main():")
+    }
+
+    func testDeriveTitleTruncatesLongLines() {
+        let content = "this is a very long line that exceeds the maximum allowed title length and should be truncated"
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: nil)
+        XCTAssertTrue(title.count <= 44) // 40 + "..."
+        XCTAssertTrue(title.hasSuffix("..."))
+    }
+
+    func testDeriveTitleEmptyContentReturnsDefault() {
+        let title = SnippetTitleDerivation.deriveTitle(from: "", language: nil)
+        XCTAssertEqual(title, "Untitled Snippet")
+    }
+
+    func testDeriveTitleOnlyCommentsReturnsDefault() {
+        let content = """
+        // just comments
+        # more comments
+        """
+        let title = SnippetTitleDerivation.deriveTitle(from: content, language: nil)
+        XCTAssertEqual(title, "Untitled Snippet")
+    }
+
+    func testAutoDeriveTitleIfNeeded() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let snippetId = model.addSnippet(title: "Untitled", content: "", language: "Swift", parentId: nil)
+
+        // Should not derive when content is empty
+        model.autoDeriveTitleIfNeeded(id: snippetId)
+        guard let node1 = model.nodeById(snippetId), case .snippet(let s1) = node1 else {
+            XCTFail("Expected snippet"); return
+        }
+        XCTAssertEqual(s1.title, "Untitled")
+
+        // Add content, now it should derive
+        model.updateSnippetContent(id: snippetId, content: "let x = 42")
+        model.autoDeriveTitleIfNeeded(id: snippetId)
+        guard let node2 = model.nodeById(snippetId), case .snippet(let s2) = node2 else {
+            XCTFail("Expected snippet"); return
+        }
+        XCTAssertEqual(s2.title, "Swift: let x = 42")
+    }
+
+    func testAutoDeriveTitleSkipsCustomTitle() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let snippetId = model.addSnippet(title: "My Code", content: "let x = 42", language: nil, parentId: nil)
+        model.autoDeriveTitleIfNeeded(id: snippetId)
+        guard let node = model.nodeById(snippetId), case .snippet(let s) = node else {
+            XCTFail("Expected snippet"); return
+        }
+        XCTAssertEqual(s.title, "My Code")
+    }
 }

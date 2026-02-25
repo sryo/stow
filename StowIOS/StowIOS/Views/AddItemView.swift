@@ -99,7 +99,7 @@ struct AddItemView: View {
     @ViewBuilder
     private var snippetFields: some View {
         Section("Snippet Details") {
-            TextField("Title", text: $name)
+            TextField("Title (auto-derived if empty)", text: $name)
             Picker("Language", selection: $snippetLanguage) {
                 ForEach(languages, id: \.self) { lang in
                     Text(lang.isEmpty ? "None" : lang).tag(lang)
@@ -126,6 +126,7 @@ struct AddItemView: View {
             return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .snippet:
             return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !snippetContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
@@ -145,8 +146,14 @@ struct AddItemView: View {
             viewModel.model.addTask(title: trimmedName, parentId: nil)
         case .snippet:
             let language: String? = snippetLanguage.isEmpty ? nil : snippetLanguage
+            let snippetTitle: String
+            if trimmedName.isEmpty {
+                snippetTitle = SnippetTitleDerivation.deriveTitle(from: snippetContent, language: language)
+            } else {
+                snippetTitle = trimmedName
+            }
             viewModel.model.addSnippet(
-                title: trimmedName,
+                title: snippetTitle,
                 content: snippetContent,
                 language: language,
                 parentId: nil

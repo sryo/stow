@@ -247,6 +247,13 @@ public final class AppModel {
         }
     }
 
+    public func autoDeriveTitleIfNeeded(id: UUID) {
+        guard let node = nodeById(id), case .snippet(let snippet) = node else { return }
+        guard snippet.title == "Untitled" && !snippet.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let derived = SnippetTitleDerivation.deriveTitle(from: snippet.content, language: snippet.language)
+        renameNode(id: id, newName: derived)
+    }
+
     // MARK: - Pinned Links
 
     public func pinLink(id: UUID) {

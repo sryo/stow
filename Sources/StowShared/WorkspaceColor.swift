@@ -145,3 +145,25 @@ extension PlatformColor {
     }
     #endif
 }
+
+#if canImport(UIKit)
+import UIKit
+
+extension UIColor {
+    /// Blends this color with another by the given fraction (0 = self, 1 = other).
+    /// Mirrors NSColor.blended(withFraction:of:) for cross-platform parity.
+    public func blended(withFraction fraction: CGFloat, of other: UIColor) -> UIColor? {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        guard getRed(&r1, green: &g1, blue: &b1, alpha: &a1),
+              other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2) else { return nil }
+        let f = max(0, min(1, fraction))
+        return UIColor(
+            red: r1 + (r2 - r1) * f,
+            green: g1 + (g2 - g1) * f,
+            blue: b1 + (b2 - b1) * f,
+            alpha: a1 + (a2 - a1) * f
+        )
+    }
+}
+#endif

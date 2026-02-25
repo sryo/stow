@@ -1,6 +1,7 @@
 import CloudKit
 import os
 import Foundation
+import Security
 
 @MainActor
 public final class CloudSyncManager {
@@ -22,6 +23,12 @@ public final class CloudSyncManager {
 
     public func configure(model: AppModel) {
         self.model = model
+
+        // CKContainer(identifier:) traps without the iCloud entitlement (e.g. ad-hoc signed builds)
+        guard Self.hasCloudKitEntitlement(for: containerID) else {
+            logger.info("CloudKit entitlement not found, skipping sync setup")
+            return
+        }
 
         let container = CKContainer(identifier: containerID)
         let database = container.privateCloudDatabase
@@ -115,6 +122,17 @@ public final class CloudSyncManager {
     private func syncEngineStateURL() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Stow/SyncEngine/state.json")
+    }
+
+    private static func hasCloudKitEntitlement(for containerID: String) -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        let value = SecTaskCopyValueForEntitlement(
+            task,
+            "com.apple.developer.icloud-container-identifiers" as CFString,
+            nil
+        )
+        guard let containers = value as? [String] else { return false }
+        return containers.contains(containerID)
     }
 }
 

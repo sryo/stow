@@ -627,6 +627,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CL6XWJCS9R;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Stow Widget";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -654,6 +655,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CL6XWJCS9R;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Stow Widget";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -5,6 +5,8 @@ import StowShared
 final class AppViewModel: ObservableObject {
     let model: AppModel
     @Published var refreshTrigger = false
+    @Published var showingNewWorkspaceAlert = false
+    @Published var newWorkspaceName = ""
 
     init() {
         let model = AppModel()

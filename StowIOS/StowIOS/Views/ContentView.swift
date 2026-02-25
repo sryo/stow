@@ -21,6 +21,7 @@ struct ContentView: View {
             TabView {
                 NavigationStack {
                     WorkspacePageView()
+                        .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
                             ToolbarItem(placement: .principal) {
                                 WorkspacePicker()
@@ -35,6 +36,22 @@ struct ContentView: View {
                     .tabItem {
                         Label("Settings", systemImage: "gear")
                     }
+            }
+            .alert("New Workspace", isPresented: $viewModel.showingNewWorkspaceAlert) {
+                TextField("Workspace Name", text: $viewModel.newWorkspaceName)
+                Button("Cancel", role: .cancel) {
+                    viewModel.newWorkspaceName = ""
+                }
+                Button("Create") {
+                    let name = viewModel.newWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    viewModel.newWorkspaceName = ""
+                    if !name.isEmpty {
+                        let id = viewModel.model.createWorkspace(name: name, colorId: .randomColor())
+                        viewModel.selectedWorkspaceId = id
+                    }
+                }
+            } message: {
+                Text("Enter a name for the new workspace")
             }
         }
     }
