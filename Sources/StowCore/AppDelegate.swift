@@ -1,18 +1,18 @@
 import AppKit
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WindowAttachmentServiceDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WindowAttachmentServiceDelegate, GlobalHotkeyServiceDelegate {
     public override init() {
         super.init()
     }
     private var window: NSWindow?
     private var mainViewController: MainViewController?
-    private var preferencesWindowController: PreferencesWindowController?
     private var alwaysOnTopMenuItem: NSMenuItem?
 
     // Attachment state
     private var isAttachmentMode: Bool = false
     private var lastManualFrame: NSRect?
+    private var isUserHidden: Bool = false
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenus()
@@ -37,13 +37,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window.backgroundColor = model.currentWorkspace.colorId.backgroundColor
         window.minSize = NSSize(width: 280, height: 420)
         window.maxSize = NSSize(width: 520, height: 10000) // Unlimited height for attachment mode
-        let windowAutosaveName = "StowMainWindow"
-        window.setFrameAutosaveName(windowAutosaveName)
-        let restoredSize = applySavedWindowSize(to: window)
-        let restoredFrame = restoredSize ? false : window.setFrameUsingName(windowAutosaveName)
         window.collectionBehavior = [.moveToActiveSpace]
         window.contentViewController = mainViewController
-        if !restoredSize && !restoredFrame {
+        let restoredFrame = applySavedWindowFrame(to: window)
+        if !restoredFrame {
             window.center()
         }
         ensureWindowVisible(window)
@@ -54,19 +51,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         self.window = window
         applyAlwaysOnTopFromDefaults()
         setupAttachmentService()
+        setupGlobalHotkey()
         observeBrowserChanges()
+
+        // Initialize iCloud sync
+        CloudSyncManager.shared.configure(model: model)
+
         NSApp.activate(ignoringOtherApps: true)
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
-        if let window {
-            saveWindowSize(window)
-        }
+        guard !isAttachmentMode, let window else { return }
+        saveWindowFrame(window)
     }
 
     public func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-        saveWindowSize(window)
+        saveWindowFrame(window)
     }
 
     private func ensureWindowVisible(_ window: NSWindow) {
@@ -80,24 +81,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window.setFrameOrigin(origin)
     }
 
-    private func applySavedWindowSize(to window: NSWindow) -> Bool {
-        guard let sizeString = UserDefaults.standard.string(forKey: UserDefaultsKeys.mainWindowSize) else {
+    private func applySavedWindowFrame(to window: NSWindow) -> Bool {
+        guard let frameString = UserDefaults.standard.string(forKey: UserDefaultsKeys.mainWindowFrame) else {
             return false
         }
-        let savedSize = NSSizeFromString(sizeString)
-        guard savedSize.width > 0, savedSize.height > 0 else { return false }
+        let savedFrame = NSRectFromString(frameString)
+        guard savedFrame.width > 0, savedFrame.height > 0 else { return false }
 
-        let clampedWidth = min(max(savedSize.width, window.minSize.width), window.maxSize.width)
-        let clampedHeight = min(max(savedSize.height, window.minSize.height), window.maxSize.height)
-        var frame = window.frame
-        frame.size = NSSize(width: clampedWidth, height: clampedHeight)
-        window.setFrame(frame, display: false)
+        let clampedWidth = min(max(savedFrame.width, window.minSize.width), window.maxSize.width)
+        let clampedHeight = min(max(savedFrame.height, window.minSize.height), window.maxSize.height)
+        let restoredFrame = NSRect(x: savedFrame.origin.x, y: savedFrame.origin.y, width: clampedWidth, height: clampedHeight)
+        window.setFrame(restoredFrame, display: false)
         return true
     }
 
-    private func saveWindowSize(_ window: NSWindow) {
-        let sizeString = NSStringFromSize(window.frame.size)
-        UserDefaults.standard.set(sizeString, forKey: UserDefaultsKeys.mainWindowSize)
+    private func saveWindowFrame(_ window: NSWindow) {
+        guard !isAttachmentMode else { return }
+        let frameString = NSStringFromRect(window.frame)
+        UserDefaults.standard.set(frameString, forKey: UserDefaultsKeys.mainWindowFrame)
     }
 
     private func setupMenus() {
@@ -124,7 +125,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         mainMenu.addItem(editMenuItem)
         let editMenu = NSMenu(title: "Edit")
         editMenuItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
@@ -134,7 +143,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let showWindowItem = NSMenuItem(title: "Show Stow", action: #selector(showMainWindow), keyEquivalent: "")
         showWindowItem.target = self
         windowMenu.addItem(showWindowItem)
-        let alwaysOnTopItem = NSMenuItem(title: "Always on Top", action: #selector(toggleAlwaysOnTop), keyEquivalent: "t")
+        let alwaysOnTopItem = NSMenuItem(title: "Always on top", action: #selector(toggleAlwaysOnTop), keyEquivalent: "t")
         alwaysOnTopItem.keyEquivalentModifierMask = [.command, .option]
         windowMenu.addItem(alwaysOnTopItem)
         alwaysOnTopMenuItem = alwaysOnTopItem
@@ -198,6 +207,48 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         mainViewController?.createFolderAndBeginRename(parentId: nil)
     }
 
+    // MARK: - Global Hotkey
+
+    private func setupGlobalHotkey() {
+        GlobalHotkeyService.shared.delegate = self
+
+        if let shortcut = KeyboardShortcut.load() {
+            GlobalHotkeyService.shared.register(shortcut: shortcut)
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShortcutChanged),
+            name: .toggleSidebarShortcutChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleShortcutChanged() {
+        if let shortcut = KeyboardShortcut.load() {
+            GlobalHotkeyService.shared.register(shortcut: shortcut)
+        } else {
+            GlobalHotkeyService.shared.unregister()
+        }
+    }
+
+    func hotkeyServiceDidTrigger(_ service: GlobalHotkeyService) {
+        guard let window = window else { return }
+
+        if isUserHidden || !window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            isUserHidden = false
+
+            if isAttachmentMode {
+                WindowAttachmentService.shared.forceUpdate()
+            }
+        } else {
+            window.orderOut(nil)
+            isUserHidden = true
+        }
+    }
+
     // MARK: - URL Handling
 
     private func registerURLHandler() {
@@ -232,12 +283,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             showMainWindow()
 
             let alert = NSAlert()
-            alert.messageText = "Workspace Imported"
+            alert.messageText = "Workspace imported"
             alert.informativeText = "The shared workspace has been imported successfully."
             alert.runModal()
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Import Failed"
+            alert.messageText = "Import failed"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -431,6 +482,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         } else {
             window.setFrame(frame, display: true, animate: false)
         }
+
+        // Ensure window is visible alongside the browser
+        window.orderFront(nil)
     }
 
     func attachmentServiceShouldHideWindow(_ service: WindowAttachmentService) {
@@ -438,6 +492,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func attachmentServiceShouldShowWindow(_ service: WindowAttachmentService) {
+        guard !isUserHidden else { return }
         window?.orderFront(nil)
     }
 }

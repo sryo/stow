@@ -72,6 +72,7 @@ final class WorkspaceRowView: BaseView {
     private let handleView = NSImageView()
     private let colorSquare = NSView()
     private let editableTitle = InlineEditableTextField()
+    private let profileLabel = NSTextField(labelWithString: "")
     private let deleteButton = NSButton()
     private var style: Style = .default
     private var onDelete: (() -> Void)?
@@ -111,6 +112,12 @@ final class WorkspaceRowView: BaseView {
         editableTitle.font = style.titleFont
         editableTitle.textColor = style.titleColor
 
+        // Profile label
+        profileLabel.translatesAutoresizingMaskIntoConstraints = false
+        profileLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        profileLabel.textColor = NSColor.black.withAlphaComponent(0.4)
+        profileLabel.isHidden = true
+
         // Delete button
         deleteButton.translatesAutoresizingMaskIntoConstraints = false
         deleteButton.bezelStyle = .texturedRounded
@@ -127,6 +134,7 @@ final class WorkspaceRowView: BaseView {
         addSubview(handleView)
         addSubview(colorSquare)
         addSubview(editableTitle)
+        addSubview(profileLabel)
         addSubview(deleteButton)
 
         NSLayoutConstraint.activate([
@@ -145,7 +153,11 @@ final class WorkspaceRowView: BaseView {
             // Title
             editableTitle.leadingAnchor.constraint(equalTo: colorSquare.trailingAnchor, constant: style.titleLeading),
             editableTitle.centerYAnchor.constraint(equalTo: centerYAnchor),
-            editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: deleteButton.leadingAnchor, constant: -style.titleTrailing),
+
+            // Profile label (after title, before delete button)
+            profileLabel.leadingAnchor.constraint(equalTo: editableTitle.trailingAnchor, constant: 4),
+            profileLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            profileLabel.trailingAnchor.constraint(lessThanOrEqualTo: deleteButton.leadingAnchor, constant: -style.titleTrailing),
 
             // Delete button
             deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.deleteTrailing),
@@ -157,6 +169,7 @@ final class WorkspaceRowView: BaseView {
 
     func configure(workspaceName: String,
                    workspaceColor: NSColor,
+                   profileName: String? = nil,
                    showDelete: Bool,
                    canDelete: Bool,
                    onDelete: (() -> Void)?) {
@@ -170,6 +183,14 @@ final class WorkspaceRowView: BaseView {
         }
 
         colorSquare.layer?.backgroundColor = workspaceColor.cgColor
+
+        if let profileName = profileName {
+            profileLabel.stringValue = profileName
+            profileLabel.isHidden = false
+        } else {
+            profileLabel.isHidden = true
+        }
+
         deleteButton.isEnabled = canDelete
         deleteButton.toolTip = canDelete ? nil : "Cannot delete the last workspace"
 

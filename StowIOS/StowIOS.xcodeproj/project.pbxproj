@@ -1,0 +1,741 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001 /* StowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001 /* StowApp.swift */; };
+		A1000002 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002 /* AppViewModel.swift */; };
+		A1000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003 /* ContentView.swift */; };
+		A1000004 /* WorkspaceSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* WorkspaceSidebarView.swift */; };
+		A1000005 /* WorkspacePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000005 /* WorkspacePicker.swift */; };
+		A1000006 /* WorkspaceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* WorkspaceRow.swift */; };
+		A1000007 /* NodeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* NodeListView.swift */; };
+		A1000008 /* WorkspacePageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* WorkspacePageView.swift */; };
+		A1000009 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D1000001 /* StowShared */; };
+		A1000010 /* NodeRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* NodeRowView.swift */; };
+		A1000011 /* AddItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000011 /* AddItemView.swift */; };
+		A1000012 /* FaviconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* FaviconView.swift */; };
+		A1000013 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000013 /* SettingsView.swift */; };
+		A1000014 /* WorkspaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000014 /* WorkspaceSettingsView.swift */; };
+		A1000015 /* PinnedLinksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000015 /* PinnedLinksView.swift */; };
+		A2000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* ShareViewController.swift */; };
+		A2000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D2000001 /* StowShared */; };
+		A2000003 /* StowShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C2000001 /* StowShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A3000001 /* StowWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000001 /* StowWidget.swift */; };
+		A3000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D3000001 /* StowShared */; };
+		A3000003 /* StowWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C3000001 /* StowWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CP200001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P1000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T2000001;
+			remoteInfo = StowShareExtension;
+		};
+		CP300001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P1000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T3000001;
+			remoteInfo = StowWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CF000001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A2000003 /* StowShareExtension.appex in Embed App Extensions */,
+				A3000003 /* StowWidgetExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		B1000001 /* StowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowApp.swift; sourceTree = "<group>"; };
+		B1000002 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		B1000003 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B1000004 /* WorkspaceSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarView.swift; sourceTree = "<group>"; };
+		B1000005 /* WorkspacePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePicker.swift; sourceTree = "<group>"; };
+		B1000006 /* WorkspaceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRow.swift; sourceTree = "<group>"; };
+		B1000007 /* NodeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeListView.swift; sourceTree = "<group>"; };
+		B1000008 /* WorkspacePageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePageView.swift; sourceTree = "<group>"; };
+		B1000010 /* NodeRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRowView.swift; sourceTree = "<group>"; };
+		B1000011 /* AddItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddItemView.swift; sourceTree = "<group>"; };
+		B1000012 /* FaviconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaviconView.swift; sourceTree = "<group>"; };
+		B1000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B1000014 /* WorkspaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsView.swift; sourceTree = "<group>"; };
+		B1000015 /* PinnedLinksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedLinksView.swift; sourceTree = "<group>"; };
+		B2000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		B2000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B2000003 /* StowShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StowShareExtension.entitlements; sourceTree = "<group>"; };
+		B3000001 /* StowWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowWidget.swift; sourceTree = "<group>"; };
+		B3000002 /* StowWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StowWidget.entitlements; sourceTree = "<group>"; };
+		C1000001 /* StowIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2000001 /* StowShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3000001 /* StowWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E1000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000009 /* StowShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E2000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A2000002 /* StowShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E3000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3000002 /* StowShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		F1000001 /* root */ = {
+			isa = PBXGroup;
+			children = (
+				F1000002 /* StowIOS */,
+				F2000001 /* StowShareExtension */,
+				F3000001 /* StowWidget */,
+				F1000005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F1000002 /* StowIOS */ = {
+			isa = PBXGroup;
+			children = (
+				B1000001 /* StowApp.swift */,
+				F1000003 /* ViewModels */,
+				F1000004 /* Views */,
+			);
+			path = StowIOS;
+			sourceTree = "<group>";
+		};
+		F1000003 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				B1000002 /* AppViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		F1000004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B1000003 /* ContentView.swift */,
+				B1000004 /* WorkspaceSidebarView.swift */,
+				B1000005 /* WorkspacePicker.swift */,
+				B1000006 /* WorkspaceRow.swift */,
+				B1000007 /* NodeListView.swift */,
+				B1000010 /* NodeRowView.swift */,
+				B1000011 /* AddItemView.swift */,
+				B1000008 /* WorkspacePageView.swift */,
+				B1000012 /* FaviconView.swift */,
+				B1000013 /* SettingsView.swift */,
+				B1000014 /* WorkspaceSettingsView.swift */,
+				B1000015 /* PinnedLinksView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		F1000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C1000001 /* StowIOS.app */,
+				C2000001 /* StowShareExtension.appex */,
+				C3000001 /* StowWidgetExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F2000001 /* StowShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				B2000001 /* ShareViewController.swift */,
+				B2000002 /* Info.plist */,
+				B2000003 /* StowShareExtension.entitlements */,
+			);
+			path = StowShareExtension;
+			sourceTree = "<group>";
+		};
+		F3000001 /* StowWidget */ = {
+			isa = PBXGroup;
+			children = (
+				B3000001 /* StowWidget.swift */,
+				B3000002 /* StowWidget.entitlements */,
+			);
+			path = StowWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T1000001 /* StowIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC000003 /* Build configuration list for PBXNativeTarget "StowIOS" */;
+			buildPhases = (
+				S1000001 /* Sources */,
+				E1000001 /* Frameworks */,
+				R1000001 /* Resources */,
+				CF000001 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				TD200001 /* PBXTargetDependency */,
+				TD300001 /* PBXTargetDependency */,
+			);
+			name = StowIOS;
+			packageProductDependencies = (
+				D1000001 /* StowShared */,
+			);
+			productName = StowIOS;
+			productReference = C1000001 /* StowIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		T2000001 /* StowShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC200001 /* Build configuration list for PBXNativeTarget "StowShareExtension" */;
+			buildPhases = (
+				S2000001 /* Sources */,
+				E2000001 /* Frameworks */,
+				R2000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StowShareExtension;
+			packageProductDependencies = (
+				D2000001 /* StowShared */,
+			);
+			productName = StowShareExtension;
+			productReference = C2000001 /* StowShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		T3000001 /* StowWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC300001 /* Build configuration list for PBXNativeTarget "StowWidgetExtension" */;
+			buildPhases = (
+				S3000001 /* Sources */,
+				E3000001 /* Frameworks */,
+				R3000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StowWidgetExtension;
+			packageProductDependencies = (
+				D3000001 /* StowShared */,
+			);
+			productName = StowWidgetExtension;
+			productReference = C3000001 /* StowWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P1000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					T1000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					T2000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					T3000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = CC000001 /* Build configuration list for PBXProject "StowIOS" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = F1000001 /* root */;
+			packageReferences = (
+				PR000001 /* XCLocalSwiftPackageReference "../" */,
+			);
+			productRefGroup = F1000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T1000001 /* StowIOS */,
+				T2000001 /* StowShareExtension */,
+				T3000001 /* StowWidgetExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		R1000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		R2000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		R3000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		S1000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* StowApp.swift in Sources */,
+				A1000002 /* AppViewModel.swift in Sources */,
+				A1000003 /* ContentView.swift in Sources */,
+				A1000004 /* WorkspaceSidebarView.swift in Sources */,
+				A1000005 /* WorkspacePicker.swift in Sources */,
+				A1000006 /* WorkspaceRow.swift in Sources */,
+				A1000007 /* NodeListView.swift in Sources */,
+				A1000010 /* NodeRowView.swift in Sources */,
+				A1000011 /* AddItemView.swift in Sources */,
+				A1000008 /* WorkspacePageView.swift in Sources */,
+				A1000012 /* FaviconView.swift in Sources */,
+				A1000013 /* SettingsView.swift in Sources */,
+				A1000014 /* WorkspaceSettingsView.swift in Sources */,
+				A1000015 /* PinnedLinksView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S2000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A2000001 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S3000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3000001 /* StowWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		TD200001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T2000001 /* StowShareExtension */;
+			targetProxy = CP200001 /* PBXContainerItemProxy */;
+		};
+		TD300001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T3000001 /* StowWidgetExtension */;
+			targetProxy = CP300001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BC000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ACCESSIBILITY_ENUMERATIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BC000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ACCESSIBILITY_ENUMERATIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		BC000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = StowIOS/StowIOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Stow;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BC000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = StowIOS/StowIOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Stow;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BC200001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StowShareExtension/StowShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Share to Stow";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BC200002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StowShareExtension/StowShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Share to Stow";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BC300001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StowWidget/StowWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Stow Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.StowWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BC300002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StowWidget/StowWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Stow Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.StowWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CC000001 /* Build configuration list for PBXProject "StowIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC000001 /* Debug */,
+				BC000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC000003 /* Build configuration list for PBXNativeTarget "StowIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC000003 /* Debug */,
+				BC000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC200001 /* Build configuration list for PBXNativeTarget "StowShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC200001 /* Debug */,
+				BC200002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC300001 /* Build configuration list for PBXNativeTarget "StowWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC300001 /* Debug */,
+				BC300002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		PR000001 /* XCLocalSwiftPackageReference "../" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D1000001 /* StowShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StowShared;
+		};
+		D2000001 /* StowShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StowShared;
+		};
+		D3000001 /* StowShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StowShared;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+	};
+	rootObject = P1000001 /* Project object */;
+}

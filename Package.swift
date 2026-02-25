@@ -6,21 +6,33 @@ import PackageDescription
 let package = Package(
     name: "Stow",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
-        // Library for bundler to use
+        // Shared library for cross-platform code
+        .library(name: "StowShared", targets: ["StowShared"]),
+        // Core library for macOS (includes StowShared)
         .library(name: "StowCore", targets: ["StowCore"]),
         // Executable for development/testing
         .executable(name: "Stow", targets: ["StowApp"])
     ],
     targets: [
-        // Core library with all app logic
-        .target(name: "StowCore"),
+        // Shared cross-platform library (Foundation-only, no AppKit/UIKit)
+        .target(name: "StowShared"),
+        // macOS-specific library (AppKit UI + re-exports StowShared)
+        .target(
+            name: "StowCore",
+            dependencies: ["StowShared"]
+        ),
         // Minimal executable entry point
         .executableTarget(
             name: "StowApp",
             dependencies: ["StowCore"]
+        ),
+        .testTarget(
+            name: "StowSharedTests",
+            dependencies: ["StowShared"]
         ),
         .testTarget(
             name: "StowTests",

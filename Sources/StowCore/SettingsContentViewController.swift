@@ -5,6 +5,7 @@
 
 import AppKit
 
+@MainActor
 final class SettingsContentViewController: NSViewController {
     // Layout constants
     private let horizontalPadding: CGFloat = 8
@@ -26,6 +27,9 @@ final class SettingsContentViewController: NSViewController {
     private let alwaysOnTopToggle = CustomToggle(title: "Always on Top")
     private let attachSidebarToggle = CustomToggle(title: "Attach to Window as Sidebar")
     private let sidebarPositionSelector = SidebarPositionSelector()
+
+    // Keyboard shortcuts section
+    private let shortcutRecorderView = ShortcutRecorderView()
 
     // Workspace management section
     private let workspaceCollectionView = WorkspaceContextMenuCollectionView()
@@ -205,6 +209,21 @@ final class SettingsContentViewController: NSViewController {
 
         let separator1 = createSeparator()
 
+        // Keyboard Shortcuts Section
+        let shortcutsHeader = createSectionHeader("Keyboard shortcuts")
+
+        let shortcutDescriptionLabel = NSTextField(labelWithString: "Toggle Stow")
+        shortcutDescriptionLabel.font = NSFont.systemFont(ofSize: 13)
+        shortcutDescriptionLabel.textColor = regularTextColor
+        shortcutDescriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        shortcutRecorderView.translatesAutoresizingMaskIntoConstraints = false
+        shortcutRecorderView.onShortcutChanged = { [weak self] shortcut in
+            self?.handleShortcutChanged(shortcut)
+        }
+
+        let separatorShortcuts = createSeparator()
+
         // Workspace Management Section
         let workspaceHeader = createSectionHeader("Manage Workspaces")
 
@@ -271,6 +290,10 @@ final class SettingsContentViewController: NSViewController {
         contentView.addSubview(attachSidebarToggle)
         contentView.addSubview(sidebarPositionSelector)
         contentView.addSubview(separator1)
+        contentView.addSubview(shortcutsHeader)
+        contentView.addSubview(shortcutDescriptionLabel)
+        contentView.addSubview(shortcutRecorderView)
+        contentView.addSubview(separatorShortcuts)
         contentView.addSubview(workspaceHeader)
         contentView.addSubview(workspaceCollectionView)
         contentView.addSubview(separator2)
@@ -318,9 +341,28 @@ final class SettingsContentViewController: NSViewController {
             separator1.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
             separator1.heightAnchor.constraint(equalToConstant: 1),
 
+            // Keyboard Shortcuts Header
+            shortcutsHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
+            shortcutsHeader.topAnchor.constraint(equalTo: separator1.bottomAnchor, constant: sectionSpacing),
+
+            // Shortcut description label
+            shortcutDescriptionLabel.leadingAnchor.constraint(equalTo: shortcutsHeader.leadingAnchor),
+            shortcutDescriptionLabel.topAnchor.constraint(equalTo: shortcutsHeader.bottomAnchor, constant: sectionHeaderSpacing),
+
+            // Shortcut recorder view
+            shortcutRecorderView.leadingAnchor.constraint(equalTo: shortcutsHeader.leadingAnchor),
+            shortcutRecorderView.topAnchor.constraint(equalTo: shortcutDescriptionLabel.bottomAnchor, constant: controlLabelSpacing),
+            shortcutRecorderView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+
+            // Separator after shortcuts
+            separatorShortcuts.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
+            separatorShortcuts.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+            separatorShortcuts.topAnchor.constraint(equalTo: shortcutRecorderView.bottomAnchor, constant: sectionSpacing),
+            separatorShortcuts.heightAnchor.constraint(equalToConstant: 1),
+
             // Workspace Management Header
             workspaceHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            workspaceHeader.topAnchor.constraint(equalTo: separator1.bottomAnchor, constant: sectionSpacing),
+            workspaceHeader.topAnchor.constraint(equalTo: separatorShortcuts.bottomAnchor, constant: sectionSpacing),
 
                 // Workspace Collection View - full width without horizontal padding
             workspaceCollectionView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -625,6 +667,10 @@ final class SettingsContentViewController: NSViewController {
         updatePermissionStatus()
     }
 
+    private func handleShortcutChanged(_ shortcut: KeyboardShortcut?) {
+        NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
+    }
+
     @objc private func importFromArc() {
         // Construct default Arc path
         let arcPath = FileManager.default.homeDirectoryForCurrentUser
@@ -740,6 +786,10 @@ final class SettingsContentViewController: NSViewController {
         workspaceCollectionView.reloadData()
     }
 
+    // Animation constants for workspace deletion
+    private static let deletionAnimationDuration: TimeInterval = 0.2
+    private static let deletionAnimationOffset: CGFloat = 10
+
     private func handleWorkspaceDelete(id: UUID) {
         guard let appModel = appModel else { return }
 
@@ -763,8 +813,69 @@ final class SettingsContentViewController: NSViewController {
 
         alert.beginSheetModal(for: view.window!) { response in
             if response == .alertSecondButtonReturn {
-                appModel.deleteWorkspace(id: id)
-                self.reloadWorkspaces()
+                self.animateWorkspaceDeletion(id: id)
+            }
+        }
+    }
+
+    private func animateWorkspaceDeletion(id: UUID) {
+        guard let appModel = appModel else { return }
+        guard let index = appModel.workspaces.firstIndex(where: { $0.id == id }) else { return }
+
+        let indexPath = IndexPath(item: index, section: 0)
+
+        // Create bitmap snapshot of the item being deleted
+        let snapshot = makeWorkspaceDeletionSnapshot(at: indexPath)
+
+        // Delete from model
+        appModel.deleteWorkspace(id: id)
+
+        // Update collection view height for the new count
+        let metrics = ListMetrics()
+        let rowCount = appModel.workspaces.count
+        let totalHeight = CGFloat(rowCount) * metrics.rowHeight + CGFloat(max(0, rowCount - 1)) * metrics.verticalGap
+        workspaceCollectionViewHeightConstraint?.constant = totalHeight
+
+        // Perform batch update to animate the deletion in the collection view
+        workspaceCollectionView.performBatchUpdates({
+            self.workspaceCollectionView.deleteItems(at: [indexPath])
+        }, completionHandler: { _ in
+            // Reload remaining items to update delete button visibility
+            self.workspaceCollectionView.reloadData()
+        })
+
+        // Animate the snapshot (fade out + slide up)
+        animateWorkspaceDeletionSnapshot(snapshot)
+    }
+
+    private func makeWorkspaceDeletionSnapshot(at indexPath: IndexPath) -> NSImageView? {
+        guard let item = workspaceCollectionView.item(at: indexPath) else { return nil }
+        let itemView = item.view
+        guard let rep = itemView.bitmapImageRepForCachingDisplay(in: itemView.bounds) else { return nil }
+        itemView.cacheDisplay(in: itemView.bounds, to: rep)
+        let image = NSImage(size: itemView.bounds.size)
+        image.addRepresentation(rep)
+        let frame = itemView.convert(itemView.bounds, to: workspaceCollectionView)
+        let imageView = NSImageView(frame: frame)
+        imageView.image = image
+        imageView.imageScaling = .scaleAxesIndependently
+        workspaceCollectionView.addSubview(imageView)
+        itemView.alphaValue = 0
+        return imageView
+    }
+
+    private func animateWorkspaceDeletionSnapshot(_ snapshot: NSImageView?) {
+        guard let snapshot else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.deletionAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            let finalOrigin = NSPoint(x: snapshot.frame.origin.x, y: snapshot.frame.origin.y - Self.deletionAnimationOffset)
+            snapshot.animator().setFrameOrigin(finalOrigin)
+            snapshot.animator().alphaValue = 0
+        } completionHandler: {
+            DispatchQueue.main.async {
+                snapshot.removeFromSuperview()
             }
         }
     }
@@ -825,6 +936,39 @@ final class SettingsContentViewController: NSViewController {
         colorItem.submenu = colorSubmenu
         menu.addItem(colorItem)
 
+        // Browser Profile submenu
+        if let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
+           BrowserManager.supportsProfiles(bundleId) {
+            let profiles = BrowserManager.profiles(for: bundleId)
+            if !profiles.isEmpty {
+                let profileSubmenu = NSMenu()
+                let currentProfile = workspace.browserProfiles[bundleId]
+
+                // "None" option to clear profile
+                let noneItem = NSMenuItem(title: "None (default)", action: #selector(clearWorkspaceBrowserProfile), keyEquivalent: "")
+                noneItem.target = self
+                if currentProfile == nil {
+                    noneItem.state = .on
+                }
+                profileSubmenu.addItem(noneItem)
+                profileSubmenu.addItem(.separator())
+
+                for profile in profiles {
+                    let item = NSMenuItem(title: profile.displayName, action: #selector(setWorkspaceBrowserProfile(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = profile.directoryName
+                    if currentProfile == profile.directoryName {
+                        item.state = .on
+                    }
+                    profileSubmenu.addItem(item)
+                }
+
+                let profileItem = NSMenuItem(title: "Browser profile", action: nil, keyEquivalent: "")
+                profileItem.submenu = profileSubmenu
+                menu.addItem(profileItem)
+            }
+        }
+
         // Delete option
         menu.addItem(.separator())
         let deleteItem = NSMenuItem(title: "Delete Workspace...", action: #selector(deleteContextWorkspace), keyEquivalent: "")
@@ -881,6 +1025,21 @@ final class SettingsContentViewController: NSViewController {
         reloadWorkspaces()
     }
 
+    @objc private func setWorkspaceBrowserProfile(_ sender: NSMenuItem) {
+        guard let workspaceId = contextWorkspaceId else { return }
+        guard let profileDir = sender.representedObject as? String else { return }
+        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
+        appModel?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: profileDir)
+        reloadWorkspaces()
+    }
+
+    @objc private func clearWorkspaceBrowserProfile() {
+        guard let workspaceId = contextWorkspaceId else { return }
+        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
+        appModel?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: nil)
+        reloadWorkspaces()
+    }
+
     @objc private func deleteContextWorkspace() {
         guard let workspaceId = contextWorkspaceId else { return }
         handleWorkspaceDelete(id: workspaceId)
@@ -913,9 +1072,18 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
         let workspace = appModel.workspaces[indexPath.item]
         let canDelete = appModel.workspaces.count > 1
 
+        // Resolve profile display name
+        var profileName: String?
+        if let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
+           let profileDir = workspace.browserProfiles[bundleId] {
+            let profiles = BrowserManager.profiles(for: bundleId)
+            profileName = profiles.first(where: { $0.directoryName == profileDir })?.displayName ?? profileDir
+        }
+
         item.configure(
             workspace: workspace,
             canDelete: canDelete,
+            profileName: profileName,
             onDelete: { [weak self] id in
                 self?.handleWorkspaceDelete(id: id)
             },

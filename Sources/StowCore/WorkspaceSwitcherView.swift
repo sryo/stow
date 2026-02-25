@@ -829,10 +829,16 @@ extension WorkspaceButton: NSTextFieldDelegate {
         let movement = obj.userInfo?["NSTextMovement"] as? Int ?? NSOtherTextMovement
         let trimmed = titleLabel.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if movement == NSReturnTextMovement, !trimmed.isEmpty {
+        if movement == NSCancelTextMovement {
+            // Escape key: always cancel and restore original text
+            titleLabel.stringValue = editingOriginalTitle ?? titleLabel.stringValue
+            finishInlineRename(commit: false)
+        } else if !trimmed.isEmpty {
+            // Return key or focus loss with non-empty text: commit
             titleLabel.stringValue = trimmed
             finishInlineRename(commit: true)
         } else {
+            // Focus loss or return with empty text: cancel and restore original
             titleLabel.stringValue = editingOriginalTitle ?? titleLabel.stringValue
             finishInlineRename(commit: false)
         }

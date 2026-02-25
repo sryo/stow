@@ -113,6 +113,10 @@ final class WorkspaceManagementView: NSView {
         workspaceCollectionView.reloadData()
     }
 
+    // Animation constants for workspace deletion
+    private static let deletionAnimationDuration: TimeInterval = 0.2
+    private static let deletionAnimationOffset: CGFloat = 10
+
     // MARK: - Private Methods
 
     private func handleWorkspaceDelete(id: UUID) {
@@ -123,7 +127,73 @@ final class WorkspaceManagementView: NSView {
             return
         }
 
+        animateWorkspaceDeletion(id: id)
+    }
+
+    private func animateWorkspaceDeletion(id: UUID) {
+        guard let workspaces = workspacesProvider?() else { return }
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+
+        let indexPath = IndexPath(item: index, section: 0)
+
+        // Create bitmap snapshot of the item being deleted
+        let snapshot = makeWorkspaceDeletionSnapshot(at: indexPath)
+
+        // Notify parent to perform the actual deletion
         onWorkspaceDeleted?(id)
+
+        // Update collection view height for the new count
+        let metrics = ListMetrics()
+        let updatedWorkspaces = workspacesProvider?() ?? []
+        let rowCount = updatedWorkspaces.count
+        let totalHeight = CGFloat(rowCount) * metrics.rowHeight + CGFloat(max(0, rowCount - 1)) * metrics.verticalGap
+        workspaceCollectionViewHeightConstraint?.constant = totalHeight
+
+        // Invalidate layout before batch update
+        workspaceCollectionView.collectionViewLayout?.invalidateLayout()
+
+        // Perform batch update to animate the deletion in the collection view
+        workspaceCollectionView.performBatchUpdates({
+            self.workspaceCollectionView.deleteItems(at: [indexPath])
+        }, completionHandler: { _ in
+            // Reload remaining items to update delete button visibility
+            self.workspaceCollectionView.reloadData()
+        })
+
+        // Animate the snapshot (fade out + slide up)
+        animateWorkspaceDeletionSnapshot(snapshot)
+    }
+
+    private func makeWorkspaceDeletionSnapshot(at indexPath: IndexPath) -> NSImageView? {
+        guard let item = workspaceCollectionView.item(at: indexPath) else { return nil }
+        let itemView = item.view
+        guard let rep = itemView.bitmapImageRepForCachingDisplay(in: itemView.bounds) else { return nil }
+        itemView.cacheDisplay(in: itemView.bounds, to: rep)
+        let image = NSImage(size: itemView.bounds.size)
+        image.addRepresentation(rep)
+        let frame = itemView.convert(itemView.bounds, to: workspaceCollectionView)
+        let imageView = NSImageView(frame: frame)
+        imageView.image = image
+        imageView.imageScaling = .scaleAxesIndependently
+        workspaceCollectionView.addSubview(imageView)
+        itemView.alphaValue = 0
+        return imageView
+    }
+
+    private func animateWorkspaceDeletionSnapshot(_ snapshot: NSImageView?) {
+        guard let snapshot else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.deletionAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            let finalOrigin = NSPoint(x: snapshot.frame.origin.x, y: snapshot.frame.origin.y - Self.deletionAnimationOffset)
+            snapshot.animator().setFrameOrigin(finalOrigin)
+            snapshot.animator().alphaValue = 0
+        } completionHandler: {
+            DispatchQueue.main.async {
+                snapshot.removeFromSuperview()
+            }
+        }
     }
 
     private func handleWorkspaceRename(id: UUID, newName: String) {
@@ -139,7 +209,7 @@ final class WorkspaceManagementView: NSView {
         let menu = NSMenu()
 
         // Rename option
-        let renameItem = NSMenuItem(title: "Rename Workspace...", action: #selector(beginInlineRenameForContextWorkspace), keyEquivalent: "")
+        let renameItem = NSMenuItem(title: "Rename workspace...", action: #selector(beginInlineRenameForContextWorkspace), keyEquivalent: "")
         renameItem.target = self
         menu.addItem(renameItem)
 
@@ -168,16 +238,16 @@ final class WorkspaceManagementView: NSView {
         }
 
         colorSubmenu.addItem(NSMenuItem.separator())
-        let customColorItem = NSMenuItem(title: "Custom Color…", action: #selector(chooseCustomWorkspaceColor), keyEquivalent: "")
+        let customColorItem = NSMenuItem(title: "Custom color…", action: #selector(chooseCustomWorkspaceColor), keyEquivalent: "")
         customColorItem.target = self
         colorSubmenu.addItem(customColorItem)
-        let colorItem = NSMenuItem(title: "Change Color", action: nil, keyEquivalent: "")
+        let colorItem = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
         colorItem.submenu = colorSubmenu
         menu.addItem(colorItem)
 
         // Delete option
         menu.addItem(.separator())
-        let deleteItem = NSMenuItem(title: "Delete Workspace...", action: #selector(deleteContextWorkspace), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: "Delete workspace...", action: #selector(deleteContextWorkspace), keyEquivalent: "")
         deleteItem.target = self
         deleteItem.isEnabled = workspaces.count > 1
         menu.addItem(deleteItem)
@@ -240,7 +310,7 @@ final class WorkspaceManagementView: NSView {
 
         // Show confirmation alert
         let alert = NSAlert()
-        alert.messageText = "Delete Workspace?"
+        alert.messageText = "Delete workspace?"
         alert.informativeText = "Are you sure you want to delete this workspace? All links and folders will be permanently removed."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Cancel")
@@ -255,7 +325,6 @@ final class WorkspaceManagementView: NSView {
             alert.beginSheetModal(for: window) { [weak self] response in
                 if response == .alertSecondButtonReturn {
                     self?.handleWorkspaceDelete(id: workspaceId)
-                    self?.reloadWorkspaces()
                 }
             }
         }

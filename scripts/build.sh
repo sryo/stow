@@ -110,13 +110,14 @@ if [ "$PRODUCTION" = true ]; then
     codesign --force --deep \
         --sign "$SIGNING_IDENTITY" \
         --options runtime \
+        --entitlements "Stow.entitlements" \
         --timestamp \
         ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
 
     echo "  ✓ Signed with Developer ID (hardened runtime enabled)"
 else
-    # Development signing with ad-hoc signature
-    codesign --force --deep --sign - ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
+    # Development signing with ad-hoc signature and entitlements
+    codesign --force --deep --sign - --entitlements "Stow.entitlements" ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
     echo "  ✓ Signed with ad-hoc signature (development only)"
 fi
 

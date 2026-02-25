@@ -211,6 +211,33 @@ WorkspaceColorId enum defines 8 color themes (Blush, Apricot, Butter, Leaf, Mint
 - Window background color (color at 0.92 alpha)
 - View layer background color
 
+### iOS App Architecture
+
+The iOS app lives in `StowIOS/` and uses SwiftUI with the shared `StowShared` library.
+
+**Key Components:**
+- **StowApp** - App entry point with `NavigationSplitView`
+- **AppViewModel** - `@Observable` wrapper around `AppModel` for SwiftUI reactivity
+- **ContentView** - Root view with sidebar/detail split
+- **NodeRowView** - Renders folder/link/task/snippet rows with inline rename
+- **WorkspacePageView** - Swipeable workspace pages
+- **PinnedLinksView** - Pinned links display
+
+**Extensions:**
+- **StowShareExtension** - iOS Share Sheet extension for saving URLs to the first workspace via App Group shared storage
+- **StowWidget** - Home screen widget showing pinned links from the selected workspace
+
+**Shared Data:**
+- App Group `group.com.stow.app` enables data sharing between the main app, share extension, and widget
+- Both extensions use `DataStore` with the App Group container directory
+- CloudKit sync via `iCloud.com.stow.app` container
+
+**Building iOS:**
+```bash
+# Build all iOS targets for simulator
+xcodebuild -scheme StowIOS -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+```
+
 ## Important Patterns
 
 ### AppKit-Specific Patterns

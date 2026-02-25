@@ -15,6 +15,7 @@ final class MainViewController: NSViewController {
     private let settingsViewController = SettingsContentViewController()
 
     // UI Components
+    private let pinnedTabsView = PinnedTabsView()
     private let workspaceSwitcher = WorkspaceSwitcherView(style: .defaultStyle)
     private let searchField = SearchBarView(style: .defaultSearch)
     private let pasteButton = IconTitleButton(
@@ -154,10 +155,21 @@ final class MainViewController: NSViewController {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
         bottomBar.addSubview(pasteButton)
 
+        // Pinned tabs
+        pinnedTabsView.isHidden = true
+        pinnedTabsView.onTileClicked = { [weak self] linkId in
+            guard let self, let link = self.model.pinnedLinkById(linkId) else { return }
+            self.openLink(link)
+        }
+        pinnedTabsView.onTileRightClicked = { [weak self] linkId, point in
+            self?.showPinnedTabContextMenu(linkId: linkId, at: point)
+        }
+
         contentStack.orientation = .vertical
         contentStack.spacing = 10
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.alignment = .centerX
+        contentStack.addArrangedSubview(pinnedTabsView)
         contentStack.addArrangedSubview(searchField)
         contentStack.addArrangedSubview(nodeListViewController.view)
         contentStack.addArrangedSubview(bottomBar)
@@ -181,6 +193,9 @@ final class MainViewController: NSViewController {
 
             bottomBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+
+            pinnedTabsView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            pinnedTabsView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
 
             searchField.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 2),
             searchField.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -2),
@@ -231,6 +246,10 @@ final class MainViewController: NSViewController {
             self?.model.workspaces ?? []
         }
 
+        nodeListViewController.currentWorkspaceIdProvider = { [weak self] in
+            self?.model.currentWorkspace.id
+        }
+
         nodeListViewController.findNodeById = { [weak self] id in
             self?.model.nodeById(id)
         }
@@ -245,8 +264,13 @@ final class MainViewController: NSViewController {
 
         nodeListViewController.onNodeSelected = { [weak self] nodeId in
             guard let self, let node = self.model.nodeById(nodeId) else { return }
-            if case .link(let link) = node {
+            switch node {
+            case .link(let link):
                 self.openLink(link)
+            case .snippet:
+                self.copySnippetToClipboard(nodeId)
+            default:
+                break
             }
         }
 
@@ -293,6 +317,40 @@ final class MainViewController: NSViewController {
             }
         }
 
+        nodeListViewController.onLinkUrlEdited = { [weak self] nodeId, newUrl in
+            guard let self else { return }
+            self.model.updateLinkUrl(id: nodeId, newUrl: newUrl)
+            // Fetch new title and favicon for the updated URL
+            if let url = URL(string: newUrl) {
+                self.fetchTitleForNewLink(id: nodeId, url: url)
+            }
+        }
+
+        nodeListViewController.onOpenFolderLinks = { [weak self] folderId in
+            guard let self, let node = self.model.nodeById(folderId), case .folder(let folder) = node else { return }
+            self.openLinksInFolder(folder)
+        }
+
+        nodeListViewController.onBulkOpenLinks = { [weak self] nodeIds in
+            guard let self else { return }
+            for nodeId in nodeIds {
+                if let node = self.model.findNode(id: nodeId, in: self.model.currentWorkspace.items),
+                   case .link(let link) = node {
+                    self.openLink(link)
+                }
+            }
+        }
+
+        nodeListViewController.canPinLink = { [weak self] linkId in
+            guard let self else { return false }
+            let alreadyPinned = self.model.currentWorkspace.pinnedLinks.contains { $0.id == linkId }
+            return !alreadyPinned && self.model.canPinMore()
+        }
+
+        nodeListViewController.onPinLink = { [weak self] linkId in
+            self?.model.pinLink(id: linkId)
+        }
+
         nodeListViewController.onNewFolderRequested = { [weak self] parentId in
             self?.createFolderAndBeginRename(parentId: parentId)
         }
@@ -324,6 +382,27 @@ final class MainViewController: NSViewController {
         nodeListViewController.onNewSnippetRequested = { [weak self] parentId in
             self?.createSnippetAndBeginRename(parentId: parentId)
         }
+
+        nodeListViewController.onMoveToNewWorkspace = { [weak self] nodeIds in
+            guard let self else { return }
+            let workspaceId = self.model.createWorkspace(name: "Untitled", colorId: .randomColor())
+            for nodeId in nodeIds {
+                self.model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
+            }
+            if let idx = self.model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
+                self.pageController.jumpToPage(idx + 1)
+            }
+            self.scheduleWorkspaceInlineRename(for: workspaceId)
+        }
+
+        nodeListViewController.onMoveToNewFolder = { [weak self] nodeIds in
+            guard let self, !nodeIds.isEmpty else { return }
+            let folderId = self.model.addFolder(name: "Untitled", parentId: nil)
+            for nodeId in nodeIds {
+                self.model.moveNode(id: nodeId, toParentId: folderId, index: 0)
+            }
+            self.nodeListViewController.scheduleInlineRename(for: folderId)
+        }
     }
 
     private func bindModel() {
@@ -336,6 +415,7 @@ final class MainViewController: NSViewController {
                 self.isReloadScheduled = false
                 self.reloadData()
             }
+            CloudSyncManager.shared.scheduleLocalChanges()
         }
     }
 
@@ -373,6 +453,8 @@ final class MainViewController: NSViewController {
         } else {
             showWorkspaceContent()
             applyBackgroundColor(for: model.currentWorkspace.colorId)
+            nodeListViewController.workspaceColor = model.currentWorkspace.colorId
+            pinnedTabsView.update(links: model.currentWorkspace.pinnedLinks)
             let filteredNodes = searchCoordinator.filter(nodes: model.currentWorkspace.items)
             let forceExpand = searchCoordinator.isSearchActive
             nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
@@ -482,11 +564,11 @@ final class MainViewController: NSViewController {
         let canMoveLeft = workspaceIndex > 0
         let canMoveRight = workspaceIndex < model.workspaces.count - 1
 
-        let renameItem = NSMenuItem(title: "Rename Workspace…", action: #selector(renameWorkspaceFromMenu), keyEquivalent: "")
+        let renameItem = NSMenuItem(title: "Rename workspace…", action: #selector(renameWorkspaceFromMenu), keyEquivalent: "")
         renameItem.target = self
         menu.addItem(renameItem)
 
-        let colorItem = NSMenuItem(title: "Change Color", action: nil, keyEquivalent: "")
+        let colorItem = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
         let colorSubmenu = NSMenu()
         for colorId in WorkspaceColorId.allCases {
             let colorMenuItem = NSMenuItem(title: colorId.name, action: #selector(changeColorTo(_:)), keyEquivalent: "")
@@ -499,7 +581,7 @@ final class MainViewController: NSViewController {
             colorSubmenu.addItem(colorMenuItem)
         }
         colorSubmenu.addItem(NSMenuItem.separator())
-        let customColorItem = NSMenuItem(title: "Custom Color…", action: #selector(chooseCustomColor), keyEquivalent: "")
+        let customColorItem = NSMenuItem(title: "Custom color…", action: #selector(chooseCustomColor), keyEquivalent: "")
         customColorItem.target = self
         colorSubmenu.addItem(customColorItem)
         colorItem.submenu = colorSubmenu
@@ -509,13 +591,13 @@ final class MainViewController: NSViewController {
             menu.addItem(NSMenuItem.separator())
 
             if canMoveLeft {
-                let moveLeftItem = NSMenuItem(title: "Move Left", action: #selector(moveWorkspaceLeft), keyEquivalent: "")
+                let moveLeftItem = NSMenuItem(title: "Move left", action: #selector(moveWorkspaceLeft), keyEquivalent: "")
                 moveLeftItem.target = self
                 menu.addItem(moveLeftItem)
             }
 
             if canMoveRight {
-                let moveRightItem = NSMenuItem(title: "Move Right", action: #selector(moveWorkspaceRight), keyEquivalent: "")
+                let moveRightItem = NSMenuItem(title: "Move right", action: #selector(moveWorkspaceRight), keyEquivalent: "")
                 moveRightItem.target = self
                 menu.addItem(moveRightItem)
             }
@@ -523,21 +605,21 @@ final class MainViewController: NSViewController {
 
         menu.addItem(NSMenuItem.separator())
 
-        let shareItem = NSMenuItem(title: "Share Workspace…", action: #selector(shareWorkspaceFromMenu), keyEquivalent: "")
+        let shareItem = NSMenuItem(title: "Share workspace…", action: #selector(shareWorkspaceFromMenu), keyEquivalent: "")
         shareItem.target = self
         menu.addItem(shareItem)
 
-        let exportItem = NSMenuItem(title: "Export Workspace…", action: #selector(exportWorkspaceFromMenu), keyEquivalent: "")
+        let exportItem = NSMenuItem(title: "Export workspace…", action: #selector(exportWorkspaceFromMenu), keyEquivalent: "")
         exportItem.target = self
         menu.addItem(exportItem)
 
-        let importItem = NSMenuItem(title: "Import Workspace…", action: #selector(importWorkspaceFromMenu), keyEquivalent: "")
+        let importItem = NSMenuItem(title: "Import workspace…", action: #selector(importWorkspaceFromMenu), keyEquivalent: "")
         importItem.target = self
         menu.addItem(importItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let deleteItem = NSMenuItem(title: "Delete Workspace…", action: #selector(deleteWorkspaceFromMenu), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: "Delete workspace…", action: #selector(deleteWorkspaceFromMenu), keyEquivalent: "")
         deleteItem.target = self
         deleteItem.isEnabled = canDelete
         menu.addItem(deleteItem)
@@ -601,7 +683,7 @@ final class MainViewController: NSViewController {
             showSharePanel(url: url, workspaceName: workspace.name)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Share Failed"
+            alert.messageText = "Share failed"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -616,6 +698,8 @@ final class MainViewController: NSViewController {
         )
         panel.title = "Share \"\(workspaceName)\""
         panel.isFloatingPanel = true
+        panel.contentMinSize = NSSize(width: 420, height: 160)
+        panel.contentMaxSize = NSSize(width: 420, height: 200)
 
         let contentView = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
 
@@ -630,8 +714,12 @@ final class MainViewController: NSViewController {
         textField.isSelectable = true
         textField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         textField.lineBreakMode = .byTruncatingMiddle
+        textField.cell?.usesSingleLineMode = true
+        textField.cell?.isScrollable = false
+        textField.cell?.truncatesLastVisibleLine = true
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let copyButton = NSButton(title: "Copy Link", target: nil, action: nil)
+        let copyButton = NSButton(title: "Copy link", target: nil, action: nil)
         copyButton.translatesAutoresizingMaskIntoConstraints = false
         copyButton.bezelStyle = .rounded
         copyButton.keyEquivalent = "\r"
@@ -676,7 +764,7 @@ final class MainViewController: NSViewController {
         // Update button title briefly to confirm
         sender.title = "Copied!"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            sender.title = "Copy Link"
+            sender.title = "Copy link"
         }
     }
 
@@ -693,7 +781,7 @@ final class MainViewController: NSViewController {
             try data.write(to: url, options: .atomic)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Export Failed"
+            alert.messageText = "Export failed"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -710,7 +798,7 @@ final class MainViewController: NSViewController {
             try model.importWorkspace(from: data)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Import Failed"
+            alert.messageText = "Import failed"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -746,7 +834,7 @@ final class MainViewController: NSViewController {
     }
 
     func promptCreateWorkspace() {
-        let workspaceId = model.createWorkspace(name: "Untitled Workspace", colorId: .randomColor())
+        let workspaceId = model.createWorkspace(name: "Untitled", colorId: .randomColor())
         if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
             pageController.jumpToPage(idx + 1)
         }
@@ -773,7 +861,7 @@ final class MainViewController: NSViewController {
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
-        let newId = model.addTask(title: "Untitled Task", parentId: parentId)
+        let newId = model.addTask(title: "Untitled", parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
@@ -781,7 +869,7 @@ final class MainViewController: NSViewController {
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
-        let newId = model.addSnippet(title: "Untitled Snippet", content: "", language: nil, parentId: parentId)
+        let newId = model.addSnippet(title: "Untitled", content: "", language: nil, parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
@@ -859,7 +947,22 @@ final class MainViewController: NSViewController {
 
     private func openLink(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
-        BrowserManager.open(url: url)
+        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
+        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
+        BrowserManager.open(url: url, profile: profile)
+    }
+
+    private func openLinksInFolder(_ folder: Folder) {
+        for child in folder.children {
+            switch child {
+            case .link(let link):
+                openLink(link)
+            case .folder(let nested):
+                openLinksInFolder(nested)
+            default:
+                break
+            }
+        }
     }
 
     // MARK: - URL Utilities
@@ -925,6 +1028,32 @@ final class MainViewController: NSViewController {
         guard let linkId = notification.userInfo?["linkId"] as? UUID,
               let path = notification.userInfo?["path"] as? String else { return }
         model.updateLinkFaviconPath(id: linkId, path: path)
+
+        // Also update pinned tab favicon if applicable
+        if let pinnedLink = model.pinnedLinkById(linkId) {
+            model.updatePinnedLinkFaviconPath(id: linkId, path: path)
+            var updated = pinnedLink
+            updated.faviconPath = path
+            pinnedTabsView.updateFavicon(linkId: linkId, link: updated)
+        }
+    }
+
+    private func showPinnedTabContextMenu(linkId: UUID, at point: NSPoint) {
+        let menu = NSMenu()
+
+        let unpinItem = NSMenuItem(title: "Unpin", action: #selector(unpinLink(_:)), keyEquivalent: "")
+        unpinItem.target = self
+        unpinItem.representedObject = linkId
+        menu.addItem(unpinItem)
+
+        if let contentView = view.window?.contentView {
+            menu.popUp(positioning: nil, at: point, in: contentView)
+        }
+    }
+
+    @objc private func unpinLink(_ sender: NSMenuItem) {
+        guard let linkId = sender.representedObject as? UUID else { return }
+        model.unpinLink(id: linkId)
     }
 
     // MARK: - Task & Snippet Actions
@@ -941,7 +1070,7 @@ final class MainViewController: NSViewController {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
                             styleMask: [.titled, .closable],
                             backing: .buffered, defer: false)
-        panel.title = "Set Due Date"
+        panel.title = "Set due date"
         panel.isFloatingPanel = true
 
         let datePicker = NSDatePicker()
@@ -1052,7 +1181,12 @@ final class MainViewController: NSViewController {
     // MARK: - Swipe Transition Helpers
 
     private func captureContentSnapshot() -> NSImageView? {
-        let sourceView: NSView = model.state.isSettingsSelected ? settingsViewController.view : contentStack
+        let sourceView: NSView
+        if model.state.isSettingsSelected {
+            sourceView = settingsViewController.view
+        } else {
+            sourceView = nodeListViewController.view
+        }
         guard !sourceView.isHidden else { return nil }
 
         let bounds = sourceView.bounds
@@ -1110,6 +1244,16 @@ final class MainViewController: NSViewController {
         outgoingSnapshotView = nil
         preloadedPageIndex = nil
         swipeDirection = 0
+        nodeListViewController.view.layer?.transform = CATransform3DIdentity
+        nodeListViewController.view.alphaValue = 1.0
+    }
+
+    /// Whether the current swipe is between two workspace pages (not settings or add-new).
+    private var isWorkspaceToWorkspaceSwipe: Bool {
+        let target = swipeStartPageIndex + swipeDirection
+        let workspaceCount = model.workspaces.count
+        return swipeStartPageIndex >= 1 && swipeStartPageIndex <= workspaceCount
+            && target >= 1 && target <= workspaceCount
     }
 }
 
@@ -1151,12 +1295,26 @@ extension MainViewController: ScrollWheelPageDelegate {
         let targetPage = swipeStartPageIndex + swipeDirection
         let isAddNewPage = targetPage >= totalPageCount() - 1
 
+        let swipeFromWorkspace = swipeStartPageIndex >= 1
+            && swipeStartPageIndex <= model.workspaces.count
+
         if isAddNewPage {
             // Add-new page: hide incoming content, just show background
-            contentStack.alphaValue = 0
+            if swipeFromWorkspace {
+                nodeListViewController.view.alphaValue = 0
+            } else {
+                contentStack.alphaValue = 0
+            }
             settingsViewController.view.alphaValue = 0
         } else if swipeDirection != 0 {
-            let incomingView: NSView = (targetPage == 0) ? settingsViewController.view : contentStack
+            let incomingView: NSView
+            if targetPage == 0 {
+                incomingView = settingsViewController.view
+            } else if isWorkspaceToWorkspaceSwipe {
+                incomingView = nodeListViewController.view
+            } else {
+                incomingView = contentStack
+            }
             let txIn: CGFloat
             if delta > 0 {
                 txIn = (1.0 - delta) * width
@@ -1201,11 +1359,13 @@ extension MainViewController: ScrollWheelPageDelegate {
 
         cleanupSwipeTransition()
 
-        // Reset transforms and alpha on both content views
+        // Reset transforms and alpha on all content views
         contentStack.layer?.transform = CATransform3DIdentity
         settingsViewController.view.layer?.transform = CATransform3DIdentity
+        nodeListViewController.view.layer?.transform = CATransform3DIdentity
         contentStack.alphaValue = 1.0
         settingsViewController.view.alphaValue = 1.0
+        nodeListViewController.view.alphaValue = 1.0
 
         let pageCount = totalPageCount()
 

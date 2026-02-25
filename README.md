@@ -1,127 +1,17 @@
-<picture>
-  <img src="./Resources/AppIcon.png" width="96" style="filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.18));">
-</picture>
-
 # Stow
 
-<p align="center">
-  <img src="./Resources/screenshots/screenshot-1-app.png" alt="Stow main window" width="100%">
-</p>
-
-Stow is a native macOS bookmark manager built with Swift and AppKit that attaches to any browser window as a sidebar.
-Inspired fully by how the tabs organization works in Arc browser's sidebar, so that the author could finally stop using this browser and try something else.
-
-## Demo
-
-https://github.com/user-attachments/assets/acc90f08-66c8-42de-9453-8699c2c2f47a
-
-## Why Stow?
-
-**Browser-Attached Sidebar** - Float alongside any browser window (Chrome, Arc, Safari, Brave, etc.) for instant access to your bookmarks without switching apps.
-
-**Workspace Organization** - Organize bookmarks into multiple workspaces with custom window colors. Create nested folder hierarchies with drag-and-drop.
-
-**Local-first** - All bookmarks stored in a single JSON file (`~/Library/Application Support/Stow/data.json`).
-
-## Download
-
-**Latest Release**: [Download Stow v0.1.0](https://github.com/Geek-1001/arcmark/releases/latest)
-
-### System Requirements
-- macOS 13.0 or later
-- Accessibility permissions (required for browser window attachment); Not needed if you intend to use it as a standalone window.
+A native macOS bookmark manager built with Swift and AppKit that attaches to any browser window as a sidebar. Forked from [Arcmark](https://github.com/Geek-1001/arcmark).
 
 ## Features
 
-### Browser Integration
-- **Sidebar Attachment** - Automatically attaches to browser windows and follows them across spaces. If you prefer, you can still use Stow as a standalone bookmark manager window, not attaching it anywhere.
-- **Supported Browsers** - Chrome, Arc, Safari, Brave, etc.
-- **Always-on-Top Mode** - Pin Stow window to stay visible on top of all apps.
-- **Arc Import** - Import links (aka pinned tabs) directly from Arc browser via settings.
-
-### Organization
-- **Multiple Workspaces** - Separate bookmark collections with custom-colored workspaces.
-- **Nested Folders** - Create hierarchical folder structures for your links.
-- **Drag-and-Drop** - Reorder and move bookmarks between folders and workspaces
-- **Inline Editing** - Rename folders and links directly in the list
-- **Search & Filter** - Quickly find bookmarks in any workspace
-
-<p align="center">
-  <img src="./Resources/screenshots/screenshot-2-settings.png" alt="Stow settings" width="100%">
-</p>
-
-## Installation
-
-1. Download the latest `.dmg` file from the [Releases](https://github.com/Geek-1001/arcmark/releases) page
-2. Open the downloaded DMG file
-3. Drag **Stow.app** to your **Applications** folder
-
-![Installation](./Resources/screenshots/screenshot-3-dmg.png)
-
-4. Launch Stow from your Applications folder
-
-## Setup
-
-### Accessibility Permissions
-
-For the sidebar attachment feature to work, grant Stow accessibility permissions:
-
-1. Open **System Settings** → **Privacy & Security** → **Accessibility**
-2. Click the **+** button and add **Stow.app**
-3. Enable the checkbox next to Stow
-
-Without this permission, the app will function as a standalone bookmark manager but won't attach to browser windows. The app will prompt to grant accessibility permission if the "Attach to window as sidebar" option is selected.
-
-### Importing from Arc
-
-To import bookmarks from Arc browser:
-
-1. Open Stow settings (⌘,)
-2. Click **Import Bookmarks** and select your Arc export file
-
-Arc stores your workspace locally in `~/Library/Application Support/Arc/StorableSidebar.json`. Stow parses this file to recreate exactly the same folder and spaces structure you've had previously.
-
-## Building from Source
-
-### Prerequisites
-
-- macOS 13.0 or later
-- Swift 6.2 or later
-- [swift-bundler](https://github.com/stackotter/swift-bundler)
-
-### Install swift-bundler
-
-```bash
-mint install stackotter/swift-bundler@main
-```
-
-Or follow instructions at [swiftbundler.dev](https://swiftbundler.dev).
-
-### Build and Run
-
-```bash
-git clone https://github.com/yourusername/stow.git
-cd stow
-
-# Build and run
-./scripts/run.sh
-
-# Build only (creates .build/bundler/Stow.app)
-./scripts/build.sh
-
-# Create DMG installer
-./scripts/build.sh --dmg
-```
-
-The app is built to `.build/bundler/Stow.app` and can be run directly:
-```bash
-open .build/bundler/Stow.app
-```
-
-## Contributing
-For bug reports, please [open an issue](#).
-
-For other changes, feel free to a open pull requests. See [CLAUDE.md](CLAUDE.md) and `docs/` for architecture details, development guidelines, and build instructions.
+- **Browser sidebar** - Attaches to Chrome, Arc, Safari, Brave, or any browser window. Also works as a standalone window.
+- **Workspaces** - Organize bookmarks into multiple collections with custom window colors.
+- **Nested folders** - Drag-and-drop hierarchical folder structures.
+- **Inline editing** - Rename folders and links directly in the list.
+- **Search & filter** - Quickly find bookmarks across workspaces.
+- **Always-on-top mode** - Pin the window to stay visible above all apps.
+- **Arc import** - Import pinned tabs and folder structure from Arc browser.
+- **Local-first** - All data stored in a single JSON file on disk.
 
 ## License
 

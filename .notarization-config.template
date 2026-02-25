@@ -1,4 +1,4 @@
-# Notarization credentials for Arcmark
+# Notarization credentials for Stow
 # Copy this file to .notarization-config and fill in your values
 # NEVER commit .notarization-config to git!
 

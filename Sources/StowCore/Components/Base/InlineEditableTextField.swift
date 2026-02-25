@@ -38,7 +38,7 @@ import AppKit
 /// ## Behavior
 /// - **Enter key**: Commits the edit if text is non-empty (after trimming)
 /// - **Escape key**: Cancels the edit and restores original text
-/// - **Focus loss**: Cancels the edit and restores original text
+/// - **Focus loss**: Commits the edit if text is non-empty, otherwise cancels
 /// - **Empty text**: Treated as cancellation
 ///
 /// - SeeAlso: `NodeRowView`, `WorkspaceRowView` for usage examples
@@ -212,8 +212,8 @@ extension InlineEditableTextField: NSTextFieldDelegate {
     ///
     /// This delegate method is called when editing ends (Enter key, Escape key, or focus loss).
     /// It determines whether to commit or cancel based on:
-    /// - The type of text movement (Enter vs Escape)
-    /// - Whether the trimmed text is non-empty
+    /// - **Escape**: Always cancels and restores original text
+    /// - **Enter or focus loss**: Commits if trimmed text is non-empty, otherwise cancels
     ///
     /// - Parameter obj: The notification containing information about how editing ended.
     func controlTextDidEndEditing(_ obj: Notification) {
@@ -221,10 +221,16 @@ extension InlineEditableTextField: NSTextFieldDelegate {
         let movement = obj.userInfo?["NSTextMovement"] as? Int ?? NSOtherTextMovement
         let trimmed = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if movement == NSReturnTextMovement, !trimmed.isEmpty {
+        if movement == NSCancelTextMovement {
+            // Escape key: always cancel and restore original text
+            textField.stringValue = editingOriginalTitle ?? textField.stringValue
+            finishInlineRename(commit: false)
+        } else if !trimmed.isEmpty {
+            // Return key or focus loss with non-empty text: commit
             textField.stringValue = trimmed
             finishInlineRename(commit: true)
         } else {
+            // Focus loss or return with empty text: cancel and restore original
             textField.stringValue = editingOriginalTitle ?? textField.stringValue
             finishInlineRename(commit: false)
         }

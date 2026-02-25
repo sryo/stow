@@ -328,8 +328,6 @@ Sources/StowCore/
 │
 ├── ViewControllers/
 │   ├── MainViewController.swift
-│   ├── PreferencesViewController.swift
-│   ├── PreferencesWindowController.swift
 │   └── SettingsContentViewController.swift
 │
 ├── Components/
@@ -1617,8 +1615,6 @@ Complete mapping of files from flat structure to new hierarchy:
 | `AppModel.swift` | `State/AppModel.swift` | State management |
 | `DataStore.swift` | `State/DataStore.swift` | Persistence |
 | `MainViewController.swift` | `ViewControllers/MainViewController.swift` | UI controller |
-| `PreferencesViewController.swift` | `ViewControllers/PreferencesViewController.swift` | UI controller |
-| `PreferencesWindowController.swift` | `ViewControllers/PreferencesWindowController.swift` | UI controller |
 | `SettingsContentViewController.swift` | `ViewControllers/SettingsContentViewController.swift` | UI controller |
 | `IconTitleButton.swift` | `Components/Buttons/IconTitleButton.swift` | UI component |
 | `CustomTextButton.swift` | `Components/Buttons/CustomTextButton.swift` | UI component |

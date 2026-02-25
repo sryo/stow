@@ -17,6 +17,10 @@ final class NodeListViewController: NSViewController {
     private let listMetrics = ListMetrics()
     private let contextMenu = NSMenu()
 
+    // Overscroll shadow views
+    private let topShadowView = NSView()
+    private let bottomShadowView = NSView()
+
     private var visibleRows: [NodeListRow] = []
     private var contextIndexPath: IndexPath?
     private var isDraggingItems = false
@@ -53,6 +57,16 @@ final class NodeListViewController: NSViewController {
     var onSnippetEditRequested: ((UUID) -> Void)?
     var onNewTaskRequested: ((UUID?) -> Void)?
     var onNewSnippetRequested: ((UUID?) -> Void)?
+    var onLinkUrlEdited: ((UUID, String) -> Void)?
+    var onOpenFolderLinks: ((UUID) -> Void)?
+    var onBulkOpenLinks: (([UUID]) -> Void)?
+    var onPinLink: ((UUID) -> Void)?
+    var canPinLink: ((UUID) -> Bool)?
+    var onMoveToNewWorkspace: (([UUID]) -> Void)?
+    var onMoveToNewFolder: (([UUID]) -> Void)?
+
+    // Current workspace provider (for filtering "Move to" menu)
+    var currentWorkspaceIdProvider: (() -> UUID?)?
 
     // Data provider closure
     var nodeProvider: (() -> [Node])?
@@ -63,6 +77,9 @@ final class NodeListViewController: NSViewController {
 
     // State
     var isSearchActive: Bool = false
+    var workspaceColor: WorkspaceColorId = .defaultColor() {
+        didSet { updateShadows() }
+    }
 
     // MARK: - Initialization
 
@@ -89,7 +106,13 @@ final class NodeListViewController: NSViewController {
         super.viewDidLoad()
         setupCollectionView()
         setupScrollView()
+        setupShadowViews()
         setupNotifications()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateShadows()
     }
 
     // MARK: - Setup
@@ -141,6 +164,72 @@ final class NodeListViewController: NSViewController {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    private func setupShadowViews() {
+        let shadowHeight = ThemeConstants.Sizing.scrollShadowHeight
+
+        topShadowView.translatesAutoresizingMaskIntoConstraints = false
+        topShadowView.wantsLayer = true
+        topShadowView.layer?.zPosition = 10
+        view.addSubview(topShadowView)
+
+        bottomShadowView.translatesAutoresizingMaskIntoConstraints = false
+        bottomShadowView.wantsLayer = true
+        bottomShadowView.layer?.zPosition = 10
+        view.addSubview(bottomShadowView)
+
+        NSLayoutConstraint.activate([
+            topShadowView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            topShadowView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            topShadowView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            topShadowView.heightAnchor.constraint(equalToConstant: shadowHeight),
+
+            bottomShadowView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            bottomShadowView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            bottomShadowView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            bottomShadowView.heightAnchor.constraint(equalToConstant: shadowHeight),
+        ])
+    }
+
+    func updateShadows() {
+        let bgColor = workspaceColor.backgroundColor
+        let opaqueColor = bgColor.cgColor
+        let clearColor = bgColor.withAlphaComponent(0).cgColor
+
+        let clipView = scrollView.contentView
+        let docHeight = scrollView.documentView?.frame.height ?? 0
+        let visibleHeight = clipView.bounds.height
+        let scrollY = clipView.bounds.origin.y
+
+        let showTop = scrollY > 0.5
+        let showBottom = (scrollY + visibleHeight) < (docHeight - 0.5)
+
+        // Top shadow
+        if let layer = topShadowView.layer {
+            layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+            if showTop {
+                let gradient = CAGradientLayer()
+                gradient.frame = topShadowView.bounds
+                gradient.colors = [opaqueColor, clearColor]
+                gradient.startPoint = CGPoint(x: 0.5, y: 1) // flipped for AppKit
+                gradient.endPoint = CGPoint(x: 0.5, y: 0)
+                layer.addSublayer(gradient)
+            }
+        }
+
+        // Bottom shadow
+        if let layer = bottomShadowView.layer {
+            layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+            if showBottom {
+                let gradient = CAGradientLayer()
+                gradient.frame = bottomShadowView.bounds
+                gradient.colors = [clearColor, opaqueColor]
+                gradient.startPoint = CGPoint(x: 0.5, y: 1) // flipped for AppKit
+                gradient.endPoint = CGPoint(x: 0.5, y: 0)
+                layer.addSublayer(gradient)
+            }
+        }
     }
 
     private func setupNotifications() {
@@ -195,6 +284,7 @@ final class NodeListViewController: NSViewController {
         for item in collectionView.visibleItems() {
             (item as? NodeCollectionViewItem)?.refreshHoverState()
         }
+        updateShadows()
     }
 
     fileprivate func row(at indexPath: IndexPath) -> NodeListRow? {
@@ -776,15 +866,15 @@ extension NodeListViewController: NSMenuDelegate {
 
         guard let indexPath = contextIndexPath,
               let row = row(at: indexPath) else {
-            let newFolder = NSMenuItem(title: "New Folder…", action: #selector(contextNewFolder), keyEquivalent: "")
+            let newFolder = NSMenuItem(title: "New folder…", action: #selector(contextNewFolder), keyEquivalent: "")
             newFolder.target = self
             menu.addItem(newFolder)
 
-            let newTask = NSMenuItem(title: "New Task…", action: #selector(contextNewTask), keyEquivalent: "")
+            let newTask = NSMenuItem(title: "New task…", action: #selector(contextNewTask), keyEquivalent: "")
             newTask.target = self
             menu.addItem(newTask)
 
-            let newSnippet = NSMenuItem(title: "New Snippet…", action: #selector(contextNewSnippet), keyEquivalent: "")
+            let newSnippet = NSMenuItem(title: "New snippet…", action: #selector(contextNewSnippet), keyEquivalent: "")
             newSnippet.target = self
             menu.addItem(newSnippet)
             return
@@ -796,34 +886,50 @@ extension NodeListViewController: NSMenuDelegate {
         func addMoveToSubmenu() {
             let moveMenu = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
             let submenu = NSMenu()
-            if let workspaces = workspacesProvider?(), let currentWorkspace = workspaces.first {
-                for workspace in workspaces where workspace.id != currentWorkspace.id {
+            var hasWorkspaceItems = false
+            let currentWsId = currentWorkspaceIdProvider?()
+            if let workspaces = workspacesProvider?() {
+                for workspace in workspaces where workspace.id != currentWsId {
                     let item = NSMenuItem(title: workspace.name, action: #selector(contextMoveToWorkspace), keyEquivalent: "")
                     item.target = self
                     item.representedObject = ["nodeId": node.id, "workspaceId": workspace.id]
                     submenu.addItem(item)
+                    hasWorkspaceItems = true
                 }
             }
+            if hasWorkspaceItems {
+                submenu.addItem(NSMenuItem.separator())
+            }
+            let newWorkspaceItem = NSMenuItem(title: "New workspace…", action: #selector(contextMoveToNewWorkspace(_:)), keyEquivalent: "")
+            newWorkspaceItem.target = self
+            newWorkspaceItem.representedObject = [node.id]
+            submenu.addItem(newWorkspaceItem)
+
+            let newFolderItem = NSMenuItem(title: "New folder", action: #selector(contextMoveToNewFolder(_:)), keyEquivalent: "")
+            newFolderItem.target = self
+            newFolderItem.representedObject = [node.id]
+            submenu.addItem(newFolderItem)
+
             moveMenu.submenu = submenu
             menu.addItem(moveMenu)
         }
 
         switch node {
-        case .folder:
+        case .folder(let folder):
             let newNested = NSMenuItem(title: "New folder inside…", action: #selector(contextNewNestedFolder(_:)), keyEquivalent: "")
             newNested.target = self
             newNested.representedObject = node.id
             menu.addItem(newNested)
 
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
-            rename.target = self
-            menu.addItem(rename)
+            // Count links in folder
+            let folderLinkCount = countLinksInFolder(folder)
+            if folderLinkCount > 0 {
+                let openAll = NSMenuItem(title: "Open All Links", action: #selector(contextOpenFolderLinks(_:)), keyEquivalent: "")
+                openAll.target = self
+                openAll.representedObject = folder.id
+                menu.addItem(openAll)
+            }
 
-            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-            delete.target = self
-            delete.representedObject = node.id
-            menu.addItem(delete)
-        case .link:
             let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
             rename.target = self
             menu.addItem(rename)
@@ -834,20 +940,43 @@ extension NodeListViewController: NSMenuDelegate {
             delete.target = self
             delete.representedObject = node.id
             menu.addItem(delete)
+        case .link(let link):
+            let editUrl = NSMenuItem(title: "Edit URL…", action: #selector(contextEditUrl(_:)), keyEquivalent: "")
+            editUrl.target = self
+            editUrl.representedObject = ["nodeId": link.id, "currentUrl": link.url]
+            menu.addItem(editUrl)
+
+            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            rename.target = self
+            menu.addItem(rename)
+
+            if let canPin = canPinLink, canPin(link.id) {
+                let pinItem = NSMenuItem(title: "Pin this link", action: #selector(contextPinLink(_:)), keyEquivalent: "")
+                pinItem.target = self
+                pinItem.representedObject = link.id
+                menu.addItem(pinItem)
+            }
+
+            addMoveToSubmenu()
+
+            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
+            delete.target = self
+            delete.representedObject = node.id
+            menu.addItem(delete)
         case .task(let task):
-            let toggleTitle = task.isCompleted ? "Mark Incomplete" : "Mark Complete"
+            let toggleTitle = task.isCompleted ? "Mark incomplete" : "Mark complete"
             let toggle = NSMenuItem(title: toggleTitle, action: #selector(contextToggleTask), keyEquivalent: "")
             toggle.target = self
             toggle.representedObject = node.id
             menu.addItem(toggle)
 
-            let dueDate = NSMenuItem(title: "Set Due Date…", action: #selector(contextSetDueDate), keyEquivalent: "")
+            let dueDate = NSMenuItem(title: "Set due date…", action: #selector(contextSetDueDate), keyEquivalent: "")
             dueDate.target = self
             dueDate.representedObject = node.id
             menu.addItem(dueDate)
 
             if task.dueDate != nil {
-                let clearDueDate = NSMenuItem(title: "Clear Due Date", action: #selector(contextClearDueDate), keyEquivalent: "")
+                let clearDueDate = NSMenuItem(title: "Clear due date", action: #selector(contextClearDueDate), keyEquivalent: "")
                 clearDueDate.target = self
                 clearDueDate.representedObject = node.id
                 menu.addItem(clearDueDate)
@@ -866,12 +995,12 @@ extension NodeListViewController: NSMenuDelegate {
             delete.representedObject = node.id
             menu.addItem(delete)
         case .snippet:
-            let copyContent = NSMenuItem(title: "Copy Content", action: #selector(contextCopySnippet), keyEquivalent: "")
+            let copyContent = NSMenuItem(title: "Copy content", action: #selector(contextCopySnippet), keyEquivalent: "")
             copyContent.target = self
             copyContent.representedObject = node.id
             menu.addItem(copyContent)
 
-            let editSnippet = NSMenuItem(title: "Edit Snippet…", action: #selector(contextEditSnippet), keyEquivalent: "")
+            let editSnippet = NSMenuItem(title: "Edit snippet…", action: #selector(contextEditSnippet), keyEquivalent: "")
             editSnippet.target = self
             editSnippet.representedObject = node.id
             menu.addItem(editSnippet)
@@ -926,6 +1055,16 @@ extension NodeListViewController: NSMenuDelegate {
         onNodeMovedToWorkspace?(nodeId, workspaceId)
     }
 
+    @objc private func contextMoveToNewWorkspace(_ sender: NSMenuItem) {
+        guard let nodeIds = sender.representedObject as? [UUID] else { return }
+        onMoveToNewWorkspace?(nodeIds)
+    }
+
+    @objc private func contextMoveToNewFolder(_ sender: NSMenuItem) {
+        guard let nodeIds = sender.representedObject as? [UUID] else { return }
+        onMoveToNewFolder?(nodeIds)
+    }
+
     @objc private func contextToggleTask(_ sender: NSMenuItem) {
         guard let nodeId = sender.representedObject as? UUID else { return }
         onTaskToggled?(nodeId)
@@ -957,19 +1096,33 @@ extension NodeListViewController: NSMenuDelegate {
         // 1. Move to Workspace submenu
         let moveItem = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
         let moveSubmenu = NSMenu()
-        if let workspaces = workspacesProvider?(), let currentWorkspace = workspaces.first {
-            for workspace in workspaces where workspace.id != currentWorkspace.id {
+        var hasBulkWorkspaceItems = false
+        let bulkCurrentWsId = currentWorkspaceIdProvider?()
+        if let workspaces = workspacesProvider?() {
+            for workspace in workspaces where workspace.id != bulkCurrentWsId {
                 let item = NSMenuItem(title: workspace.name, action: #selector(bulkMoveToWorkspace), keyEquivalent: "")
                 item.target = self
                 item.representedObject = workspace.id
                 moveSubmenu.addItem(item)
+                hasBulkWorkspaceItems = true
             }
         }
+        if hasBulkWorkspaceItems {
+            moveSubmenu.addItem(NSMenuItem.separator())
+        }
+        let bulkNewWorkspaceItem = NSMenuItem(title: "New workspace…", action: #selector(bulkMoveToNewWorkspace), keyEquivalent: "")
+        bulkNewWorkspaceItem.target = self
+        moveSubmenu.addItem(bulkNewWorkspaceItem)
+
+        let bulkNewFolderItem = NSMenuItem(title: "New folder", action: #selector(bulkMoveToNewFolder), keyEquivalent: "")
+        bulkNewFolderItem.target = self
+        moveSubmenu.addItem(bulkNewFolderItem)
+
         moveItem.submenu = moveSubmenu
         menu.addItem(moveItem)
 
         // 2. Group in New Folder
-        let groupItem = NSMenuItem(title: "Group in New Folder", action: #selector(bulkGroupInFolder), keyEquivalent: "")
+        let groupItem = NSMenuItem(title: "Group in new folder", action: #selector(bulkGroupInFolder), keyEquivalent: "")
         groupItem.target = self
         menu.addItem(groupItem)
 
@@ -983,7 +1136,11 @@ extension NodeListViewController: NSMenuDelegate {
         }.count
 
         if linkCount > 0 {
-            let copyItem = NSMenuItem(title: "Copy \(linkCount) Link\(linkCount > 1 ? "s" : "")", action: #selector(bulkCopyLinks), keyEquivalent: "")
+            let openItem = NSMenuItem(title: "Open \(linkCount) link\(linkCount > 1 ? "s" : "")", action: #selector(bulkOpenLinks), keyEquivalent: "")
+            openItem.target = self
+            menu.addItem(openItem)
+
+            let copyItem = NSMenuItem(title: "Copy \(linkCount) link\(linkCount > 1 ? "s" : "")", action: #selector(bulkCopyLinks), keyEquivalent: "")
             copyItem.target = self
             menu.addItem(copyItem)
         }
@@ -991,7 +1148,7 @@ extension NodeListViewController: NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // 4. Delete All
-        let deleteItem = NSMenuItem(title: "Delete \(count) Item\(count > 1 ? "s" : "")…", action: #selector(bulkDelete), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: "Delete \(count) item\(count > 1 ? "s" : "")…", action: #selector(bulkDelete), keyEquivalent: "")
         deleteItem.target = self
         menu.addItem(deleteItem)
     }
@@ -1000,6 +1157,20 @@ extension NodeListViewController: NSMenuDelegate {
         guard let workspaceId = sender.representedObject as? UUID else { return }
         let nodeIds = Array(selectedNodeIds)
         onBulkNodesMovedToWorkspace?(nodeIds, workspaceId)
+        clearSelections()
+    }
+
+    @objc private func bulkMoveToNewWorkspace() {
+        let nodeIds = Array(selectedNodeIds)
+        guard !nodeIds.isEmpty else { return }
+        onMoveToNewWorkspace?(nodeIds)
+        clearSelections()
+    }
+
+    @objc private func bulkMoveToNewFolder() {
+        let nodeIds = Array(selectedNodeIds)
+        guard !nodeIds.isEmpty else { return }
+        onMoveToNewFolder?(nodeIds)
         clearSelections()
     }
 
@@ -1020,12 +1191,69 @@ extension NodeListViewController: NSMenuDelegate {
         clearSelections()
     }
 
+    @objc private func bulkOpenLinks() {
+        let nodeIds = Array(selectedNodeIds)
+        guard !nodeIds.isEmpty else { return }
+        onBulkOpenLinks?(nodeIds)
+        clearSelections()
+    }
+
+    @objc private func contextEditUrl(_ sender: NSMenuItem) {
+        guard let dict = sender.representedObject as? [String: Any],
+              let nodeId = dict["nodeId"] as? UUID,
+              let currentUrl = dict["currentUrl"] as? String else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Edit URL"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        textField.stringValue = currentUrl
+        textField.isEditable = true
+        textField.isSelectable = true
+        alert.accessoryView = textField
+
+        alert.window.initialFirstResponder = textField
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let newUrl = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !newUrl.isEmpty, newUrl != currentUrl else { return }
+            onLinkUrlEdited?(nodeId, newUrl)
+        }
+    }
+
+    @objc private func contextOpenFolderLinks(_ sender: NSMenuItem) {
+        guard let folderId = sender.representedObject as? UUID else { return }
+        onOpenFolderLinks?(folderId)
+    }
+
+    @objc private func contextPinLink(_ sender: NSMenuItem) {
+        guard let linkId = sender.representedObject as? UUID else { return }
+        onPinLink?(linkId)
+    }
+
+    private func countLinksInFolder(_ folder: Folder) -> Int {
+        var count = 0
+        for child in folder.children {
+            switch child {
+            case .link:
+                count += 1
+            case .folder(let nested):
+                count += countLinksInFolder(nested)
+            default:
+                break
+            }
+        }
+        return count
+    }
+
     @objc private func bulkDelete() {
         let count = selectedNodeIds.count
         guard count > 0 else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Delete \(count) Item\(count == 1 ? "" : "s")?"
+        alert.messageText = "Delete \(count) item\(count == 1 ? "" : "s")?"
         alert.informativeText = "This will permanently delete the selected items. This cannot be undone."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Delete")

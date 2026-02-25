@@ -86,9 +86,31 @@ Sources/StowCore/
 ├── CustomTextButton.swift                 # Text button (extends BaseControl)
 ├── CustomToggle.swift                     # Toggle switch (extends BaseControl)
 │
-├── PreferencesViewController.swift        # Preferences tab view controller
-├── PreferencesWindowController.swift      # Preferences window
-└── SettingsContentViewController.swift    # Settings content
+└── SettingsContentViewController.swift    # Settings content (@MainActor)
+
+StowIOS/StowIOS/
+├── StowApp.swift                          # iOS app entry point
+├── ViewModels/
+│   └── AppViewModel.swift                 # Observable view model wrapping AppModel
+├── Views/
+│   ├── ContentView.swift                  # Root navigation view
+│   ├── WorkspaceSidebarView.swift         # Sidebar workspace list
+│   ├── WorkspacePicker.swift              # Workspace selection UI
+│   ├── WorkspaceRow.swift                 # Workspace list row
+│   ├── NodeListView.swift                 # Node list container
+│   ├── NodeRowView.swift                  # Individual node row (folder/link/task/snippet)
+│   ├── AddItemView.swift                  # Add new item sheet
+│   ├── WorkspacePageView.swift            # Swipeable workspace pages
+│   ├── FaviconView.swift                  # Favicon display
+│   ├── SettingsView.swift                 # iOS settings screen
+│   ├── WorkspaceSettingsView.swift        # Workspace management settings
+│   └── PinnedLinksView.swift              # Pinned links display
+
+StowIOS/StowShareExtension/
+└── ShareViewController.swift              # Share sheet extension for saving URLs
+
+StowIOS/StowWidget/
+└── StowWidget.swift                       # Home screen widget showing pinned links
 ```
 
 ## Core Data Model

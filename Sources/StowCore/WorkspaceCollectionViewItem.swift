@@ -19,7 +19,7 @@ final class WorkspaceCollectionViewItem: NSCollectionViewItem {
         }
     }
 
-    func configure(workspace: Workspace, canDelete: Bool, onDelete: @escaping (UUID) -> Void, onRenameCommit: @escaping (UUID, String) -> Void) {
+    func configure(workspace: Workspace, canDelete: Bool, profileName: String? = nil, onDelete: @escaping (UUID) -> Void, onRenameCommit: @escaping (UUID, String) -> Void) {
         self.workspace = workspace
         self.onDelete = onDelete
         self.onRenameCommit = onRenameCommit
@@ -27,6 +27,7 @@ final class WorkspaceCollectionViewItem: NSCollectionViewItem {
         rowView?.configure(
             workspaceName: workspace.name,
             workspaceColor: workspace.colorId.color,
+            profileName: profileName,
             showDelete: true,
             canDelete: canDelete,
             onDelete: { [weak self] in
