@@ -15,7 +15,6 @@ final class MainViewController: NSViewController {
     private let settingsViewController = SettingsContentViewController()
 
     // UI Components
-    private let pinnedTabsView = PinnedTabsView()
     private let workspaceSwitcher = WorkspaceSwitcherView(style: .defaultStyle)
     private let searchField = SearchBarView(style: .defaultSearch)
     private let pasteButton = IconTitleButton(
@@ -39,6 +38,9 @@ final class MainViewController: NSViewController {
     private var preloadedPageIndex: Int?
     private var swipeDirection: Int = 0 // -1 backward, 0 none, +1 forward
 
+    // Key event monitor
+    nonisolated(unsafe) private var keyEventMonitor: Any?
+
     // State
     private var isReloadScheduled = false
     private var hasLoaded = false
@@ -56,6 +58,9 @@ final class MainViewController: NSViewController {
     }
 
     deinit {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -81,6 +86,13 @@ final class MainViewController: NSViewController {
             name: .init("UpdateLinkFavicon"),
             object: nil
         )
+
+        // Plain a-z key monitor for item activation
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if self.handlePlainKeyEvent(event) { return nil }
+            return event
+        }
     }
 
     override func viewDidAppear() {
@@ -155,21 +167,10 @@ final class MainViewController: NSViewController {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
         bottomBar.addSubview(pasteButton)
 
-        // Pinned tabs
-        pinnedTabsView.isHidden = true
-        pinnedTabsView.onTileClicked = { [weak self] linkId in
-            guard let self, let link = self.model.pinnedLinkById(linkId) else { return }
-            self.openLink(link)
-        }
-        pinnedTabsView.onTileRightClicked = { [weak self] linkId, point in
-            self?.showPinnedTabContextMenu(linkId: linkId, at: point)
-        }
-
         contentStack.orientation = .vertical
         contentStack.spacing = 10
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.alignment = .centerX
-        contentStack.addArrangedSubview(pinnedTabsView)
         contentStack.addArrangedSubview(searchField)
         contentStack.addArrangedSubview(nodeListViewController.view)
         contentStack.addArrangedSubview(bottomBar)
@@ -193,9 +194,6 @@ final class MainViewController: NSViewController {
 
             bottomBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-
-            pinnedTabsView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            pinnedTabsView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
 
             searchField.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 2),
             searchField.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -2),
@@ -341,16 +339,6 @@ final class MainViewController: NSViewController {
             }
         }
 
-        nodeListViewController.canPinLink = { [weak self] linkId in
-            guard let self else { return false }
-            let alreadyPinned = self.model.currentWorkspace.pinnedLinks.contains { $0.id == linkId }
-            return !alreadyPinned && self.model.canPinMore()
-        }
-
-        nodeListViewController.onPinLink = { [weak self] linkId in
-            self?.model.pinLink(id: linkId)
-        }
-
         nodeListViewController.onNewFolderRequested = { [weak self] parentId in
             self?.createFolderAndBeginRename(parentId: parentId)
         }
@@ -430,7 +418,13 @@ final class MainViewController: NSViewController {
             nodeListViewController.cancelInlineRename()
         }
 
-        reloadWorkspaceMenu()
+        let isNodeRenaming = nodeListViewController.inlineRenameNodeId != nil
+        let isWorkspaceRenaming = workspaceSwitcher.isInlineRenaming
+
+        // Skip workspace menu rebuild if mid-rename to preserve text field focus
+        if !isWorkspaceRenaming {
+            reloadWorkspaceMenu()
+        }
 
         // Notify settings view that workspaces may have changed
         settingsViewController.notifyWorkspacesChanged()
@@ -454,11 +448,13 @@ final class MainViewController: NSViewController {
             showWorkspaceContent()
             applyBackgroundColor(for: model.currentWorkspace.colorId)
             nodeListViewController.workspaceColor = model.currentWorkspace.colorId
-            pinnedTabsView.update(links: model.currentWorkspace.pinnedLinks)
             let filteredNodes = searchCoordinator.filter(nodes: model.currentWorkspace.items)
             let forceExpand = searchCoordinator.isSearchActive
             nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
-            nodeListViewController.reloadData(with: filteredNodes, forceExpand: forceExpand)
+            // Skip node list rebuild if mid-rename to preserve text field focus
+            if !isNodeRenaming {
+                nodeListViewController.reloadData(with: filteredNodes, forceExpand: forceExpand)
+            }
         }
 
         hasLoaded = true
@@ -1028,32 +1024,6 @@ final class MainViewController: NSViewController {
         guard let linkId = notification.userInfo?["linkId"] as? UUID,
               let path = notification.userInfo?["path"] as? String else { return }
         model.updateLinkFaviconPath(id: linkId, path: path)
-
-        // Also update pinned tab favicon if applicable
-        if let pinnedLink = model.pinnedLinkById(linkId) {
-            model.updatePinnedLinkFaviconPath(id: linkId, path: path)
-            var updated = pinnedLink
-            updated.faviconPath = path
-            pinnedTabsView.updateFavicon(linkId: linkId, link: updated)
-        }
-    }
-
-    private func showPinnedTabContextMenu(linkId: UUID, at point: NSPoint) {
-        let menu = NSMenu()
-
-        let unpinItem = NSMenuItem(title: "Unpin", action: #selector(unpinLink(_:)), keyEquivalent: "")
-        unpinItem.target = self
-        unpinItem.representedObject = linkId
-        menu.addItem(unpinItem)
-
-        if let contentView = view.window?.contentView {
-            menu.popUp(positioning: nil, at: point, in: contentView)
-        }
-    }
-
-    @objc private func unpinLink(_ sender: NSMenuItem) {
-        guard let linkId = sender.representedObject as? UUID else { return }
-        model.unpinLink(id: linkId)
     }
 
     // MARK: - Task & Snippet Actions
@@ -1185,6 +1155,53 @@ final class MainViewController: NSViewController {
         NSPasteboard.general.setString(joined, forType: .string)
     }
 
+    // MARK: - Keyboard Hotkeys
+
+    /// Handles plain a-z key presses for item activation.
+    /// Returns true if the event was consumed.
+    private func handlePlainKeyEvent(_ event: NSEvent) -> Bool {
+        // Must be our window
+        guard event.window === view.window, view.window?.isKeyWindow == true else { return false }
+        // No modifiers (ignore Cmd+key, Ctrl+key, etc.)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty || flags == .capsLock else { return false }
+        // Not on settings page
+        guard !model.state.isSettingsSelected else { return false }
+        // Not swiping
+        guard !isSwiping else { return false }
+        // Not editing text (search field, inline rename, etc.)
+        if let responder = view.window?.firstResponder, responder is NSTextView { return false }
+
+        guard let chars = event.charactersIgnoringModifiers,
+              chars.count == 1,
+              let scalar = chars.unicodeScalars.first,
+              scalar.value >= 97 && scalar.value <= 122 else { return false } // a-z
+
+        let index = Int(scalar.value - 97)
+        guard let node = nodeListViewController.visibleNode(at: index) else { return false }
+
+        switch node {
+        case .link(let link):
+            openLink(link)
+        case .folder(let folder):
+            if searchCoordinator.isSearchActive { return false }
+            model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
+        case .task(let task):
+            model.toggleTaskCompletion(id: task.id)
+        case .snippet(let snippet):
+            copySnippetToClipboard(snippet.id)
+        }
+        return true
+    }
+
+    /// Switches to workspace at the given index (0-based). Called from AppDelegate Cmd+1-9.
+    func switchToWorkspace(atIndex index: Int) {
+        guard index >= 0, index < model.workspaces.count else { return }
+        let workspace = model.workspaces[index]
+        model.selectWorkspace(id: workspace.id)
+        pageController.jumpToPage(index + 1)
+    }
+
     // MARK: - Swipe Transition Helpers
 
     private func captureContentSnapshot() -> NSImageView? {
@@ -1302,34 +1319,40 @@ extension MainViewController: ScrollWheelPageDelegate {
         let targetPage = swipeStartPageIndex + swipeDirection
         let isAddNewPage = targetPage >= totalPageCount() - 1
 
-        let swipeFromWorkspace = swipeStartPageIndex >= 1
-            && swipeStartPageIndex <= model.workspaces.count
+        if targetPage < 0 {
+            // Edge bounce past first page: hide source view so it doesn't
+            // show through behind the translating snapshot.
+            settingsViewController.view.isHidden = true
+        } else {
+            let swipeFromWorkspace = swipeStartPageIndex >= 1
+                && swipeStartPageIndex <= model.workspaces.count
 
-        if isAddNewPage {
-            // Add-new page: hide incoming content, just show background
-            if swipeFromWorkspace {
-                nodeListViewController.view.alphaValue = 0
-            } else {
-                contentStack.alphaValue = 0
+            if isAddNewPage {
+                // Add-new page: hide incoming content, just show background
+                if swipeFromWorkspace {
+                    nodeListViewController.view.alphaValue = 0
+                } else {
+                    contentStack.alphaValue = 0
+                }
+                settingsViewController.view.alphaValue = 0
+            } else if swipeDirection != 0 {
+                let incomingView: NSView
+                if targetPage == 0 {
+                    incomingView = settingsViewController.view
+                } else if isWorkspaceToWorkspaceSwipe {
+                    incomingView = nodeListViewController.view
+                } else {
+                    incomingView = contentStack
+                }
+                let txIn: CGFloat
+                if delta > 0 {
+                    txIn = (1.0 - delta) * width
+                } else {
+                    txIn = (-1.0 - delta) * width
+                }
+                incomingView.layer?.transform = CATransform3DMakeTranslation(txIn, 0, 0)
+                incomingView.alphaValue = 1.0
             }
-            settingsViewController.view.alphaValue = 0
-        } else if swipeDirection != 0 {
-            let incomingView: NSView
-            if targetPage == 0 {
-                incomingView = settingsViewController.view
-            } else if isWorkspaceToWorkspaceSwipe {
-                incomingView = nodeListViewController.view
-            } else {
-                incomingView = contentStack
-            }
-            let txIn: CGFloat
-            if delta > 0 {
-                txIn = (1.0 - delta) * width
-            } else {
-                txIn = (-1.0 - delta) * width
-            }
-            incomingView.layer?.transform = CATransform3DMakeTranslation(txIn, 0, 0)
-            incomingView.alphaValue = 1.0
         }
 
         // Interpolate background color

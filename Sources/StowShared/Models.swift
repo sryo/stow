@@ -27,21 +27,17 @@ public struct Workspace: Codable, Identifiable, Equatable {
     public var name: String
     public var colorId: WorkspaceColorId
     public var items: [Node]
-    public var pinnedLinks: [Link]
     public var browserProfiles: [String: String]
 
-    public static let maxPinnedLinks: Int = 12
-
     enum CodingKeys: String, CodingKey {
-        case id, name, colorId, items, pinnedLinks, browserProfiles
+        case id, name, colorId, items, browserProfiles
     }
 
-    public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], pinnedLinks: [Link] = [], browserProfiles: [String: String] = [:]) {
+    public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], browserProfiles: [String: String] = [:]) {
         self.id = id
         self.name = name
         self.colorId = colorId
         self.items = items
-        self.pinnedLinks = pinnedLinks
         self.browserProfiles = browserProfiles
     }
 
@@ -51,7 +47,6 @@ public struct Workspace: Codable, Identifiable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         colorId = try container.decode(WorkspaceColorId.self, forKey: .colorId)
         items = try container.decode([Node].self, forKey: .items)
-        pinnedLinks = try container.decodeIfPresent([Link].self, forKey: .pinnedLinks) ?? []
         browserProfiles = try container.decodeIfPresent([String: String].self, forKey: .browserProfiles) ?? [:]
     }
 }

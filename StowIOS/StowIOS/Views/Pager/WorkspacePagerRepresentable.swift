@@ -60,13 +60,10 @@ struct WorkspacePagerRepresentable: UIViewControllerRepresentable {
             vc.updatePages(workspaces: workspaces, addNewView: addNewView, viewModel: viewModel)
             coordinator.lastWorkspaceIds = currentIds
 
-            // Scroll to selected workspace after rebuild
+            // Scroll to selected workspace after rebuild — no async to avoid flash
             if let selectedId = selectedWorkspaceId,
                let index = workspaces.firstIndex(where: { $0.id == selectedId }) {
-                // Use async to let the layout settle after page rebuild
-                DispatchQueue.main.async {
-                    vc.scrollToPage(index, animated: false)
-                }
+                vc.scrollToPage(index, animated: false)
             }
             return
         }
@@ -77,7 +74,7 @@ struct WorkspacePagerRepresentable: UIViewControllerRepresentable {
         if let selectedId = selectedWorkspaceId,
            let targetIndex = workspaces.firstIndex(where: { $0.id == selectedId }),
            targetIndex != vc.currentPageIndex {
-            vc.scrollToPage(targetIndex, animated: true)
+            vc.scrollToPage(targetIndex, animated: false)
         }
     }
 

@@ -131,6 +131,13 @@ public final class AppModel {
 
     public func deleteWorkspace(id: UUID) {
         guard state.workspaces.count > 1 else { return }
+        // Collect all node IDs before removing the workspace so we can sync deletions
+        let nodeIds: [UUID]
+        if let workspace = state.workspaces.first(where: { $0.id == id }) {
+            nodeIds = collectAllNodeIds(from: workspace.items)
+        } else {
+            nodeIds = []
+        }
         state.workspaces.removeAll { $0.id == id }
         if state.selectedWorkspaceId == id {
             state.selectedWorkspaceId = state.workspaces.first?.id
@@ -139,6 +146,12 @@ public final class AppModel {
             }
         }
         persist()
+        Task { @MainActor in
+            CloudSyncManager.shared.scheduleDeletion(for: id)
+            for nodeId in nodeIds {
+                CloudSyncManager.shared.scheduleDeletion(for: nodeId)
+            }
+        }
     }
 
     public func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {
@@ -254,39 +267,6 @@ public final class AppModel {
         renameNode(id: id, newName: derived)
     }
 
-    // MARK: - Pinned Links
-
-    public func pinLink(id: UUID) {
-        guard let node = nodeById(id), case .link(let link) = node else { return }
-        updateWorkspace(id: currentWorkspace.id) { workspace in
-            guard workspace.pinnedLinks.count < Workspace.maxPinnedLinks else { return }
-            guard !workspace.pinnedLinks.contains(where: { $0.id == id }) else { return }
-            workspace.pinnedLinks.append(link)
-        }
-    }
-
-    public func unpinLink(id: UUID) {
-        updateWorkspace(id: currentWorkspace.id) { workspace in
-            workspace.pinnedLinks.removeAll { $0.id == id }
-        }
-    }
-
-    public func pinnedLinkById(_ id: UUID) -> Link? {
-        currentWorkspace.pinnedLinks.first { $0.id == id }
-    }
-
-    public func canPinMore() -> Bool {
-        currentWorkspace.pinnedLinks.count < Workspace.maxPinnedLinks
-    }
-
-    public func updatePinnedLinkFaviconPath(id: UUID, path: String?) {
-        updateWorkspace(id: currentWorkspace.id) { workspace in
-            if let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) {
-                workspace.pinnedLinks[index].faviconPath = path
-            }
-        }
-    }
-
     public func updateLinkUrl(id: UUID, newUrl: String) {
         updateNode(id: id) { node in
             if case .link(var link) = node {
@@ -317,8 +297,21 @@ public final class AppModel {
     }
 
     public func deleteNode(id: UUID) {
+        // Collect child IDs before removal so folder children are also synced as deleted
+        let childIds: [UUID]
+        if let node = nodeById(id), case .folder(let folder) = node {
+            childIds = collectAllNodeIds(from: folder.children)
+        } else {
+            childIds = []
+        }
         updateWorkspace(id: currentWorkspace.id) { workspace in
             _ = removeNode(id: id, nodes: &workspace.items)
+        }
+        Task { @MainActor in
+            CloudSyncManager.shared.scheduleDeletion(for: id)
+            for childId in childIds {
+                CloudSyncManager.shared.scheduleDeletion(for: childId)
+            }
         }
     }
 
@@ -484,9 +477,187 @@ public final class AppModel {
 
     /// Appends a workspace received from a remote sync source without generating a new ID.
     /// Only inserts if a workspace with the same ID does not already exist.
+    /// If the only local workspace is an empty default "Inbox", replace it with the incoming one.
     public func insertWorkspaceFromSync(_ workspace: Workspace) {
         guard !state.workspaces.contains(where: { $0.id == workspace.id }) else { return }
-        state.workspaces.append(workspace)
+
+        // Deduplicate: if the only local workspace is an empty default Inbox, replace it
+        if state.workspaces.count == 1,
+           let local = state.workspaces.first,
+           local.name == "Inbox",
+           local.items.isEmpty,
+           local.colorId == .defaultColor() {
+            let wasSelected = state.selectedWorkspaceId == local.id
+            state.workspaces[0] = workspace
+            if wasSelected {
+                state.selectedWorkspaceId = workspace.id
+            }
+        } else {
+            state.workspaces.append(workspace)
+        }
+        persist(notify: false)
+    }
+
+    /// Updates all fields of an existing workspace from a remote sync source.
+    public func updateWorkspaceFromSync(_ remote: Workspace) {
+        guard let index = state.workspaces.firstIndex(where: { $0.id == remote.id }) else { return }
+        state.workspaces[index].name = remote.name
+        state.workspaces[index].colorId = remote.colorId
+        state.workspaces[index].browserProfiles = remote.browserProfiles
+        persist(notify: false)
+    }
+
+    /// Merges metadata from a remote workspace into an existing local workspace with the same name.
+    /// Merges browser profiles (remote wins for conflicts).
+    public func mergeWorkspaceMetadataFromSync(remote: Workspace, intoWorkspaceId localId: UUID) {
+        guard let index = state.workspaces.firstIndex(where: { $0.id == localId }) else { return }
+
+        // Merge browser profiles: remote wins for conflicts
+        for (bundleId, profile) in remote.browserProfiles {
+            state.workspaces[index].browserProfiles[bundleId] = profile
+        }
+
+        persist(notify: false)
+    }
+
+    /// Inserts or updates a node from a remote sync source into the specified workspace.
+    /// If the node already exists (by ID), it is replaced in-place. Otherwise it is appended
+    /// at the given parent (or top-level if parentId is nil).
+    /// When `deduplicateLinks` is true (used during workspace name-merge), new link nodes
+    /// are skipped if the workspace already contains a link with the same URL.
+    /// Returns false if the insert failed (e.g. parent folder not yet available).
+    @discardableResult
+    public func upsertNodeFromSync(node: Node, workspaceId: UUID, parentId: UUID?, deduplicateLinks: Bool = false) -> Bool {
+        guard let wsIndex = state.workspaces.firstIndex(where: { $0.id == workspaceId }) else { return false }
+
+        // Try to update existing node in-place
+        if updateNode(id: node.id, nodes: &state.workspaces[wsIndex].items, { existing in
+            // Preserve folder children when updating a folder
+            if case .folder(let existingFolder) = existing, case .folder(let incomingFolder) = node {
+                var merged = incomingFolder
+                merged.children = existingFolder.children
+                existing = .folder(merged)
+            } else {
+                existing = node
+            }
+        }) {
+            persist(notify: false)
+            return true
+        }
+
+        // Node doesn't exist yet — check for link URL deduplication before inserting
+        if deduplicateLinks, case .link(let link) = node {
+            if workspaceContainsLinkWithURL(link.url, items: state.workspaces[wsIndex].items) {
+                return true // intentionally skipped
+            }
+        }
+
+        insertNode(node, parentId: parentId, index: nil, nodes: &state.workspaces[wsIndex].items)
+
+        // If parent insert failed (parent not found), fall back to top-level
+        if parentId != nil {
+            if findNode(id: node.id, in: state.workspaces[wsIndex].items) == nil {
+                // Return false so the caller can retry after more records arrive.
+                // On final retry failure, the caller should call again with parentId: nil.
+                return false
+            }
+        }
+        persist(notify: false)
+        return true
+    }
+
+    /// Recursively checks whether any link node in the tree has the given URL.
+    private func workspaceContainsLinkWithURL(_ url: String, items: [Node]) -> Bool {
+        for node in items {
+            switch node {
+            case .link(let link):
+                if link.url == url { return true }
+            case .folder(let folder):
+                if workspaceContainsLinkWithURL(url, items: folder.children) { return true }
+            case .task, .snippet:
+                continue
+            }
+        }
+        return false
+    }
+
+    /// Deletes a node by ID from any workspace. Used by sync to handle remote deletions
+    /// where the node may not be in the currently selected workspace.
+    public func deleteNodeFromAnyWorkspace(id: UUID) {
+        for index in state.workspaces.indices {
+            if removeNode(id: id, nodes: &state.workspaces[index].items) != nil {
+                persist(notify: false)
+                return
+            }
+        }
+    }
+
+    /// Reorders workspaces based on sort orders received from CloudKit.
+    /// Items without a server sort order keep their current position (using their
+    /// array index as fallback). Server-ordered items win ties.
+    public func reorderWorkspacesFromSync(sortOrders: [UUID: Int]) {
+        let indexed = state.workspaces.enumerated().map { (index, ws) -> (Workspace, Int, Int) in
+            if let serverOrder = sortOrders[ws.id] {
+                return (ws, serverOrder, 0) // server-ordered: priority 0 (wins ties)
+            } else {
+                return (ws, index, 1) // local-only: current index, priority 1
+            }
+        }
+        state.workspaces = indexed.sorted { a, b in
+            if a.1 != b.1 { return a.1 < b.1 }
+            return a.2 < b.2
+        }.map { $0.0 }
+        persist(notify: false)
+    }
+
+    /// Reorders nodes within workspaces based on sort orders received from CloudKit.
+    /// Nodes without a sort order keep their current relative position.
+    public func reorderNodesFromSync(sortOrders: [UUID: Int]) {
+        for index in state.workspaces.indices {
+            reorderNodes(nodes: &state.workspaces[index].items, sortOrders: sortOrders)
+        }
+        persist(notify: false)
+    }
+
+    private func reorderNodes(nodes: inout [Node], sortOrders: [UUID: Int]) {
+        // Only sort if any node in this level has a sort order
+        let hasSortInfo = nodes.contains { sortOrders[$0.id] != nil }
+        if hasSortInfo {
+            let indexed = nodes.enumerated().map { (index, node) -> (Node, Int, Int) in
+                if let serverOrder = sortOrders[node.id] {
+                    return (node, serverOrder, 0)
+                } else {
+                    return (node, index, 1)
+                }
+            }
+            nodes = indexed.sorted { a, b in
+                if a.1 != b.1 { return a.1 < b.1 }
+                return a.2 < b.2
+            }.map { $0.0 }
+        }
+        // Recurse into folders
+        for i in nodes.indices {
+            if case .folder(var folder) = nodes[i] {
+                reorderNodes(nodes: &folder.children, sortOrders: sortOrders)
+                nodes[i] = .folder(folder)
+            }
+        }
+    }
+
+    /// Deletes a workspace from a remote sync source. Unlike deleteWorkspace, this
+    /// has no minimum-count guard and uses notify: false to avoid re-upload loops.
+    public func deleteWorkspaceFromSync(id: UUID) {
+        state.workspaces.removeAll { $0.id == id }
+        if state.selectedWorkspaceId == id {
+            state.selectedWorkspaceId = state.workspaces.first?.id
+        }
+        // Ensure at least one workspace exists
+        if state.workspaces.isEmpty {
+            let fallback = Workspace(id: UUID(), name: "Inbox", colorId: .defaultColor(), items: [])
+            state.workspaces.append(fallback)
+            state.selectedWorkspaceId = fallback.id
+        }
+        persist(notify: false)
     }
 
     private func persist(notify: Bool = true) {
@@ -587,6 +758,17 @@ public final class AppModel {
             }
         }
         return nil
+    }
+
+    private func collectAllNodeIds(from nodes: [Node]) -> [UUID] {
+        var ids: [UUID] = []
+        for node in nodes {
+            ids.append(node.id)
+            if case .folder(let folder) = node {
+                ids.append(contentsOf: collectAllNodeIds(from: folder.children))
+            }
+        }
+        return ids
     }
 
     private func containsNode(_ id: UUID, within node: Node) -> Bool {

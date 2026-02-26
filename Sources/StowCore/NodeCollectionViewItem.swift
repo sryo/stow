@@ -53,6 +53,10 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
         rowView.setSwipeRightIcon(symbolName, tintColor: tintColor)
     }
 
+    func setHintCharacter(_ hint: String?) {
+        rowView.setHintCharacter(hint)
+    }
+
     func refreshHoverState() {
         rowView.refreshHoverState()
     }

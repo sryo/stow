@@ -4,6 +4,8 @@ import StowShared
 struct ContentView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.horizontalSizeClass) var sizeClass
+    @State private var selectedTab = 0
+    @State private var showingOverview = false
 
     var body: some View {
         let _ = viewModel.refreshTrigger // observe changes
@@ -13,12 +15,12 @@ struct ContentView: View {
             NavigationSplitView {
                 WorkspaceSidebarView()
             } detail: {
-                NodeListView(workspace: viewModel.currentWorkspace)
+                NodeListView(workspaceId: viewModel.currentWorkspace.id)
                     .background(Color(uiColor: viewModel.currentWorkspace.colorId.backgroundColor))
             }
         } else {
-            // iPhone: TabView with Bookmarks + Settings
-            TabView {
+            // iPhone: TabView with Bookmarks + Workspaces + Settings
+            TabView(selection: $selectedTab) {
                 NavigationStack {
                     WorkspacePageView()
                         .toolbarBackground(.hidden, for: .navigationBar)
@@ -26,11 +28,29 @@ struct ContentView: View {
                 .tabItem {
                     Label("Bookmarks", systemImage: "bookmark")
                 }
+                .tag(0)
+
+                EmptyView()
+                    .tabItem {
+                        Label("Workspaces", systemImage: "square.stack")
+                    }
+                    .tag(1)
 
                 SettingsView()
                     .tabItem {
                         Label("Settings", systemImage: "gear")
                     }
+                    .tag(2)
+            }
+            .onChange(of: selectedTab) { _, newValue in
+                if newValue == 1 {
+                    showingOverview = true
+                    selectedTab = 0
+                }
+            }
+            .sheet(isPresented: $showingOverview) {
+                WorkspaceOverviewSheet()
+                    .environmentObject(viewModel)
             }
             .alert("New Workspace", isPresented: $viewModel.showingNewWorkspaceAlert) {
                 TextField("Workspace Name", text: $viewModel.newWorkspaceName)

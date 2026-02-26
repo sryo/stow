@@ -10,7 +10,6 @@ public enum CKWorkspaceFields {
     public static let name = "name"
     public static let colorId = "colorId"
     public static let sortOrder = "sortOrder"
-    public static let pinnedLinksJSON = "pinnedLinksJSON"
     public static let browserProfilesJSON = "browserProfilesJSON"
 }
 

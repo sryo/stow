@@ -5,6 +5,7 @@ final class NodeRowView: BaseView {
     private let iconView = NSImageView()
     private let editableTitle = InlineEditableTextField()
     private let deleteButton = NSButton()
+    private let hintLabel = NSTextField(labelWithString: "")
     private let dueDateLabel = NSTextField(labelWithString: "")
     private let swipeLeftActionView = NSImageView()
     private let swipeRightActionView = NSImageView()
@@ -121,6 +122,14 @@ final class NodeRowView: BaseView {
         dueDateLabel.setContentHuggingPriority(.required, for: .horizontal)
         dueDateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        hintLabel.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .medium)
+        hintLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
+        hintLabel.alignment = .center
+        hintLabel.isHidden = true
+        hintLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        contentContainer.addSubview(hintLabel)
         contentContainer.addSubview(iconView)
         contentContainer.addSubview(editableTitle)
         contentContainer.addSubview(dueDateLabel)
@@ -142,6 +151,10 @@ final class NodeRowView: BaseView {
 
             dueDateLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
             dueDateLabel.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -8),
+
+            hintLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            hintLabel.widthAnchor.constraint(equalToConstant: 14),
+            hintLabel.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6),
 
             deleteButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -16),
             deleteButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
@@ -218,6 +231,16 @@ final class NodeRowView: BaseView {
         resetSwipe(animated: false)
 
         refreshHoverState()
+    }
+
+    func setHintCharacter(_ hint: String?) {
+        if let hint {
+            hintLabel.stringValue = hint
+            hintLabel.isHidden = false
+        } else {
+            hintLabel.stringValue = ""
+            hintLabel.isHidden = true
+        }
     }
 
     func setIndentation(depth: Int, metrics: ListMetrics) {

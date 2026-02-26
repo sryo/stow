@@ -527,104 +527,6 @@ final class ModelTests: XCTestCase {
         }
     }
 
-    // MARK: - Pinned Tabs Tests
-
-    func testPinAndUnpinLink() {
-        let store = makeStore()
-        store.save(DataStore.defaultState())
-        let model = AppModel(store: store)
-
-        let linkId = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 0)
-
-        model.pinLink(id: linkId)
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 1)
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].id, linkId)
-
-        model.unpinLink(id: linkId)
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 0)
-    }
-
-    func testCannotPinDuplicate() {
-        let store = makeStore()
-        store.save(DataStore.defaultState())
-        let model = AppModel(store: store)
-
-        let linkId = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
-        model.pinLink(id: linkId)
-        model.pinLink(id: linkId) // Should not add duplicate
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 1)
-    }
-
-    func testMaxPinnedLinks() {
-        let store = makeStore()
-        store.save(DataStore.defaultState())
-        let model = AppModel(store: store)
-
-        // Pin up to max
-        for i in 0..<Workspace.maxPinnedLinks {
-            model.addLink(urlString: "https://example\(i).com", title: "Link \(i)", parentId: nil)
-        }
-        let links = model.currentWorkspace.items.compactMap { node -> UUID? in
-            if case .link(let link) = node { return link.id }
-            return nil
-        }
-        for linkId in links.prefix(Workspace.maxPinnedLinks) {
-            model.pinLink(id: linkId)
-        }
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, Workspace.maxPinnedLinks)
-        XCTAssertFalse(model.canPinMore())
-
-        // Try to add one more — should not increase
-        let extraId = model.addLink(urlString: "https://extra.com", title: "Extra", parentId: nil)
-        model.pinLink(id: extraId)
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, Workspace.maxPinnedLinks)
-    }
-
-    func testPinnedLinksJSONRoundTrip() throws {
-        let link = Link(id: UUID(), title: "Pinned", url: "https://pinned.com", faviconPath: nil)
-        let workspace = Workspace(id: UUID(), name: "Test", colorId: .ember, items: [], pinnedLinks: [link])
-        let state = AppState(schemaVersion: 2, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
-
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(AppState.self, from: data)
-        XCTAssertEqual(decoded.workspaces[0].pinnedLinks.count, 1)
-        XCTAssertEqual(decoded.workspaces[0].pinnedLinks[0].title, "Pinned")
-    }
-
-    func testPinnedLinksBackwardCompatibility() throws {
-        // JSON without pinnedLinks field should decode fine
-        let json = """
-        {
-            "schemaVersion": 2,
-            "workspaces": [{
-                "id": "00000000-0000-0000-0000-000000000001",
-                "name": "Test",
-                "colorId": "ember",
-                "items": []
-            }],
-            "selectedWorkspaceId": "00000000-0000-0000-0000-000000000001",
-            "isSettingsSelected": false
-        }
-        """
-        let data = json.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(AppState.self, from: data)
-        XCTAssertEqual(decoded.workspaces[0].pinnedLinks.count, 0)
-    }
-
-    func testUpdatePinnedLinkFaviconPath() {
-        let store = makeStore()
-        store.save(DataStore.defaultState())
-        let model = AppModel(store: store)
-
-        let linkId = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
-        model.pinLink(id: linkId)
-        XCTAssertNil(model.currentWorkspace.pinnedLinks[0].faviconPath)
-
-        model.updatePinnedLinkFaviconPath(id: linkId, path: "/path/to/icon.png")
-        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].faviconPath, "/path/to/icon.png")
-    }
-
     // MARK: - Browser Profiles
 
     func testBrowserProfileSetAndClear() {
@@ -676,7 +578,6 @@ final class ModelTests: XCTestCase {
             name: "Test",
             colorId: .coral,
             items: [],
-            pinnedLinks: [],
             browserProfiles: ["com.google.Chrome": "Profile 2", "org.mozilla.firefox": "default"]
         )
 

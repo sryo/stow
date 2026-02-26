@@ -60,8 +60,6 @@ final class NodeListViewController: NSViewController {
     var onLinkUrlEdited: ((UUID, String) -> Void)?
     var onOpenFolderLinks: ((UUID) -> Void)?
     var onBulkOpenLinks: (([UUID]) -> Void)?
-    var onPinLink: ((UUID) -> Void)?
-    var canPinLink: ((UUID) -> Bool)?
     var onMoveToNewWorkspace: (([UUID]) -> Void)?
     var onMoveToNewFolder: (([UUID]) -> Void)?
 
@@ -278,44 +276,48 @@ final class NodeListViewController: NSViewController {
         }
     }
 
-    /// Shows a brief "Copied!" overlay on the row for the given node ID
+    /// Returns the node at the given visible index, or nil if out of range
+    func visibleNode(at index: Int) -> Node? {
+        guard index >= 0, index < visibleRows.count else { return nil }
+        return visibleRows[index].node
+    }
+
+    /// Shows a checkmark symbol that floats up and fades out on the row for the given node ID
     func showCopiedFeedback(for nodeId: UUID) {
         guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }),
               let item = collectionView.item(at: IndexPath(item: index, section: 0)) else { return }
 
-        let label = NSTextField(labelWithString: "Copied!")
-        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .white
-        label.backgroundColor = NSColor.black.withAlphaComponent(0.7)
-        label.isBezeled = false
-        label.drawsBackground = true
-        label.alignment = .center
-        label.wantsLayer = true
-        label.layer?.cornerRadius = 4
-        label.sizeToFit()
-        label.frame.size.width += 12
-        label.frame.size.height += 4
+        let symbol = NSImageView()
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        symbol.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        symbol.contentTintColor = .white
+        symbol.wantsLayer = true
+        symbol.frame.size = NSSize(width: 20, height: 20)
 
         let rowView = item.view
-        label.frame.origin = NSPoint(
-            x: rowView.bounds.maxX - label.frame.width - 12,
-            y: (rowView.bounds.height - label.frame.height) / 2
+        let startY = (rowView.bounds.height - symbol.frame.height) / 2
+        symbol.frame.origin = NSPoint(
+            x: rowView.bounds.maxX - symbol.frame.width - 14,
+            y: startY
         )
-        label.alphaValue = 0
-        rowView.addSubview(label)
+        symbol.alphaValue = 0
+        rowView.addSubview(symbol)
 
+        // Fade in, then float up while fading out
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.15
-            label.animator().alphaValue = 1
-        }, completionHandler: { [weak label] in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak label] in
-                guard let label else { return }
+            ctx.duration = 0.12
+            symbol.animator().alphaValue = 1
+        }, completionHandler: { [weak symbol] in
+            MainActor.assumeIsolated {
+                guard let symbol else { return }
                 NSAnimationContext.runAnimationGroup({ ctx in
-                    ctx.duration = 0.3
-                    label.animator().alphaValue = 0
-                }, completionHandler: { [weak label] in
+                    ctx.duration = 0.6
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    symbol.animator().alphaValue = 0
+                    symbol.animator().frame.origin.y = startY + 16
+                }, completionHandler: { [weak symbol] in
                     MainActor.assumeIsolated {
-                        label?.removeFromSuperview()
+                        symbol?.removeFromSuperview()
                     }
                 })
             }
@@ -701,6 +703,14 @@ extension NodeListViewController: NSCollectionViewDataSource {
             )
         }
 
+        // Assign hint letter (a-z for first 26 items)
+        if indexPath.item < 26 {
+            let letter = String(UnicodeScalar(UInt8(97 + indexPath.item))) // 'a' = 97
+            nodeItem.setHintCharacter(letter)
+        } else {
+            nodeItem.setHintCharacter(nil)
+        }
+
         // Configure swipe actions per node type
         nodeItem.swipeEnabled = !isSearchActive
         nodeItem.onSwipeLeft = { [weak self] in
@@ -994,13 +1004,6 @@ extension NodeListViewController: NSMenuDelegate {
             rename.target = self
             menu.addItem(rename)
 
-            if let canPin = canPinLink, canPin(link.id) {
-                let pinItem = NSMenuItem(title: "Pin this link", action: #selector(contextPinLink(_:)), keyEquivalent: "")
-                pinItem.target = self
-                pinItem.representedObject = link.id
-                menu.addItem(pinItem)
-            }
-
             addMoveToSubmenu()
 
             let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
@@ -1270,11 +1273,6 @@ extension NodeListViewController: NSMenuDelegate {
     @objc private func contextOpenFolderLinks(_ sender: NSMenuItem) {
         guard let folderId = sender.representedObject as? UUID else { return }
         onOpenFolderLinks?(folderId)
-    }
-
-    @objc private func contextPinLink(_ sender: NSMenuItem) {
-        guard let linkId = sender.representedObject as? UUID else { return }
-        onPinLink?(linkId)
     }
 
     private func countLinksInFolder(_ folder: Folder) -> Int {

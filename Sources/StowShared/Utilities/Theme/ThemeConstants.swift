@@ -163,15 +163,6 @@ public struct ThemeConstants {
 
         /// Width of overscroll shadow gradients (32pt)
         public static let scrollShadowWidth: CGFloat = 32
-
-        /// Height of pinned tab tiles (50pt)
-        public static let pinnedTileHeight: CGFloat = 50
-
-        /// Number of columns in pinned tabs grid
-        public static let pinnedTileColumns: Int = 4
-
-        /// Maximum number of rows in pinned tabs grid
-        public static let pinnedTileMaxRows: Int = 3
     }
 
     // MARK: - Animation

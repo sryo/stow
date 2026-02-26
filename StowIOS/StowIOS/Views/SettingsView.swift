@@ -16,7 +16,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button(action: { viewModel.createWorkspace(name: "New Workspace") }) {
+                    Button(action: { viewModel.createWorkspace(name: "Untitled") }) {
                         Label("Add Workspace", systemImage: "plus")
                     }
                 }
@@ -25,7 +25,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("0.1.0")
+                        Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
                             .foregroundStyle(.secondary)
                     }
                 }

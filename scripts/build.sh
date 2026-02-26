@@ -116,9 +116,19 @@ if [ "$PRODUCTION" = true ]; then
 
     echo "  ✓ Signed with Developer ID (hardened runtime enabled)"
 else
-    # Development signing with ad-hoc signature and entitlements
-    codesign --force --deep --sign - --entitlements "Stow.entitlements" ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
-    echo "  ✓ Signed with ad-hoc signature (development only)"
+    # Development signing — use Apple Development identity if available (required for CloudKit),
+    # fall back to ad-hoc if none found. Uses SHA-1 hash to avoid ambiguity with duplicate names.
+    DEV_IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Development" | head -1 | awk '{print $2}')
+    if [ -n "$DEV_IDENTITY" ]; then
+        codesign --force --deep \
+            --sign "$DEV_IDENTITY" \
+            --entitlements "Stow.entitlements" \
+            ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
+        echo "  ✓ Signed with $DEV_IDENTITY"
+    else
+        codesign --force --deep --sign - --entitlements "Stow.entitlements" ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
+        echo "  ✓ Signed with ad-hoc signature (CloudKit sync requires Apple Development identity)"
+    fi
 fi
 
 # Verify the build

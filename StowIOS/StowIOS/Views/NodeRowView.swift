@@ -9,7 +9,7 @@ struct NodeRowView: View {
     @State private var isEditing = false
     @State private var editText = ""
     @State private var snippetCopied = false
-    @State private var showCopiedToast = false
+    @State private var showCopiedCheck = false
     @State private var showingDueDatePicker = false
     @State private var showingSnippetEditor = false
 
@@ -55,6 +55,11 @@ struct NodeRowView: View {
             ForEach(folder.children, id: \.id) { child in
                 NodeRowView(node: child, parentId: folder.id)
                     .environmentObject(viewModel)
+            }
+            .onMove { indices, destination in
+                guard let first = indices.first else { return }
+                let nodeId = folder.children[first].id
+                viewModel.model.moveNode(id: nodeId, toParentId: folder.id, index: destination)
             }
         } label: {
             nodeLabel(
@@ -120,27 +125,24 @@ struct NodeRowView: View {
         .onTapGesture {
             UIPasteboard.general.string = snippet.content
             snippetCopied.toggle()
-            withAnimation { showCopiedToast = true }
+            withAnimation(.easeOut(duration: 0.15)) { showCopiedCheck = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                withAnimation(.easeIn(duration: 0.6)) { showCopiedCheck = false }
+            }
         }
         .overlay(alignment: .trailing) {
-            if showCopiedToast {
-                Text("Copied!")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .transition(.opacity.combined(with: .scale))
+            if showCopiedCheck {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .transition(.asymmetric(
+                        insertion: .opacity,
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
+                    .padding(.trailing, 8)
             }
         }
         .sensoryFeedback(.success, trigger: snippetCopied)
-        .onChange(of: showCopiedToast) { _, showing in
-            if showing {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation { showCopiedToast = false }
-                }
-            }
-        }
         .contextMenu { contextMenuItems(for: node) }
     }
 
@@ -216,23 +218,6 @@ struct NodeRowView: View {
                 UIPasteboard.general.string = link.url
             } label: {
                 Label("Copy URL", systemImage: "doc.on.doc")
-            }
-
-            if viewModel.model.canPinMore() {
-                let isPinned = viewModel.currentWorkspace.pinnedLinks.contains { $0.id == link.id }
-                if !isPinned {
-                    Button {
-                        viewModel.model.pinLink(id: link.id)
-                    } label: {
-                        Label("Pin", systemImage: "pin")
-                    }
-                } else {
-                    Button {
-                        viewModel.model.unpinLink(id: link.id)
-                    } label: {
-                        Label("Unpin", systemImage: "pin.slash")
-                    }
-                }
             }
 
         case .task(let task):

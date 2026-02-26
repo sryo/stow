@@ -798,7 +798,14 @@ final class SettingsContentViewController: NSViewController {
             return
         }
 
-        // Show confirmation alert
+        // Skip confirmation for empty workspaces
+        let workspace = appModel.workspaces.first(where: { $0.id == id })
+        if workspace?.items.isEmpty ?? true {
+            animateWorkspaceDeletion(id: id)
+            return
+        }
+
+        // Show confirmation alert for non-empty workspaces
         let alert = NSAlert()
         alert.messageText = "Delete workspace?"
         alert.informativeText = "This will permanently delete the workspace and all its contents."

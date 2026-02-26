@@ -49,7 +49,13 @@ struct WorkspaceSettingsView: View {
             if viewModel.workspaces.count > 1 {
                 Section {
                     Button("Delete Workspace", role: .destructive) {
-                        showDeleteConfirmation = true
+                        let isEmpty = workspace?.items.isEmpty ?? true
+                        if isEmpty {
+                            viewModel.deleteWorkspace(id: workspaceId)
+                            dismiss()
+                        } else {
+                            showDeleteConfirmation = true
+                        }
                     }
                 }
             }

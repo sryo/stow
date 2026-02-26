@@ -69,6 +69,7 @@ final class WorkspaceSwitcherView: NSView {
     // Inline rename tracking
     private weak var inlineRenameButton: WorkspaceButton?
     private var inlineRenameWorkspaceId: UUID?
+    var isInlineRenaming: Bool { inlineRenameWorkspaceId != nil }
 
     var style: Style {
         didSet {

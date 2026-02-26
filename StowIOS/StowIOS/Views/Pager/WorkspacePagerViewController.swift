@@ -70,45 +70,60 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
         let pageWidth = scrollView.bounds.width
         guard pageWidth > 0 else { return }
 
-        // Relayout pages and restore position
         layoutPages()
-        scrollView.contentOffset.x = CGFloat(currentPageIndex) * pageWidth
+
+        // Don't reset offset during drag or snap animation
+        if displayLink == nil && !isDragging {
+            scrollView.contentOffset.x = CGFloat(currentPageIndex) * pageWidth
+        }
     }
 
     // MARK: - Page Management
 
     func updatePages(workspaces: [Workspace], addNewView: AnyView, viewModel: AppViewModel) {
-        // Remove existing child VCs
+        // Save offset so we can restore it after rebuild
+        let savedOffset = scrollView.contentOffset
+
+        // Build new controllers before removing old ones
+        var newControllers: [UIHostingController<AnyView>] = []
+
+        for workspace in workspaces {
+            let nodeListView = AnyView(
+                NodeListView(workspaceId: workspace.id)
+                    .environmentObject(viewModel)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        WorkspaceNameHeader(workspaceId: workspace.id)
+                            .environmentObject(viewModel)
+                    }
+            )
+            let host = UIHostingController(rootView: nodeListView)
+            host.view.backgroundColor = .clear
+            newControllers.append(host)
+        }
+
+        let addHost = UIHostingController(rootView: addNewView)
+        addHost.view.backgroundColor = .clear
+        newControllers.append(addHost)
+
+        // Add new views first (behind old ones)
+        for host in newControllers {
+            addChild(host)
+            scrollView.insertSubview(host.view, at: 0)
+            host.didMove(toParent: self)
+        }
+
+        // Remove old controllers
         for child in pageControllers {
             child.willMove(toParent: nil)
             child.view.removeFromSuperview()
             child.removeFromParent()
         }
-        pageControllers.removeAll()
 
-        // Create a hosting controller for each workspace
-        for workspace in workspaces {
-            let nodeListView = AnyView(
-                NodeListView(workspace: workspace)
-                    .environmentObject(viewModel)
-            )
-            let host = UIHostingController(rootView: nodeListView)
-            host.view.backgroundColor = .clear
-            addChild(host)
-            scrollView.addSubview(host.view)
-            host.didMove(toParent: self)
-            pageControllers.append(host)
-        }
-
-        // Add-new page
-        let addHost = UIHostingController(rootView: addNewView)
-        addHost.view.backgroundColor = .clear
-        addChild(addHost)
-        scrollView.addSubview(addHost.view)
-        addHost.didMove(toParent: self)
-        pageControllers.append(addHost)
-
+        pageControllers = newControllers
         layoutPages()
+
+        // Restore offset to prevent visual jump
+        scrollView.contentOffset = savedOffset
     }
 
     private func layoutPages() {
@@ -166,23 +181,21 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
         let normalizedOffset = scrollView.contentOffset.x / pageWidth
         onOffsetChanged?(normalizedOffset)
 
-        // Haptic feedback in add-new zone
-        if isDragging {
-            let workspaceCount = pageControllers.count - 1 // last page is add-new
-            let lastWorkspaceOffset = CGFloat(workspaceCount - 1) * pageWidth
-            let inAddNewZone = scrollView.contentOffset.x > lastWorkspaceOffset + 1
-            if inAddNewZone {
-                if lastHapticTime == 0 {
-                    hapticGenerator.prepare()
-                }
-                let now = CACurrentMediaTime()
-                if now - lastHapticTime >= 0.05 {
-                    hapticGenerator.impactOccurred(intensity: 0.4)
-                    lastHapticTime = now
-                }
-            } else {
-                lastHapticTime = 0
+        // Continuous haptic while in the add-new zone (during drag and snap animation)
+        let workspaceCount = pageControllers.count - 1 // last page is add-new
+        let lastWorkspaceOffset = CGFloat(workspaceCount - 1) * pageWidth
+        let inAddNewZone = scrollView.contentOffset.x > lastWorkspaceOffset + 1
+        if inAddNewZone {
+            if lastHapticTime == 0 {
+                hapticGenerator.prepare()
             }
+            let now = CACurrentMediaTime()
+            if now - lastHapticTime >= 0.05 {
+                hapticGenerator.impactOccurred(intensity: 0.4)
+                lastHapticTime = now
+            }
+        } else {
+            lastHapticTime = 0
         }
     }
 
@@ -236,12 +249,6 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
             }
         }
 
-        // If landing on add-new page, trigger callback and snap back
-        if targetPage >= workspaceCount {
-            onAddNewTriggered?()
-            targetPage = workspaceCount - 1
-        }
-
         beginSnapAnimation(from: rawPage, toPage: targetPage)
     }
 
@@ -291,12 +298,37 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
         scrollView.isScrollEnabled = true
         scrollView.contentOffset.x = snapTargetOffset
         currentPageIndex = snapTargetPage
-        onPageSnapped?(snapTargetPage)
+
+        // Detect landing on add-new page (last page)
+        let workspacePageCount = pageControllers.count - 1
+        if snapTargetPage >= workspacePageCount {
+            onAddNewTriggered?()
+        } else {
+            onPageSnapped?(snapTargetPage)
+        }
     }
 
     private func cancelDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
         scrollView.isScrollEnabled = true
+    }
+}
+
+// MARK: - Workspace Name Header
+
+/// Reads the workspace name reactively from the view model so it updates on rename.
+private struct WorkspaceNameHeader: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    let workspaceId: UUID
+
+    var body: some View {
+        let _ = viewModel.refreshTrigger
+        let name = viewModel.workspaces.first(where: { $0.id == workspaceId })?.name ?? ""
+        Text(name)
+            .font(.largeTitle.bold())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
     }
 }

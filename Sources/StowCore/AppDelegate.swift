@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WindowAttachmentServiceDelegate, GlobalHotkeyServiceDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation, WindowAttachmentServiceDelegate, GlobalHotkeyServiceDelegate {
     public override init() {
         super.init()
     }
@@ -56,8 +56,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         // Initialize iCloud sync
         CloudSyncManager.shared.configure(model: model)
+        NSApp.registerForRemoteNotifications()
 
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    public func applicationDidBecomeActive(_ notification: Notification) {
+        CloudSyncManager.shared.fetchChanges()
+    }
+
+    public func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        CloudSyncManager.shared.fetchChanges()
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
@@ -150,6 +159,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        for i in 1...9 {
+            let item = NSMenuItem(title: "Workspace \(i)", action: #selector(switchToWorkspaceByTag(_:)), keyEquivalent: "\(i)")
+            item.tag = i
+            item.target = self
+            windowMenu.addItem(item)
+        }
 
         NSApplication.shared.mainMenu = mainMenu
     }
@@ -205,6 +221,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc private func newFolder() {
         mainViewController?.createFolderAndBeginRename(parentId: nil)
+    }
+
+    @objc private func switchToWorkspaceByTag(_ sender: NSMenuItem) {
+        mainViewController?.switchToWorkspace(atIndex: sender.tag - 1)
+    }
+
+    // MARK: - Menu Validation
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(switchToWorkspaceByTag(_:)) {
+            let index = menuItem.tag - 1
+            return index >= 0 && index < (mainViewController?.model.workspaces.count ?? 0)
+        }
+        return true
     }
 
     // MARK: - Global Hotkey

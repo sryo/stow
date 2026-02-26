@@ -4,13 +4,13 @@ import StowShared
 
 struct StowWidgetEntry: TimelineEntry {
     let date: Date
-    let pinnedLinks: [StowShared.Link]
+    let links: [StowShared.Link]
     let workspaceName: String
 }
 
 struct StowWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> StowWidgetEntry {
-        StowWidgetEntry(date: Date(), pinnedLinks: [], workspaceName: "Stow")
+        StowWidgetEntry(date: Date(), links: [], workspaceName: "Stow")
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StowWidgetEntry) -> Void) {
@@ -36,11 +36,28 @@ struct StowWidgetProvider: TimelineProvider {
         let selectedId = state.selectedWorkspaceId
         let workspace = state.workspaces.first(where: { $0.id == selectedId }) ?? state.workspaces.first
 
+        let links = collectLinks(from: workspace?.items ?? [])
+
         return StowWidgetEntry(
             date: Date(),
-            pinnedLinks: workspace?.pinnedLinks ?? [],
+            links: links,
             workspaceName: workspace?.name ?? "Stow"
         )
+    }
+
+    private func collectLinks(from nodes: [Node]) -> [StowShared.Link] {
+        var result: [StowShared.Link] = []
+        for node in nodes {
+            switch node {
+            case .link(let link):
+                result.append(link)
+            case .folder(let folder):
+                result.append(contentsOf: collectLinks(from: folder.children))
+            case .task, .snippet:
+                continue
+            }
+        }
+        return result
     }
 }
 
@@ -55,13 +72,13 @@ struct StowWidgetEntryView: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
 
-            if entry.pinnedLinks.isEmpty {
-                Text("No pinned links")
+            if entry.links.isEmpty {
+                Text("No links")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             } else {
                 let maxLinks = family == .systemSmall ? 4 : 8
-                let links = Array(entry.pinnedLinks.prefix(maxLinks))
+                let links = Array(entry.links.prefix(maxLinks))
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: family == .systemSmall ? 2 : 4), spacing: 6) {
                     ForEach(links) { link in
@@ -94,8 +111,8 @@ struct StowWidget: Widget {
             StowWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Pinned Links")
-        .description("Quick access to your pinned bookmarks.")
+        .configurationDisplayName("Quick Links")
+        .description("Quick access to your workspace bookmarks.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

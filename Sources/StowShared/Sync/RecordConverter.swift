@@ -24,12 +24,6 @@ public enum RecordConverter {
             record[CKWorkspaceFields.colorId] = trimmed as CKRecordValue
         }
 
-        // Encode pinnedLinks as JSON string
-        if let pinnedData = try? JSONEncoder().encode(workspace.pinnedLinks),
-           let pinnedString = String(data: pinnedData, encoding: .utf8) {
-            record[CKWorkspaceFields.pinnedLinksJSON] = pinnedString as CKRecordValue
-        }
-
         // Encode browserProfiles as JSON string
         if let profilesData = try? JSONEncoder().encode(workspace.browserProfiles),
            let profilesString = String(data: profilesData, encoding: .utf8) {
@@ -58,13 +52,6 @@ public enum RecordConverter {
             }
         }
 
-        // Decode pinnedLinks
-        var pinnedLinks: [Link] = []
-        if let pinnedString = record[CKWorkspaceFields.pinnedLinksJSON] as? String,
-           let pinnedData = pinnedString.data(using: .utf8) {
-            pinnedLinks = (try? JSONDecoder().decode([Link].self, from: pinnedData)) ?? []
-        }
-
         // Decode browserProfiles
         var browserProfiles: [String: String] = [:]
         if let profilesString = record[CKWorkspaceFields.browserProfilesJSON] as? String,
@@ -77,7 +64,6 @@ public enum RecordConverter {
             name: name,
             colorId: colorId,
             items: [],
-            pinnedLinks: pinnedLinks,
             browserProfiles: browserProfiles
         )
     }

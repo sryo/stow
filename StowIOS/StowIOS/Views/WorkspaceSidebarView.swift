@@ -21,7 +21,7 @@ struct WorkspaceSidebarView: View {
         .navigationTitle("Workspaces")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: { viewModel.createWorkspace(name: "New Workspace") }) {
+                Button(action: { viewModel.createWorkspace(name: "Untitled") }) {
                     Image(systemName: "plus")
                 }
             }
