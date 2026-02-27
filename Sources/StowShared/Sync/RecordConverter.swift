@@ -144,7 +144,7 @@ public enum RecordConverter {
         switch node {
         case .folder(let folder):
             // Encode folder metadata without children (children are separate records)
-            let metadata = FolderMetadata(id: folder.id, name: folder.name, isExpanded: folder.isExpanded)
+            let metadata = FolderMetadata(id: folder.id, name: folder.name, isExpanded: folder.isExpanded, isArchived: folder.isArchived)
             dataJSON = (try? encoder.encode(metadata)).flatMap { String(data: $0, encoding: .utf8) }
         case .link(let link):
             dataJSON = (try? encoder.encode(link)).flatMap { String(data: $0, encoding: .utf8) }
@@ -192,7 +192,7 @@ public enum RecordConverter {
         switch typeString {
         case "folder":
             guard let metadata = try? decoder.decode(FolderMetadata.self, from: data) else { return nil }
-            let folder = Folder(id: metadata.id, name: metadata.name, children: [], isExpanded: metadata.isExpanded)
+            let folder = Folder(id: metadata.id, name: metadata.name, children: [], isExpanded: metadata.isExpanded, isArchived: metadata.isArchived)
             return .folder(folder)
         case "link":
             guard let link = try? decoder.decode(Link.self, from: data) else { return nil }
@@ -264,7 +264,8 @@ public enum RecordConverter {
                         id: folder.id,
                         name: folder.name,
                         children: populatedChildren,
-                        isExpanded: folder.isExpanded
+                        isExpanded: folder.isExpanded,
+                        isArchived: folder.isArchived
                     ))
                 }
                 return node
@@ -278,7 +279,8 @@ public enum RecordConverter {
                     id: folder.id,
                     name: folder.name,
                     children: populatedChildren,
-                    isExpanded: folder.isExpanded
+                    isExpanded: folder.isExpanded,
+                    isArchived: folder.isArchived
                 ))
             }
             return node
@@ -294,4 +296,20 @@ private struct FolderMetadata: Codable {
     let id: UUID
     let name: String
     let isExpanded: Bool
+    let isArchived: Bool
+
+    init(id: UUID, name: String, isExpanded: Bool, isArchived: Bool = false) {
+        self.id = id
+        self.name = name
+        self.isExpanded = isExpanded
+        self.isArchived = isArchived
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+    }
 }

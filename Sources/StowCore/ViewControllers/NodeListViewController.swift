@@ -5,6 +5,8 @@
 
 import AppKit
 
+private let archiveHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!
+
 /// Manages the node list collection view, including drag-drop and context menus
 @MainActor
 final class NodeListViewController: NSViewController {
@@ -38,6 +40,9 @@ final class NodeListViewController: NSViewController {
     private var pendingInlineRenameId: UUID?
     private var suppressNextSelection = false
 
+    // Archive header stable UUID (defined at file scope for nonisolated access)
+    static let archiveHeaderId = archiveHeaderUUID
+
     // Callbacks
     var onNodeSelected: ((UUID) -> Void)?
     var onFolderToggled: ((UUID, Bool) -> Void)?
@@ -62,6 +67,9 @@ final class NodeListViewController: NSViewController {
     var onBulkOpenLinks: (([UUID]) -> Void)?
     var onMoveToNewWorkspace: (([UUID]) -> Void)?
     var onMoveToNewFolder: (([UUID]) -> Void)?
+    var onNodeUnarchived: ((UUID) -> Void)?
+    var onNodePermanentlyDeleted: ((UUID) -> Void)?
+    var onArchiveToggled: ((Bool) -> Void)?
 
     // Current workspace provider (for filtering "Move to" menu)
     var currentWorkspaceIdProvider: (() -> UUID?)?
@@ -125,6 +133,7 @@ final class NodeListViewController: NSViewController {
         collectionView.backgroundColors = [.clear]
         collectionView.collectionViewLayout = ListFlowLayout(metrics: listMetrics)
         collectionView.register(NodeCollectionViewItem.self, forItemWithIdentifier: NodeCollectionViewItem.identifier)
+        collectionView.register(ArchiveHeaderItem.self, forItemWithIdentifier: ArchiveHeaderItem.identifier)
         collectionView.registerForDraggedTypes([nodePasteboardType])
         collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
 
@@ -242,8 +251,18 @@ final class NodeListViewController: NSViewController {
     // MARK: - Public Methods
 
     /// Reloads the collection view with new visible rows
-    func reloadData(with nodes: [Node], forceExpand: Bool, animated: Bool = true) {
-        let newRows = buildVisibleRows(nodes: nodes, depth: 0, forceExpand: forceExpand)
+    func reloadData(with nodes: [Node], forceExpand: Bool, animated: Bool = true, archivedNodes: [Node] = [], isArchiveExpanded: Bool = false) {
+        var newRows = buildVisibleRows(nodes: nodes, depth: 0, forceExpand: forceExpand)
+
+        // Append archive section if there are archived items and not searching
+        if !archivedNodes.isEmpty && !isSearchActive {
+            newRows.append(NodeListRow(archiveHeaderCount: archivedNodes.count, isExpanded: isArchiveExpanded))
+            if isArchiveExpanded {
+                for node in archivedNodes {
+                    newRows.append(NodeListRow(node: node, depth: 0, kind: .archived))
+                }
+            }
+        }
 
         if !animated {
             visibleRows = newRows
@@ -280,6 +299,11 @@ final class NodeListViewController: NSViewController {
     func visibleNode(at index: Int) -> Node? {
         guard index >= 0, index < visibleRows.count else { return nil }
         return visibleRows[index].node
+    }
+
+    /// Returns the number of regular (non-archive) rows
+    var regularRowCount: Int {
+        visibleRows.filter { if case .regular = $0.kind { return true }; return false }.count
     }
 
     /// Shows a checkmark symbol that floats up and fades out on the row for the given node ID
@@ -607,13 +631,30 @@ extension NodeListViewController: NSCollectionViewDataSource {
     }
 
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        guard let row = row(at: indexPath) else {
+            return collectionView.makeItem(withIdentifier: NodeCollectionViewItem.identifier, for: indexPath)
+        }
+
+        // Handle archive header row
+        if case .archiveHeader(let count, let isExpanded) = row.kind {
+            let item = collectionView.makeItem(withIdentifier: ArchiveHeaderItem.identifier, for: indexPath)
+            if let headerItem = item as? ArchiveHeaderItem {
+                headerItem.configure(count: count, isExpanded: isExpanded, metrics: listMetrics) { [weak self] in
+                    self?.onArchiveToggled?(!isExpanded)
+                }
+            }
+            return item
+        }
+
         let item = collectionView.makeItem(withIdentifier: NodeCollectionViewItem.identifier, for: indexPath)
         guard let nodeItem = item as? NodeCollectionViewItem else { return item }
-        guard let row = row(at: indexPath) else { return item }
+        guard let node = row.node else { return item }
 
-        let isSelected = selectedNodeIds.contains(row.node.id)
+        let isSelected = selectedNodeIds.contains(node.id)
+        let isArchived: Bool
+        if case .archived = row.kind { isArchived = true } else { isArchived = false }
 
-        switch row.node {
+        switch node {
         case .folder(let folder):
             let icon = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
             icon?.isTemplate = true
@@ -641,18 +682,25 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 shouldFetch = false
             }
 
+            let domain: String? = {
+                let str = link.url.contains("://") ? link.url : "https://\(link.url)"
+                guard let url = URL(string: str), let host = url.host else { return nil }
+                return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            }()
+
             nodeItem.configure(
                 title: link.title,
                 icon: iconToUse,
                 titleFont: listMetrics.linkTitleFont,
                 depth: row.depth,
                 metrics: listMetrics,
-                showDelete: true,
-                onDelete: { [weak self] in
+                showDelete: !isArchived,
+                onDelete: isArchived ? nil : { [weak self] in
                     self?.onNodeDeleted?(link.id)
                     self?.clearSelections()
                 },
-                isSelected: isSelected
+                isSelected: isSelected,
+                subtitle: domain
             )
 
             if shouldFetch, let url = URL(string: link.url) {
@@ -675,8 +723,8 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 titleFont: listMetrics.linkTitleFont,
                 depth: row.depth,
                 metrics: listMetrics,
-                showDelete: true,
-                onDelete: { [weak self] in
+                showDelete: !isArchived,
+                onDelete: isArchived ? nil : { [weak self] in
                     self?.onNodeDeleted?(task.id)
                     self?.clearSelections()
                 },
@@ -694,8 +742,8 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 titleFont: listMetrics.linkTitleFont,
                 depth: row.depth,
                 metrics: listMetrics,
-                showDelete: true,
-                onDelete: { [weak self] in
+                showDelete: !isArchived,
+                onDelete: isArchived ? nil : { [weak self] in
                     self?.onNodeDeleted?(snippet.id)
                     self?.clearSelections()
                 },
@@ -703,43 +751,58 @@ extension NodeListViewController: NSCollectionViewDataSource {
             )
         }
 
-        // Assign hint letter (a-z for first 26 items)
-        if indexPath.item < 26 {
+        // Assign hint letter (a-z for first 26 regular items)
+        if !isArchived && indexPath.item < 26 {
             let letter = String(UnicodeScalar(UInt8(97 + indexPath.item))) // 'a' = 97
             nodeItem.setHintCharacter(letter)
         } else {
             nodeItem.setHintCharacter(nil)
         }
 
-        // Configure swipe actions per node type
+        // Configure swipe actions per node type and archive state
         nodeItem.swipeEnabled = !isSearchActive
-        nodeItem.onSwipeLeft = { [weak self] in
-            self?.onNodeDeleted?(row.node.id)
-            self?.clearSelections()
-        }
 
-        switch row.node {
-        case .link(let link):
-            nodeItem.setSwipeRightIcon("arrow.up.right", tintColor: .systemBlue)
-            nodeItem.onSwipeRight = { [weak self] in
-                self?.onNodeSelected?(link.id)
+        if isArchived {
+            // Archived items: swipe left = permanent delete, swipe right = unarchive
+            nodeItem.setSwipeLeftIcon("trash", tintColor: .systemRed)
+            nodeItem.onSwipeLeft = { [weak self] in
+                self?.onNodePermanentlyDeleted?(node.id)
             }
-        case .task(let task):
-            nodeItem.setSwipeRightIcon(
-                task.isCompleted ? "arrow.uturn.backward.circle" : "checkmark.circle",
-                tintColor: .systemGreen
-            )
+            nodeItem.setSwipeRightIcon("arrow.uturn.backward", tintColor: .systemBlue)
             nodeItem.onSwipeRight = { [weak self] in
-                self?.onTaskToggled?(task.id)
+                self?.onNodeUnarchived?(node.id)
             }
-        case .snippet(let snippet):
-            nodeItem.setSwipeRightIcon("doc.on.doc", tintColor: .systemOrange)
-            nodeItem.onSwipeRight = { [weak self] in
-                self?.onSnippetClicked?(snippet.id)
+        } else {
+            // Regular items: swipe left = archive
+            nodeItem.setSwipeLeftIcon("archivebox", tintColor: .systemOrange)
+            nodeItem.onSwipeLeft = { [weak self] in
+                self?.onNodeDeleted?(node.id)
+                self?.clearSelections()
             }
-        case .folder:
-            nodeItem.setSwipeRightIcon("folder", tintColor: .systemGray)
-            nodeItem.onSwipeRight = nil
+
+            switch node {
+            case .link(let link):
+                nodeItem.setSwipeRightIcon("arrow.up.right", tintColor: .systemBlue)
+                nodeItem.onSwipeRight = { [weak self] in
+                    self?.onNodeSelected?(link.id)
+                }
+            case .task(let task):
+                nodeItem.setSwipeRightIcon(
+                    task.isCompleted ? "arrow.uturn.backward.circle" : "checkmark.circle",
+                    tintColor: .systemGreen
+                )
+                nodeItem.onSwipeRight = { [weak self] in
+                    self?.onTaskToggled?(task.id)
+                }
+            case .snippet(let snippet):
+                nodeItem.setSwipeRightIcon("doc.on.doc", tintColor: .systemOrange)
+                nodeItem.onSwipeRight = { [weak self] in
+                    self?.onSnippetClicked?(snippet.id)
+                }
+            case .folder:
+                nodeItem.setSwipeRightIcon("folder", tintColor: .systemGray)
+                nodeItem.onSwipeRight = nil
+            }
         }
 
         return nodeItem
@@ -769,11 +832,36 @@ extension NodeListViewController: NSCollectionViewDelegate {
             return false
         }
 
+        // Don't allow dragging archive header or archived items
+        for indexPath in indexPaths {
+            if let row = row(at: indexPath) {
+                switch row.kind {
+                case .archiveHeader, .archived:
+                    return false
+                case .regular:
+                    break
+                }
+            }
+        }
+
         return true
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         guard let indexPath = indexPaths.first, let row = row(at: indexPath) else { return }
+
+        // Handle archive header click
+        if case .archiveHeader(_, let isExpanded) = row.kind {
+            collectionView.deselectItems(at: indexPaths)
+            onArchiveToggled?(!isExpanded)
+            return
+        }
+
+        guard let node = row.node else {
+            collectionView.deselectItems(at: indexPaths)
+            return
+        }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if self.isDraggingItems { return }
@@ -790,7 +878,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
 
             // Check for Cmd key modifier for multi-selection
             if NSEvent.modifierFlags.contains(.command) {
-                self.toggleSelection(for: row.node.id)
+                self.toggleSelection(for: node.id)
                 self.collectionView.deselectItems(at: indexPaths)
                 return
             }
@@ -800,7 +888,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
                 self.clearSelections()
             }
 
-            switch row.node {
+            switch node {
             case .folder(let folder):
                 self.onFolderToggled?(folder.id, !folder.isExpanded)
             case .link(let link):
@@ -816,9 +904,12 @@ extension NodeListViewController: NSCollectionViewDelegate {
     }
 
     func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
-        guard let row = row(at: indexPath) else { return nil }
+        guard let row = row(at: indexPath), let node = row.node else { return nil }
+        // Don't allow dragging archive header or archived items
+        if case .archived = row.kind { return nil }
+        if case .archiveHeader = row.kind { return nil }
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(row.node.id.uuidString, forType: nodePasteboardType)
+        pasteboardItem.setString(node.id.uuidString, forType: nodePasteboardType)
         return pasteboardItem
     }
 
@@ -849,7 +940,8 @@ extension NodeListViewController: NSCollectionViewDelegate {
         let indexPath = proposedDropIndexPath.pointee as IndexPath
         if indexPath.item < visibleRows.count,
            let row = row(at: indexPath),
-           case .folder = row.node,
+           let node = row.node,
+           case .folder = node,
            shouldDropOnItem(at: indexPath, draggingInfo: draggingInfo) {
             proposedDropOperation.pointee = .on
         } else {
@@ -873,8 +965,8 @@ extension NodeListViewController: NSCollectionViewDelegate {
         var targetParentId: UUID?
         var targetIndex: Int
 
-        if indexPath.item < visibleRows.count, let row = row(at: indexPath) {
-            switch row.node {
+        if indexPath.item < visibleRows.count, let row = row(at: indexPath), let dropNode = row.node {
+            switch dropNode {
             case .folder(let folder):
                 if dropOperation == .on {
                     targetParentId = folder.id
@@ -887,7 +979,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
                     targetIndex = nodes.count
                 }
             case .link, .task, .snippet:
-                if let location = findNodeLocation?(row.node.id) {
+                if let location = findNodeLocation?(dropNode.id) {
                     targetParentId = location.parentId
                     targetIndex = location.index
                 } else {
@@ -919,7 +1011,13 @@ extension NodeListViewController: NSMenuDelegate {
         }
 
         guard let indexPath = contextIndexPath,
-              let row = row(at: indexPath) else {
+              let row = row(at: indexPath),
+              let node = row.node else {
+            // No archive header context menu either
+            if let indexPath = contextIndexPath, let row = row(at: indexPath),
+               case .archiveHeader = row.kind {
+                return
+            }
             let newFolder = NSMenuItem(title: "New folder…", action: #selector(contextNewFolder), keyEquivalent: "")
             newFolder.target = self
             menu.addItem(newFolder)
@@ -934,7 +1032,19 @@ extension NodeListViewController: NSMenuDelegate {
             return
         }
 
-        let node = row.node
+        // Archived items get a different context menu
+        if case .archived = row.kind {
+            let unarchive = NSMenuItem(title: "Unarchive", action: #selector(contextUnarchive(_:)), keyEquivalent: "")
+            unarchive.target = self
+            unarchive.representedObject = node.id
+            menu.addItem(unarchive)
+
+            let permDelete = NSMenuItem(title: "Delete Permanently", action: #selector(contextPermanentlyDelete(_:)), keyEquivalent: "")
+            permDelete.target = self
+            permDelete.representedObject = node.id
+            menu.addItem(permDelete)
+            return
+        }
 
         // Common items helper
         func addMoveToSubmenu() {
@@ -990,10 +1100,10 @@ extension NodeListViewController: NSMenuDelegate {
 
             addMoveToSubmenu()
 
-            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-            delete.target = self
-            delete.representedObject = node.id
-            menu.addItem(delete)
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            archive.target = self
+            archive.representedObject = node.id
+            menu.addItem(archive)
         case .link(let link):
             let editUrl = NSMenuItem(title: "Edit URL…", action: #selector(contextEditUrl(_:)), keyEquivalent: "")
             editUrl.target = self
@@ -1006,10 +1116,10 @@ extension NodeListViewController: NSMenuDelegate {
 
             addMoveToSubmenu()
 
-            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-            delete.target = self
-            delete.representedObject = node.id
-            menu.addItem(delete)
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            archive.target = self
+            archive.representedObject = node.id
+            menu.addItem(archive)
         case .task(let task):
             let toggleTitle = task.isCompleted ? "Mark incomplete" : "Mark complete"
             let toggle = NSMenuItem(title: toggleTitle, action: #selector(contextToggleTask), keyEquivalent: "")
@@ -1037,10 +1147,10 @@ extension NodeListViewController: NSMenuDelegate {
 
             addMoveToSubmenu()
 
-            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-            delete.target = self
-            delete.representedObject = node.id
-            menu.addItem(delete)
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            archive.target = self
+            archive.representedObject = node.id
+            menu.addItem(archive)
         case .snippet:
             let copyContent = NSMenuItem(title: "Copy content", action: #selector(contextCopySnippet), keyEquivalent: "")
             copyContent.target = self
@@ -1060,10 +1170,10 @@ extension NodeListViewController: NSMenuDelegate {
 
             addMoveToSubmenu()
 
-            let delete = NSMenuItem(title: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-            delete.target = self
-            delete.representedObject = node.id
-            menu.addItem(delete)
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            archive.target = self
+            archive.representedObject = node.id
+            menu.addItem(archive)
         }
     }
 
@@ -1093,6 +1203,16 @@ extension NodeListViewController: NSMenuDelegate {
     @objc private func contextDelete(_ sender: NSMenuItem) {
         guard let nodeId = sender.representedObject as? UUID else { return }
         onNodeDeleted?(nodeId)
+    }
+
+    @objc private func contextUnarchive(_ sender: NSMenuItem) {
+        guard let nodeId = sender.representedObject as? UUID else { return }
+        onNodeUnarchived?(nodeId)
+    }
+
+    @objc private func contextPermanentlyDelete(_ sender: NSMenuItem) {
+        guard let nodeId = sender.representedObject as? UUID else { return }
+        onNodePermanentlyDeleted?(nodeId)
     }
 
     @objc private func contextMoveToWorkspace(_ sender: NSMenuItem) {
@@ -1194,8 +1314,8 @@ extension NodeListViewController: NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // 4. Delete All
-        let deleteItem = NSMenuItem(title: "Delete \(count) item\(count > 1 ? "s" : "")…", action: #selector(bulkDelete), keyEquivalent: "")
+        // 4. Archive All
+        let deleteItem = NSMenuItem(title: "Archive \(count) item\(count > 1 ? "s" : "")", action: #selector(bulkDelete), keyEquivalent: "")
         deleteItem.target = self
         menu.addItem(deleteItem)
     }
@@ -1291,34 +1411,42 @@ extension NodeListViewController: NSMenuDelegate {
     }
 
     @objc private func bulkDelete() {
-        let count = selectedNodeIds.count
-        guard count > 0 else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Delete \(count) item\(count == 1 ? "" : "s")?"
-        alert.informativeText = "This will permanently delete the selected items. This cannot be undone."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
-        if let deleteButton = alert.buttons.last {
-            deleteButton.hasDestructiveAction = true
-        }
-        alert.alertStyle = .warning
-
-        if alert.runModal() == .alertSecondButtonReturn {
-            onBulkNodesDeleted?(Array(selectedNodeIds))
-            clearSelections()
-        }
+        guard selectedNodeIds.count > 0 else { return }
+        onBulkNodesDeleted?(Array(selectedNodeIds))
+        clearSelections()
     }
 }
 
 // MARK: - Supporting Types
 
+private enum NodeListRowKind {
+    case regular
+    case archiveHeader(count: Int, isExpanded: Bool)
+    case archived
+}
+
 private struct NodeListRow {
-    let node: Node
+    let node: Node?
     let depth: Int
+    let kind: NodeListRowKind
+    let rowId: UUID
+
+    init(node: Node, depth: Int, kind: NodeListRowKind = .regular) {
+        self.node = node
+        self.depth = depth
+        self.kind = kind
+        self.rowId = node.id
+    }
+
+    init(archiveHeaderCount: Int, isExpanded: Bool) {
+        self.node = nil
+        self.depth = 0
+        self.kind = .archiveHeader(count: archiveHeaderCount, isExpanded: isExpanded)
+        self.rowId = archiveHeaderUUID
+    }
 
     var id: UUID {
-        node.id
+        rowId
     }
 }
 
@@ -1398,7 +1526,8 @@ private final class ContextMenuCollectionView: NSCollectionView {
         if let parentVC = parentViewController {
             if let indexPath = indexPath,
                let row = parentVC.row(at: indexPath),
-               parentVC.selectedNodeIds.contains(row.node.id),
+               let node = row.node,
+               parentVC.selectedNodeIds.contains(node.id),
                parentVC.selectedNodeIds.count > 0 {
                 parentVC.isBulkContextMenu = true
             } else {
@@ -1413,5 +1542,57 @@ private final class ContextMenuCollectionView: NSCollectionView {
     override func draggingExited(_ sender: NSDraggingInfo?) {
         super.draggingExited(sender)
         onDragExit?()
+    }
+}
+
+// MARK: - Archive Header Item
+
+private final class ArchiveHeaderItem: NSCollectionViewItem {
+    static let identifier = NSUserInterfaceItemIdentifier("ArchiveHeaderItem")
+
+    private let disclosureIcon = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private var onClick: (() -> Void)?
+
+    override func loadView() {
+        let container = NSView()
+        container.wantsLayer = true
+        self.view = container
+
+        disclosureIcon.translatesAutoresizingMaskIntoConstraints = false
+        disclosureIcon.imageScaling = .scaleProportionallyDown
+        disclosureIcon.wantsLayer = true
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        container.addSubview(disclosureIcon)
+        container.addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            disclosureIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            disclosureIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            disclosureIcon.widthAnchor.constraint(equalToConstant: 12),
+            disclosureIcon.heightAnchor.constraint(equalToConstant: 12),
+
+            titleLabel.leadingAnchor.constraint(equalTo: disclosureIcon.trailingAnchor, constant: 6),
+            titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+        ])
+    }
+
+    func configure(count: Int, isExpanded: Bool, metrics: ListMetrics, onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        titleLabel.stringValue = "Archive (\(count))"
+        titleLabel.textColor = metrics.titleColor.withAlphaComponent(ThemeConstants.Opacity.low)
+
+        let chevronName = isExpanded ? "chevron.down" : "chevron.right"
+        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let icon = NSImage(systemSymbolName: chevronName, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        icon?.isTemplate = true
+        disclosureIcon.image = icon
+        disclosureIcon.contentTintColor = metrics.titleColor.withAlphaComponent(ThemeConstants.Opacity.low)
     }
 }

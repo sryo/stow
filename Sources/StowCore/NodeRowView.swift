@@ -4,6 +4,7 @@ final class NodeRowView: BaseView {
     private let contentContainer = NSView()
     private let iconView = NSImageView()
     private let editableTitle = InlineEditableTextField()
+    private let subtitleLabel = NSTextField(labelWithString: "")
     private let deleteButton = NSButton()
     private let hintLabel = NSTextField(labelWithString: "")
     private let dueDateLabel = NSTextField(labelWithString: "")
@@ -17,6 +18,8 @@ final class NodeRowView: BaseView {
     private var iconWidthConstraint: NSLayoutConstraint?
     private var iconHeightConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
+    private var titleToSubtitleConstraint: NSLayoutConstraint?
+    private var titleToDueDateConstraint: NSLayoutConstraint?
 
     // Swipe state
     private var panGesture: NSPanGestureRecognizer?
@@ -116,6 +119,14 @@ final class NodeRowView: BaseView {
         deleteButton.action = #selector(handleDelete)
         deleteButton.setButtonType(.momentaryChange)
 
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        subtitleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
+        subtitleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.isHidden = true
+        subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         dueDateLabel.translatesAutoresizingMaskIntoConstraints = false
         dueDateLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         dueDateLabel.isHidden = true
@@ -132,12 +143,17 @@ final class NodeRowView: BaseView {
         contentContainer.addSubview(hintLabel)
         contentContainer.addSubview(iconView)
         contentContainer.addSubview(editableTitle)
+        contentContainer.addSubview(subtitleLabel)
         contentContainer.addSubview(dueDateLabel)
         contentContainer.addSubview(deleteButton)
 
         iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16)
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 26)
         iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 26)
+
+        titleToSubtitleConstraint = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: subtitleLabel.leadingAnchor, constant: -6)
+        titleToDueDateConstraint = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8)
+        titleToDueDateConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
             iconLeadingConstraint!,
@@ -147,7 +163,9 @@ final class NodeRowView: BaseView {
 
             editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 14),
             editableTitle.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8),
+
+            subtitleLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8),
 
             dueDateLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
             dueDateLabel.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -8),
@@ -171,7 +189,8 @@ final class NodeRowView: BaseView {
                    onDelete: (() -> Void)?,
                    isSelected: Bool,
                    isCompleted: Bool = false,
-                   dueDate: Date? = nil) {
+                   dueDate: Date? = nil,
+                   subtitle: String? = nil) {
         self.metrics = metrics
         self.isSelected = isSelected
         updateVisualState()
@@ -218,6 +237,19 @@ final class NodeRowView: BaseView {
             dueDateLabel.isHidden = true
         }
 
+        // Subtitle label (e.g. domain for links)
+        if let subtitle, !subtitle.isEmpty {
+            subtitleLabel.stringValue = subtitle
+            subtitleLabel.isHidden = false
+            titleToSubtitleConstraint?.isActive = true
+            titleToDueDateConstraint?.isActive = false
+        } else {
+            subtitleLabel.stringValue = ""
+            subtitleLabel.isHidden = true
+            titleToSubtitleConstraint?.isActive = false
+            titleToDueDateConstraint?.isActive = true
+        }
+
         layer?.cornerRadius = metrics.rowCornerRadius
         iconView.layer?.cornerRadius = metrics.iconCornerRadius
         deleteButton.contentTintColor = metrics.deleteTintColor
@@ -252,6 +284,13 @@ final class NodeRowView: BaseView {
         icon?.isTemplate = true
         swipeRightActionView.image = icon
         swipeRightActionView.contentTintColor = tintColor
+    }
+
+    func setSwipeLeftIcon(_ symbolName: String, tintColor: NSColor) {
+        let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        icon?.isTemplate = true
+        swipeLeftActionView.image = icon
+        swipeLeftActionView.contentTintColor = tintColor
     }
 
     var isInlineRenaming: Bool {

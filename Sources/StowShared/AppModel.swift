@@ -297,6 +297,48 @@ public final class AppModel {
     }
 
     public func deleteNode(id: UUID) {
+        archiveNode(id: id)
+    }
+
+    public func archiveNode(id: UUID) {
+        updateNode(id: id) { node in
+            switch node {
+            case .folder(var folder):
+                folder.isArchived = true
+                node = .folder(folder)
+            case .link(var link):
+                link.isArchived = true
+                node = .link(link)
+            case .task(var task):
+                task.isArchived = true
+                node = .task(task)
+            case .snippet(var snippet):
+                snippet.isArchived = true
+                node = .snippet(snippet)
+            }
+        }
+    }
+
+    public func unarchiveNode(id: UUID) {
+        updateNode(id: id) { node in
+            switch node {
+            case .folder(var folder):
+                folder.isArchived = false
+                node = .folder(folder)
+            case .link(var link):
+                link.isArchived = false
+                node = .link(link)
+            case .task(var task):
+                task.isArchived = false
+                node = .task(task)
+            case .snippet(var snippet):
+                snippet.isArchived = false
+                node = .snippet(snippet)
+            }
+        }
+    }
+
+    public func permanentlyDeleteNode(id: UUID) {
         // Collect child IDs before removal so folder children are also synced as deleted
         let childIds: [UUID]
         if let node = nodeById(id), case .folder(let folder) = node {
@@ -312,6 +354,12 @@ public final class AppModel {
             for childId in childIds {
                 CloudSyncManager.shared.scheduleDeletion(for: childId)
             }
+        }
+    }
+
+    public func setArchiveExpanded(workspaceId: UUID, isExpanded: Bool) {
+        updateWorkspace(id: workspaceId) { workspace in
+            workspace.isArchiveExpanded = isExpanded
         }
     }
 

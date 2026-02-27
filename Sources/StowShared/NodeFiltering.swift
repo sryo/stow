@@ -4,6 +4,7 @@ public enum NodeFiltering {
     public static func filter(nodes: [Node], query: String) -> [Node] {
         let lower = query.lowercased()
         return nodes.compactMap { node in
+            guard !node.isArchived else { return nil }
             switch node {
             case .link(let link):
                 return link.title.lowercased().contains(lower) ? node : nil

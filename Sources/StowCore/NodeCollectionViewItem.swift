@@ -17,7 +17,8 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
                    onDelete: (() -> Void)?,
                    isSelected: Bool,
                    isCompleted: Bool = false,
-                   dueDate: Date? = nil) {
+                   dueDate: Date? = nil,
+                   subtitle: String? = nil) {
         view.alphaValue = 1
         view.layer?.transform = CATransform3DIdentity
         rowView.setIndentation(depth: depth, metrics: metrics)
@@ -30,7 +31,8 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
             onDelete: onDelete,
             isSelected: isSelected,
             isCompleted: isCompleted,
-            dueDate: dueDate
+            dueDate: dueDate,
+            subtitle: subtitle
         )
     }
 
@@ -51,6 +53,10 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
 
     func setSwipeRightIcon(_ symbolName: String, tintColor: NSColor) {
         rowView.setSwipeRightIcon(symbolName, tintColor: tintColor)
+    }
+
+    func setSwipeLeftIcon(_ symbolName: String, tintColor: NSColor) {
+        rowView.setSwipeLeftIcon(symbolName, tintColor: tintColor)
     }
 
     func setHintCharacter(_ hint: String?) {

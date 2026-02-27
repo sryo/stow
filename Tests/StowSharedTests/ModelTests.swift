@@ -755,4 +755,115 @@ final class ModelTests: XCTestCase {
         }
         XCTAssertEqual(s.title, "My Code")
     }
+
+    // MARK: - Archive Tests
+
+    func testArchiveAndUnarchiveNode() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
+        guard let node = model.nodeById(linkId), case .link(let link) = node else {
+            XCTFail("Expected link node"); return
+        }
+        XCTAssertFalse(link.isArchived)
+
+        model.archiveNode(id: linkId)
+        guard let archived = model.nodeById(linkId), case .link(let archivedLink) = archived else {
+            XCTFail("Expected link node"); return
+        }
+        XCTAssertTrue(archivedLink.isArchived)
+
+        model.unarchiveNode(id: linkId)
+        guard let restored = model.nodeById(linkId), case .link(let restoredLink) = restored else {
+            XCTFail("Expected link node"); return
+        }
+        XCTAssertFalse(restoredLink.isArchived)
+    }
+
+    func testDeleteNodeArchivesByDefault() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let taskId = model.addTask(title: "Test task", parentId: nil)
+        model.deleteNode(id: taskId)
+
+        // Node should still exist but be archived
+        guard let node = model.nodeById(taskId), case .task(let task) = node else {
+            XCTFail("Expected task to still exist after deleteNode"); return
+        }
+        XCTAssertTrue(task.isArchived)
+    }
+
+    func testPermanentlyDeleteNode() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
+        model.permanentlyDeleteNode(id: linkId)
+        XCTAssertNil(model.nodeById(linkId))
+    }
+
+    func testFilteringExcludesArchivedItems() {
+        let link = Link(id: UUID(), title: "Visible", url: "https://visible.com", faviconPath: nil)
+        let archivedLink = Link(id: UUID(), title: "Hidden", url: "https://hidden.com", faviconPath: nil, isArchived: true)
+        let nodes: [Node] = [.link(link), .link(archivedLink)]
+
+        let allResults = NodeFiltering.filter(nodes: nodes, query: "i")
+        // "Visible" matches "i", "Hidden" matches "i" but is archived
+        XCTAssertEqual(allResults.count, 1)
+        if case .link(let resultLink) = allResults[0] {
+            XCTAssertEqual(resultLink.title, "Visible")
+        } else {
+            XCTFail("Expected link node")
+        }
+    }
+
+    func testIsArchivedBackwardCompatibility() {
+        // JSON without isArchived should decode with isArchived = false
+        let json = """
+        {
+            "id": "12345678-1234-1234-1234-123456789abc",
+            "title": "Old Link",
+            "url": "https://old.com"
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let link = try! JSONDecoder().decode(Link.self, from: data)
+        XCTAssertEqual(link.title, "Old Link")
+        XCTAssertFalse(link.isArchived)
+    }
+
+    func testIsArchivedJSONRoundTrip() throws {
+        let link = Link(id: UUID(), title: "Test", url: "https://test.com", faviconPath: nil, isArchived: true)
+        let node = Node.link(link)
+        let workspace = Workspace(id: UUID(), name: "W", colorId: .ember, items: [node])
+        let state = AppState(schemaVersion: 2, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+        if case .link(let decodedLink) = decoded.workspaces[0].items[0] {
+            XCTAssertTrue(decodedLink.isArchived)
+        } else {
+            XCTFail("Expected link node")
+        }
+    }
+
+    func testArchiveExpandedState() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let workspaceId = model.currentWorkspace.id
+        XCTAssertFalse(model.currentWorkspace.isArchiveExpanded)
+
+        model.setArchiveExpanded(workspaceId: workspaceId, isExpanded: true)
+        XCTAssertTrue(model.currentWorkspace.isArchiveExpanded)
+
+        model.setArchiveExpanded(workspaceId: workspaceId, isExpanded: false)
+        XCTAssertFalse(model.currentWorkspace.isArchiveExpanded)
+    }
 }

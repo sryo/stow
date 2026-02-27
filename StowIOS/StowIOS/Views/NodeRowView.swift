@@ -5,6 +5,7 @@ struct NodeRowView: View {
     @EnvironmentObject var viewModel: AppViewModel
     let node: Node
     let parentId: UUID?
+    var isArchived: Bool = false
 
     @State private var isEditing = false
     @State private var editText = ""
@@ -76,11 +77,18 @@ struct NodeRowView: View {
 
     @ViewBuilder
     private func linkRow(_ link: StowShared.Link) -> some View {
+        let domain: String? = {
+            let str = link.url.contains("://") ? link.url : "https://\(link.url)"
+            guard let url = URL(string: str), let host = url.host else { return nil }
+            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        }()
+
         nodeLabel(
             systemImage: "globe",
             title: link.title,
             tintColor: .blue,
-            nodeId: link.id
+            nodeId: link.id,
+            subtitle: domain
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -154,7 +162,8 @@ struct NodeRowView: View {
         title: String,
         tintColor: Color,
         nodeId: UUID,
-        strikethrough: Bool = false
+        strikethrough: Bool = false,
+        subtitle: String? = nil
     ) -> some View {
         if isEditing {
             HStack(spacing: 8) {
@@ -176,9 +185,18 @@ struct NodeRowView: View {
             }
         } else {
             Label {
-                Text(title)
-                    .strikethrough(strikethrough)
-                    .foregroundStyle(strikethrough ? .secondary : .primary)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .strikethrough(strikethrough)
+                        .foregroundStyle(strikethrough ? .secondary : .primary)
+                        .lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             } icon: {
                 Image(systemName: systemImage)
                     .foregroundStyle(tintColor)
@@ -274,10 +292,24 @@ struct NodeRowView: View {
 
         Divider()
 
-        Button(role: .destructive) {
-            viewModel.model.deleteNode(id: node.id)
-        } label: {
-            Label("Delete", systemImage: "trash")
+        if isArchived {
+            Button {
+                viewModel.model.unarchiveNode(id: node.id)
+            } label: {
+                Label("Unarchive", systemImage: "arrow.uturn.backward")
+            }
+
+            Button(role: .destructive) {
+                viewModel.model.permanentlyDeleteNode(id: node.id)
+            } label: {
+                Label("Delete Permanently", systemImage: "trash")
+            }
+        } else {
+            Button(role: .destructive) {
+                viewModel.model.deleteNode(id: node.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
         }
     }
 

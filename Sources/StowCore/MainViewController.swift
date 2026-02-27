@@ -288,6 +288,19 @@ final class MainViewController: NSViewController {
             self?.model.deleteNode(id: nodeId)
         }
 
+        nodeListViewController.onNodeUnarchived = { [weak self] nodeId in
+            self?.model.unarchiveNode(id: nodeId)
+        }
+
+        nodeListViewController.onNodePermanentlyDeleted = { [weak self] nodeId in
+            self?.model.permanentlyDeleteNode(id: nodeId)
+        }
+
+        nodeListViewController.onArchiveToggled = { [weak self] isExpanded in
+            guard let self else { return }
+            self.model.setArchiveExpanded(workspaceId: self.model.currentWorkspace.id, isExpanded: isExpanded)
+        }
+
         nodeListViewController.onNodeRenamed = { [weak self] nodeId, newName in
             self?.model.renameNode(id: nodeId, newName: newName)
         }
@@ -448,12 +461,23 @@ final class MainViewController: NSViewController {
             showWorkspaceContent()
             applyBackgroundColor(for: model.currentWorkspace.colorId)
             nodeListViewController.workspaceColor = model.currentWorkspace.colorId
-            let filteredNodes = searchCoordinator.filter(nodes: model.currentWorkspace.items)
+            let workspace = model.currentWorkspace
             let forceExpand = searchCoordinator.isSearchActive
             nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
+
+            // Partition items into active and archived
+            let activeItems = workspace.items.filter { !$0.isArchived }
+            let archivedItems = workspace.items.filter { $0.isArchived }
+            let filteredNodes = searchCoordinator.filter(nodes: activeItems)
+
             // Skip node list rebuild if mid-rename to preserve text field focus
             if !isNodeRenaming {
-                nodeListViewController.reloadData(with: filteredNodes, forceExpand: forceExpand)
+                nodeListViewController.reloadData(
+                    with: filteredNodes,
+                    forceExpand: forceExpand,
+                    archivedNodes: archivedItems,
+                    isArchiveExpanded: workspace.isArchiveExpanded
+                )
             }
         }
 

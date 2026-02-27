@@ -47,6 +47,13 @@ public final class CloudSyncManager {
     public func configure(model: AppModel) {
         self.model = model
 
+        // CKContainer(identifier:) crashes with SIGTRAP on macOS Tahoe in builds
+        // without a provisioning profile (e.g. development builds outside Xcode).
+        guard Bundle.main.path(forResource: "embedded", ofType: "provisionprofile") != nil else {
+            logger.warning("No provisioning profile — iCloud sync disabled for this build")
+            return
+        }
+
         let container = CKContainer(identifier: containerID)
         let database = container.privateCloudDatabase
 
