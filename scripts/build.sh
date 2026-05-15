@@ -72,6 +72,13 @@ else
     fi
 fi
 
+# Add NSAppleEventsUsageDescription (needed to focus existing browser tabs via AppleScript)
+USAGE_DESC='Stow uses Apple Events to focus the existing browser tab when you click a bookmark whose URL is already open. Without this, every click opens a duplicate tab.'
+if ! /usr/libexec/PlistBuddy -c "Print :NSAppleEventsUsageDescription" "$INFO_PLIST" &>/dev/null; then
+    /usr/libexec/PlistBuddy -c "Add :NSAppleEventsUsageDescription string '$USAGE_DESC'" "$INFO_PLIST"
+    echo "  ✓ Added NSAppleEventsUsageDescription"
+fi
+
 # Register stow:// URL scheme
 echo "🔗 Registering stow:// URL scheme..."
 if ! /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$INFO_PLIST" &>/dev/null; then

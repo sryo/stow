@@ -967,6 +967,7 @@ final class MainViewController: NSViewController {
 
     private func openLink(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
+        if BrowserTabService.focusIfOpen(url: url) { return }
         let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
         let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
         BrowserManager.open(url: url, profile: profile)
