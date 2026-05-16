@@ -782,17 +782,16 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(restoredLink.isArchived)
     }
 
-    func testDeleteNodeArchivesByDefault() {
+    func testArchiveNodeKeepsNodeButFlagsIt() {
         let store = makeStore()
         store.save(DataStore.defaultState())
         let model = AppModel(store: store)
 
         let taskId = model.addTask(title: "Test task", parentId: nil)
-        model.deleteNode(id: taskId)
+        model.archiveNode(id: taskId)
 
-        // Node should still exist but be archived
         guard let node = model.nodeById(taskId), case .task(let task) = node else {
-            XCTFail("Expected task to still exist after deleteNode"); return
+            XCTFail("Expected task to still exist after archive"); return
         }
         XCTAssertTrue(task.isArchived)
     }

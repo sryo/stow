@@ -296,10 +296,6 @@ public final class AppModel {
         }
     }
 
-    public func deleteNode(id: UUID) {
-        archiveNode(id: id)
-    }
-
     public func archiveNode(id: UUID) {
         updateNode(id: id) { node in
             switch node {
@@ -482,10 +478,25 @@ public final class AppModel {
     public func groupNodesInNewFolder(nodeIds: [UUID], folderName: String) -> UUID? {
         guard !nodeIds.isEmpty else { return nil }
 
+        // Drop any id whose ancestor is also in the set — otherwise removing a folder
+        // detaches its descendant from the tree, and the descendant then gets appended
+        // to the new folder a SECOND time (alongside its still-nested original parent).
+        let nodeIdsSet = Set(nodeIds)
+        let filteredIds = nodeIds.filter { id in
+            for otherId in nodeIdsSet where otherId != id {
+                if let other = findNode(id: otherId, in: currentWorkspace.items),
+                   case .folder(let folder) = other,
+                   containsNode(id, within: .folder(folder)) {
+                    return false
+                }
+            }
+            return true
+        }
+
         var nodesToGroup: [Node] = []
 
         updateWorkspace(id: currentWorkspace.id, notify: false) { workspace in
-            for nodeId in nodeIds {
+            for nodeId in filteredIds {
                 if let removed = removeNode(id: nodeId, nodes: &workspace.items) {
                     nodesToGroup.append(removed)
                 }
@@ -578,7 +589,23 @@ public final class AppModel {
     /// Returns false if the insert failed (e.g. parent folder not yet available).
     @discardableResult
     public func upsertNodeFromSync(node: Node, workspaceId: UUID, parentId: UUID?, deduplicateLinks: Bool = false) -> Bool {
+        // Malformed records that name themselves as their own parent would create an
+        // unwalkable cycle. Drop silently — sync will not retry an "impossible" record.
+        if parentId == node.id {
+            logger.warning("Dropped sync record naming itself as parent: \(node.id, privacy: .public)")
+            return true
+        }
         guard let wsIndex = state.workspaces.firstIndex(where: { $0.id == workspaceId }) else { return false }
+
+        // Reject if the proposed parent is a descendant of the incoming folder
+        // (would create a cycle in the tree).
+        if let parentId, case .folder(let folder) = node {
+            if containsNode(parentId, within: .folder(folder)) ||
+               isDescendantInTree(parentId, of: node.id, in: state.workspaces[wsIndex].items) {
+                logger.warning("Dropped sync record that would cycle: node=\(node.id, privacy: .public) parent=\(parentId, privacy: .public)")
+                return true
+            }
+        }
 
         // Try to update existing node in-place
         if updateNode(id: node.id, nodes: &state.workspaces[wsIndex].items, { existing in
@@ -711,6 +738,10 @@ public final class AppModel {
     }
 
     private func persist(notify: Bool = true) {
+        // AppModel state isn't lock-protected; all mutations must originate from
+        // the main thread. CloudKit completion handlers, file watchers, and
+        // background timers that mutate state MUST hop to MainActor first.
+        dispatchPrecondition(condition: .onQueue(.main))
         store.save(state)
         if notify {
             onChange?()
@@ -825,6 +856,23 @@ public final class AppModel {
         if node.id == id { return true }
         if case .folder(let folder) = node {
             return folder.children.contains(where: { containsNode(id, within: $0) })
+        }
+        return false
+    }
+
+    /// True when `candidate` is a descendant of the folder identified by `ancestorId`
+    /// in the given tree. Used for cycle detection across the full workspace, not just
+    /// the candidate's own subtree.
+    private func isDescendantInTree(_ candidate: UUID, of ancestorId: UUID, in nodes: [Node]) -> Bool {
+        for node in nodes {
+            if node.id == ancestorId, case .folder(let folder) = node {
+                return containsNode(candidate, within: .folder(folder))
+            }
+            if case .folder(let folder) = node {
+                if isDescendantInTree(candidate, of: ancestorId, in: folder.children) {
+                    return true
+                }
+            }
         }
         return false
     }

@@ -29,16 +29,35 @@ public final class DataStore {
             let data = try Data(contentsOf: dataURL)
             let decoder = JSONDecoder()
             var state = try decoder.decode(AppState.self, from: data)
+            // Refuse to load a future schema version — a downgrade would silently
+            // drop fields the older build doesn't decode. Preserve the file and
+            // surface an empty state until the user reinstalls the newer build.
+            if state.schemaVersion > Self.currentSchemaVersion {
+                preserveCorruptFile(reason: "futureSchema_v\(state.schemaVersion)")
+                return Self.defaultState()
+            }
             if state.schemaVersion < Self.currentSchemaVersion {
                 state = migrate(state: state, from: state.schemaVersion, to: Self.currentSchemaVersion)
                 save(state)
             }
             return state
         } catch {
+            // Don't overwrite the unreadable file — preserving it lets the user
+            // (or a future migration) recover. Save a default to a SEPARATE path
+            // so the next save doesn't clobber the preserved copy.
+            preserveCorruptFile(reason: "decode_\(type(of: error))")
             let fallback = Self.defaultState()
             save(fallback)
             return fallback
         }
+    }
+
+    private func preserveCorruptFile(reason: String) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let preserved = baseDirectory.appendingPathComponent("data.json.corrupt-\(stamp)-\(reason)")
+        try? fileManager.moveItem(at: dataURL, to: preserved)
     }
 
     public func migrate(state: AppState, from oldVersion: Int, to newVersion: Int) -> AppState {

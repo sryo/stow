@@ -285,7 +285,7 @@ final class MainViewController: NSViewController {
         }
 
         nodeListViewController.onNodeDeleted = { [weak self] nodeId in
-            self?.model.deleteNode(id: nodeId)
+            self?.model.archiveNode(id: nodeId)
         }
 
         nodeListViewController.onNodeUnarchived = { [weak self] nodeId in
@@ -324,7 +324,7 @@ final class MainViewController: NSViewController {
         nodeListViewController.onBulkNodesDeleted = { [weak self] nodeIds in
             guard let self else { return }
             for nodeId in nodeIds {
-                self.model.deleteNode(id: nodeId)
+                self.model.archiveNode(id: nodeId)
             }
         }
 

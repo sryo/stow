@@ -306,7 +306,7 @@ struct NodeRowView: View {
             }
         } else {
             Button(role: .destructive) {
-                viewModel.model.deleteNode(id: node.id)
+                viewModel.model.archiveNode(id: node.id)
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }

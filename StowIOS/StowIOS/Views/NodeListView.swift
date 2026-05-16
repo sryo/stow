@@ -80,7 +80,7 @@ struct NodeListView: View {
                         NodeRowView(node: node, parentId: nil)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button {
-                                    viewModel.model.deleteNode(id: node.id)
+                                    viewModel.model.archiveNode(id: node.id)
                                 } label: {
                                     Label("Archive", systemImage: "archivebox")
                                 }
