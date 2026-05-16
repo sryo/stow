@@ -75,19 +75,11 @@ public struct ThemeConstants {
 
     /// Standard typography styles for text throughout the application.
     public struct Fonts {
-        /// Body text with regular weight (size 14, weight: regular)
-        public nonisolated(unsafe) static let bodyRegular = PlatformFont.systemFont(ofSize: 14, weight: .regular)
+        public static var bodyRegular: PlatformFont { .systemFont(ofSize: 14, weight: .regular) }
+        public static var bodySemibold: PlatformFont { .systemFont(ofSize: 14, weight: .semibold) }
+        public static var bodyMedium: PlatformFont { .systemFont(ofSize: 14, weight: .medium) }
+        public static var bodyBold: PlatformFont { .systemFont(ofSize: 14, weight: .bold) }
 
-        /// Body text with semibold weight (size 14, weight: semibold) - Good for emphasis
-        public nonisolated(unsafe) static let bodySemibold = PlatformFont.systemFont(ofSize: 14, weight: .semibold)
-
-        /// Body text with medium weight (size 14, weight: medium) - Subtle emphasis
-        public nonisolated(unsafe) static let bodyMedium = PlatformFont.systemFont(ofSize: 14, weight: .medium)
-
-        /// Body text with bold weight (size 14, weight: bold) - Strong emphasis
-        public nonisolated(unsafe) static let bodyBold = PlatformFont.systemFont(ofSize: 14, weight: .bold)
-
-        /// Creates a system font with custom size and weight.
         public static func systemFont(size: CGFloat, weight: PlatformFont.Weight) -> PlatformFont {
             PlatformFont.systemFont(ofSize: size, weight: weight)
         }
@@ -178,9 +170,8 @@ public struct ThemeConstants {
         /// Slow animation duration (0.3s) - Deliberate, noticeable animations
         public static let durationSlow: TimeInterval = 0.3
 
-        /// Standard easing function for smooth, natural motion.
-        /// Uses ease-in-ease-out timing (slow start, fast middle, slow end).
-        public nonisolated(unsafe) static let timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        /// Standard easing function for smooth, natural motion (ease-in-ease-out).
+        public static var timingFunction: CAMediaTimingFunction { CAMediaTimingFunction(name: .easeInEaseOut) }
     }
 
     // MARK: - Paging
