@@ -4,7 +4,6 @@ import StowShared
 struct ContentView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.horizontalSizeClass) var sizeClass
-    @State private var selectedTab = 0
     @State private var showingOverview = false
 
     var body: some View {
@@ -16,37 +15,13 @@ struct ContentView: View {
                 WorkspaceSidebarView()
             } detail: {
                 NodeListView(workspaceId: viewModel.currentWorkspace.id)
-                    .background(Color(uiColor: viewModel.currentWorkspace.colorId.backgroundColor))
+                    .searchable(text: $viewModel.searchQuery, prompt: "Search items")
+                    .background(Color(uiColor: viewModel.currentWorkspace.colorId.adaptiveBackgroundColor))
             }
         } else {
-            // iPhone: TabView with Bookmarks + Workspaces + Settings
-            TabView(selection: $selectedTab) {
-                NavigationStack {
-                    WorkspacePageView()
-                        .toolbarBackground(.hidden, for: .navigationBar)
-                }
-                .tabItem {
-                    Label("Bookmarks", systemImage: "bookmark")
-                }
-                .tag(0)
-
-                EmptyView()
-                    .tabItem {
-                        Label("Workspaces", systemImage: "square.stack")
-                    }
-                    .tag(1)
-
-                SettingsView()
-                    .tabItem {
-                        Label("Settings", systemImage: "gear")
-                    }
-                    .tag(2)
-            }
-            .onChange(of: selectedTab) { _, newValue in
-                if newValue == 1 {
-                    showingOverview = true
-                    selectedTab = 0
-                }
+            // iPhone: Full-screen workspace pager (no tab bar)
+            NavigationStack {
+                WorkspacePageView(showingOverview: $showingOverview)
             }
             .sheet(isPresented: $showingOverview) {
                 WorkspaceOverviewSheet()

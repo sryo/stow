@@ -124,7 +124,7 @@ final class NodeRowView: BaseView {
         subtitleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.isHidden = true
-        subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        subtitleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         dueDateLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -151,7 +151,7 @@ final class NodeRowView: BaseView {
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 26)
         iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 26)
 
-        titleToSubtitleConstraint = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: subtitleLabel.leadingAnchor, constant: -6)
+        titleToSubtitleConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: editableTitle.trailingAnchor, constant: 6)
         titleToDueDateConstraint = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8)
         titleToDueDateConstraint?.isActive = true
 

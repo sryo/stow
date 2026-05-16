@@ -79,7 +79,7 @@ public final class DataStore {
     public static func defaultState() -> AppState {
         let workspace = Workspace(
             id: UUID(),
-            name: "Inbox",
+            name: Workspace.defaultName,
             colorId: .defaultColor(),
             items: []
         )

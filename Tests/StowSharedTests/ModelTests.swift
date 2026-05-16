@@ -10,7 +10,7 @@ final class ModelTests: XCTestCase {
     func testJSONRoundTrip() throws {
         let link = Link(id: UUID(), title: "Example", url: "https://example.com", faviconPath: nil)
         let folder = Folder(id: UUID(), name: "Folder", children: [.link(link)], isExpanded: true)
-        let workspace = Workspace(id: UUID(), name: "Inbox", colorId: .ember, items: [.folder(folder)])
+        let workspace = Workspace(id: UUID(), name: "Bookmarks", colorId: .ember, items: [.folder(folder)])
         let state = AppState(schemaVersion: 1, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
 
         let data = try JSONEncoder().encode(state)
@@ -620,7 +620,7 @@ final class ModelTests: XCTestCase {
 
         // Initial order should be: Inbox (default), First, Second, Third
         XCTAssertEqual(model.workspaces.count, 4)
-        XCTAssertEqual(model.workspaces[0].name, "Inbox")
+        XCTAssertEqual(model.workspaces[0].name, "Bookmarks")
         XCTAssertEqual(model.workspaces[1].name, "First")
         XCTAssertEqual(model.workspaces[2].name, "Second")
         XCTAssertEqual(model.workspaces[3].name, "Third")
@@ -635,15 +635,15 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(model.workspaces[2].name, "Second")
         XCTAssertEqual(model.workspaces[3].name, "Third")
 
-        // Move "First" to the left (swap with "Inbox")
+        // Move "First" to the left (swap with "Bookmarks")
         model.moveWorkspace(id: id1, direction: .left)
         XCTAssertEqual(model.workspaces[0].name, "First")
-        XCTAssertEqual(model.workspaces[1].name, "Inbox")
+        XCTAssertEqual(model.workspaces[1].name, "Bookmarks")
 
         // Try to move "First" to the left again (should not move, already at start)
         model.moveWorkspace(id: id1, direction: .left)
         XCTAssertEqual(model.workspaces[0].name, "First")
-        XCTAssertEqual(model.workspaces[1].name, "Inbox")
+        XCTAssertEqual(model.workspaces[1].name, "Bookmarks")
 
         // Try to move "Third" to the right (should not move, already at end)
         model.moveWorkspace(id: id3, direction: .right)

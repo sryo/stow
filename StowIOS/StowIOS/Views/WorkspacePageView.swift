@@ -3,6 +3,7 @@ import StowShared
 
 struct WorkspacePageView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @Binding var showingOverview: Bool
     @State private var scrollOffset: CGFloat = 0
     @State private var showingEmptyClipboard = false
 
@@ -26,6 +27,13 @@ struct WorkspacePageView: View {
         .background(interpolatedBackground(workspaces: workspaces).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showingOverview = true
+                } label: {
+                    Image(systemName: "square.stack")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     pasteFromClipboard()
@@ -138,8 +146,8 @@ struct WorkspacePageView: View {
 
         if toIndex < workspaces.count {
             let fraction = rawPage - floor(rawPage)
-            let fromColor = workspaces[fromIndex].colorId.backgroundColor
-            let toColor = workspaces[toIndex].colorId.backgroundColor
+            let fromColor = workspaces[fromIndex].colorId.adaptiveBackgroundColor
+            let toColor = workspaces[toIndex].colorId.adaptiveBackgroundColor
             if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
                 return Color(uiColor: blended)
             }
@@ -147,7 +155,7 @@ struct WorkspacePageView: View {
         }
 
         if let last = workspaces.last {
-            return Color(uiColor: last.colorId.backgroundColor)
+            return Color(uiColor: last.colorId.adaptiveBackgroundColor)
         }
         return .clear
     }

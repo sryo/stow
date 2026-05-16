@@ -23,6 +23,8 @@ public struct AppState: Codable, Equatable {
 }
 
 public struct Workspace: Codable, Identifiable, Equatable {
+    public static let defaultName = "Bookmarks"
+
     public var id: UUID
     public var name: String
     public var colorId: WorkspaceColorId

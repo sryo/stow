@@ -8,6 +8,7 @@ final class AppViewModel: ObservableObject {
     @Published var refreshTrigger = false
     @Published var showingNewWorkspaceAlert = false
     @Published var newWorkspaceName = ""
+    @Published var searchQuery = ""
 
     private static let appGroupID = "group.com.stow.app"
 

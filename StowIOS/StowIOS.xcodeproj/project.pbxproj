@@ -17,8 +17,6 @@
 		A1000009 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D1000001 /* StowShared */; };
 		A1000010 /* NodeRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* NodeRowView.swift */; };
 		A1000011 /* AddItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000011 /* AddItemView.swift */; };
-		A1000013 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000013 /* SettingsView.swift */; };
-		A1000014 /* WorkspaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000014 /* WorkspaceSettingsView.swift */; };
 		A1000016 /* WorkspacePagerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000016 /* WorkspacePagerViewController.swift */; };
 		A1000017 /* WorkspacePagerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000017 /* WorkspacePagerRepresentable.swift */; };
 		A1000018 /* AddNewPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AddNewPageView.swift */; };
@@ -73,8 +71,6 @@
 		B1000008 /* WorkspacePageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePageView.swift; sourceTree = "<group>"; };
 		B1000010 /* NodeRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRowView.swift; sourceTree = "<group>"; };
 		B1000011 /* AddItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddItemView.swift; sourceTree = "<group>"; };
-		B1000013 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		B1000014 /* WorkspaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsView.swift; sourceTree = "<group>"; };
 		B1000016 /* WorkspacePagerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePagerViewController.swift; sourceTree = "<group>"; };
 		B1000017 /* WorkspacePagerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePagerRepresentable.swift; sourceTree = "<group>"; };
 		B1000018 /* AddNewPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddNewPageView.swift; sourceTree = "<group>"; };
@@ -156,8 +152,6 @@
 				B1000010 /* NodeRowView.swift */,
 				B1000011 /* AddItemView.swift */,
 				B1000008 /* WorkspacePageView.swift */,
-				B1000013 /* SettingsView.swift */,
-				B1000014 /* WorkspaceSettingsView.swift */,
 				B1000019 /* WorkspaceOverviewSheet.swift */,
 			);
 			path = Views;
@@ -350,8 +344,6 @@
 				A1000010 /* NodeRowView.swift in Sources */,
 				A1000011 /* AddItemView.swift in Sources */,
 				A1000008 /* WorkspacePageView.swift in Sources */,
-				A1000013 /* SettingsView.swift in Sources */,
-				A1000014 /* WorkspaceSettingsView.swift in Sources */,
 				A1000016 /* WorkspacePagerViewController.swift in Sources */,
 				A1000017 /* WorkspacePagerRepresentable.swift in Sources */,
 				A1000018 /* AddNewPageView.swift in Sources */,

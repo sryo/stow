@@ -20,11 +20,16 @@ struct WorkspacePagerRepresentable: UIViewControllerRepresentable {
         vc.onOffsetChanged = { normalizedOffset in
             coordinator.parent.scrollOffset = normalizedOffset
         }
+        vc.onSearchTextChanged = { text in
+            coordinator.parent.viewModel.searchQuery = text
+        }
         vc.onPageSnapped = { pageIndex in
             guard pageIndex < coordinator.parent.workspaces.count else { return }
             coordinator.isUpdatingFromSnap = true
             let id = coordinator.parent.workspaces[pageIndex].id
             coordinator.parent.selectedWorkspaceId = id
+            coordinator.parent.viewModel.searchQuery = ""
+            vc.searchController?.isActive = false
             // Clear flag after SwiftUI processes the binding update
             DispatchQueue.main.async {
                 coordinator.isUpdatingFromSnap = false

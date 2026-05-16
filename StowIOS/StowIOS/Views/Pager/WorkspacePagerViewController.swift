@@ -2,13 +2,14 @@ import UIKit
 import SwiftUI
 import StowShared
 
-final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate {
+final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate, UISearchResultsUpdating {
 
     // MARK: - Callbacks
 
     var onOffsetChanged: ((CGFloat) -> Void)?
     var onPageSnapped: ((Int) -> Void)?
     var onAddNewTriggered: (() -> Void)?
+    var onSearchTextChanged: ((String) -> Void)?
 
     // MARK: - State
 
@@ -50,6 +51,11 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
     private let hapticGenerator = UIImpactFeedbackGenerator(style: .light)
     private var lastHapticTime: TimeInterval = 0
 
+    // MARK: - Search
+
+    /// Stored so the representable can dismiss search when the page snaps.
+    private(set) var searchController: UISearchController?
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -63,6 +69,57 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        definesPresentationContext = true
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard searchController == nil else { return }
+
+        let sc = UISearchController(searchResultsController: nil)
+        sc.searchResultsUpdater = self
+        sc.obscuresBackgroundDuringPresentation = false
+        sc.searchBar.placeholder = "Search items"
+        searchController = sc
+
+        // Set on the parent's navigationItem so the SwiftUI NavigationStack picks it up.
+        parent?.navigationItem.searchController = sc
+        parent?.navigationItem.hidesSearchBarWhenScrolling = true
+    }
+
+    // MARK: - UISearchResultsUpdating
+
+    func updateSearchResults(for searchController: UISearchController) {
+        onSearchTextChanged?(searchController.searchBar.text ?? "")
+    }
+
+    // MARK: - Content Scroll View
+
+    /// Returns the vertical scroll view of the current page so the navigation
+    /// controller can track it for hiding/showing the search bar on pull-down.
+    override func contentScrollView(for edge: NSDirectionalRectEdge) -> UIScrollView? {
+        guard edge == .top else { return nil }
+        guard currentPageIndex < pageControllers.count else { return nil }
+        let hostView = pageControllers[currentPageIndex].view
+        return findVerticalScrollView(in: hostView)
+    }
+
+    private func findVerticalScrollView(in view: UIView?) -> UIScrollView? {
+        guard let view else { return nil }
+        if let sv = view as? UIScrollView, sv !== scrollView {
+            return sv
+        }
+        for child in view.subviews {
+            if let found = findVerticalScrollView(in: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        applyTopSafeAreaToPages()
     }
 
     override func viewDidLayoutSubviews() {
@@ -89,12 +146,8 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
 
         for workspace in workspaces {
             let nodeListView = AnyView(
-                NodeListView(workspaceId: workspace.id)
+                NodeListView(workspaceId: workspace.id, showHeader: true)
                     .environmentObject(viewModel)
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        WorkspaceNameHeader(workspaceId: workspace.id)
-                            .environmentObject(viewModel)
-                    }
             )
             let host = UIHostingController(rootView: nodeListView)
             host.view.backgroundColor = .clear
@@ -121,6 +174,7 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
 
         pageControllers = newControllers
         layoutPages()
+        applyTopSafeAreaToPages()
 
         // Restore offset to prevent visual jump
         scrollView.contentOffset = savedOffset
@@ -143,6 +197,15 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
             width: CGFloat(pageControllers.count) * pageWidth,
             height: pageHeight
         )
+    }
+
+    /// The scroll view uses contentInsetAdjustmentBehavior = .never which suppresses
+    /// normal safe area propagation, so we manually forward the top inset to child pages.
+    private func applyTopSafeAreaToPages() {
+        let topInset = view.safeAreaInsets.top
+        for controller in pageControllers {
+            controller.additionalSafeAreaInsets = UIEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+        }
     }
 
     // MARK: - Programmatic Navigation
@@ -315,20 +378,3 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
     }
 }
 
-// MARK: - Workspace Name Header
-
-/// Reads the workspace name reactively from the view model so it updates on rename.
-private struct WorkspaceNameHeader: View {
-    @EnvironmentObject var viewModel: AppViewModel
-    let workspaceId: UUID
-
-    var body: some View {
-        let _ = viewModel.refreshTrigger
-        let name = viewModel.workspaces.first(where: { $0.id == workspaceId })?.name ?? ""
-        Text(name)
-            .font(.largeTitle.bold())
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-    }
-}

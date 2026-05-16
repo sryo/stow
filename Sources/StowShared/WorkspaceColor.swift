@@ -104,7 +104,7 @@ extension WorkspaceColorId {
         [.ember, .ruby, .coral, .tangerine, .moss, .ocean, .indigo, .graphite]
     }
 
-    public static func defaultColor() -> WorkspaceColorId { .ember }
+    public static func defaultColor() -> WorkspaceColorId { .ocean }
 
     public static func randomColor() -> WorkspaceColorId {
         WorkspaceColorId.allCases.randomElement() ?? .defaultColor()
@@ -148,6 +148,22 @@ extension PlatformColor {
 
 #if canImport(UIKit)
 import UIKit
+
+extension WorkspaceColorId {
+    public var adaptiveBackgroundColor: UIColor {
+        if self == .settingsBackground {
+            return color
+        }
+        let base = color
+        return UIColor { traitCollection in
+            if traitCollection.userInterfaceStyle == .dark {
+                return base.blended(withFraction: 0.85, of: .black) ?? base
+            } else {
+                return base.withAlphaComponent(0.92)
+            }
+        }
+    }
+}
 
 extension UIColor {
     /// Blends this color with another by the given fraction (0 = self, 1 = other).

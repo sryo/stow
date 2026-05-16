@@ -693,6 +693,9 @@ private final class WorkspaceButton: BaseControl {
         titleLabel.stringValue = name
         titleLabel.font = NSFont.systemFont(ofSize: style.textSize, weight: style.textWeight)
 
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+
         addSubview(circleView)
         addSubview(titleLabel)
 

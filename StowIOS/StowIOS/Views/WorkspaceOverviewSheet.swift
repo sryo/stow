@@ -4,47 +4,95 @@ import StowShared
 struct WorkspaceOverviewSheet: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var renameWorkspaceId: UUID?
+    @State private var renameText = ""
+    @State private var deleteWorkspaceId: UUID?
 
     var body: some View {
         let _ = viewModel.refreshTrigger
 
         NavigationStack {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(viewModel.workspaces) { workspace in
-                        WorkspaceCard(
-                            workspace: workspace,
-                            isSelected: workspace.id == viewModel.selectedWorkspaceId
-                        ) {
-                            viewModel.selectWorkspace(id: workspace.id)
-                            dismiss()
-                        }
-                    }
+            VStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(viewModel.workspaces) { workspace in
+                            WorkspaceCard(
+                                workspace: workspace,
+                                isSelected: workspace.id == viewModel.selectedWorkspaceId
+                            ) {
+                                viewModel.searchQuery = ""
+                                viewModel.selectWorkspace(id: workspace.id)
+                                dismiss()
+                            }
+                            .contextMenu {
+                                Button {
+                                    renameText = workspace.name
+                                    renameWorkspaceId = workspace.id
+                                } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
 
-                    // "New Workspace" card
-                    Button {
-                        let id = viewModel.model.createWorkspace(name: "Untitled", colorId: .randomColor())
-                        viewModel.selectedWorkspaceId = id
-                        dismiss()
-                    } label: {
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8]))
-                            .frame(width: 200, height: 260)
-                            .overlay {
-                                VStack(spacing: 8) {
-                                    Image(systemName: "plus")
-                                        .font(.title)
-                                        .foregroundStyle(.secondary)
-                                    Text("New Workspace")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.secondary)
+                                Menu {
+                                    ForEach(WorkspaceColorId.allCases, id: \.name) { colorId in
+                                        Button {
+                                            viewModel.model.updateWorkspaceColor(id: workspace.id, colorId: colorId)
+                                        } label: {
+                                            Label {
+                                                Text(colorId.name)
+                                            } icon: {
+                                                Image(systemName: workspace.colorId == colorId ? "circle.inset.filled" : "circle.fill")
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Label("Color", systemImage: "paintpalette")
+                                }
+
+                                if viewModel.workspaces.count > 1 {
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        if workspace.items.isEmpty {
+                                            viewModel.deleteWorkspace(id: workspace.id)
+                                        } else {
+                                            deleteWorkspaceId = workspace.id
+                                        }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
                             }
+                        }
+
+                        // "New Workspace" card
+                        Button {
+                            let id = viewModel.model.createWorkspace(name: "Untitled", colorId: .randomColor())
+                            viewModel.selectedWorkspaceId = id
+                            dismiss()
+                        } label: {
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8]))
+                                .frame(width: 200, height: 260)
+                                .overlay {
+                                    VStack(spacing: 8) {
+                                        Image(systemName: "plus")
+                                            .font(.title)
+                                            .foregroundStyle(.secondary)
+                                        Text("New Workspace")
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 12)
             }
             .navigationTitle("Workspaces")
             .navigationBarTitleDisplayMode(.inline)
@@ -55,6 +103,35 @@ struct WorkspaceOverviewSheet: View {
             }
         }
         .presentationDetents([.medium])
+        .alert("Rename Workspace", isPresented: Binding(
+            get: { renameWorkspaceId != nil },
+            set: { if !$0 { renameWorkspaceId = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) {
+                renameWorkspaceId = nil
+            }
+            Button("Rename") {
+                let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let id = renameWorkspaceId, !name.isEmpty {
+                    viewModel.model.renameWorkspace(id: id, newName: name)
+                }
+                renameWorkspaceId = nil
+            }
+        }
+        .confirmationDialog("Delete Workspace?", isPresented: Binding(
+            get: { deleteWorkspaceId != nil },
+            set: { if !$0 { deleteWorkspaceId = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let id = deleteWorkspaceId {
+                    viewModel.deleteWorkspace(id: id)
+                }
+                deleteWorkspaceId = nil
+            }
+        } message: {
+            Text("This will permanently delete this workspace and all its contents.")
+        }
     }
 }
 
@@ -102,7 +179,7 @@ private struct WorkspaceCard: View {
             }
             .padding(14)
             .frame(width: 200, height: 260, alignment: .topLeading)
-            .background(Color(workspace.colorId.color).opacity(0.25))
+            .background(Color(uiColor: workspace.colorId.adaptiveBackgroundColor).opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)

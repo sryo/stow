@@ -6,6 +6,21 @@
 import AppKit
 
 private let archiveHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!
+private let archivedNamespaceUUID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+
+/// Creates a deterministic UUID for an archived row by XOR-ing the node UUID with a fixed namespace.
+/// This ensures the diff algorithm treats active vs archived rows as distinct entries.
+private func archivedRowId(for nodeId: UUID) -> UUID {
+    let nodeBytes = withUnsafeBytes(of: nodeId.uuid) { Array($0) }
+    let nsBytes = withUnsafeBytes(of: archivedNamespaceUUID.uuid) { Array($0) }
+    var result = [UInt8](repeating: 0, count: 16)
+    for i in 0..<16 { result[i] = nodeBytes[i] ^ nsBytes[i] }
+    let u = (result[0], result[1], result[2], result[3],
+             result[4], result[5], result[6], result[7],
+             result[8], result[9], result[10], result[11],
+             result[12], result[13], result[14], result[15])
+    return UUID(uuid: u)
+}
 
 /// Manages the node list collection view, including drag-drop and context menus
 @MainActor
@@ -258,9 +273,7 @@ final class NodeListViewController: NSViewController {
         if !archivedNodes.isEmpty && !isSearchActive {
             newRows.append(NodeListRow(archiveHeaderCount: archivedNodes.count, isExpanded: isArchiveExpanded))
             if isArchiveExpanded {
-                for node in archivedNodes {
-                    newRows.append(NodeListRow(node: node, depth: 0, kind: .archived))
-                }
+                newRows.append(contentsOf: buildArchivedRows(nodes: archivedNodes, depth: 0))
             }
         }
 
@@ -272,6 +285,18 @@ final class NodeListViewController: NSViewController {
 
         applyVisibleRows(newRows)
         handlePendingInlineRename()
+    }
+
+    /// Recursively builds rows for archived nodes, expanding folders that are marked expanded
+    private func buildArchivedRows(nodes: [Node], depth: Int) -> [NodeListRow] {
+        var rows: [NodeListRow] = []
+        for node in nodes {
+            rows.append(NodeListRow(node: node, depth: depth, kind: .archived))
+            if case .folder(let folder) = node, folder.isExpanded {
+                rows.append(contentsOf: buildArchivedRows(nodes: folder.children, depth: depth + 1))
+            }
+        }
+        return rows
     }
 
     /// Clears all selections
@@ -400,6 +425,15 @@ final class NodeListViewController: NSViewController {
         var insertedIndexPaths: [IndexPath] = []
         for (index, row) in newRows.enumerated() where !oldSet.contains(row.id) {
             insertedIndexPaths.append(IndexPath(item: index, section: 0))
+        }
+
+        // When rows move between sections (e.g. archive/unarchive), both deletions
+        // and insertions occur simultaneously. Fall back to reloadData to avoid
+        // stale cells that keep showing old content after position shifts.
+        if !deletedIndexPaths.isEmpty && !insertedIndexPaths.isEmpty {
+            visibleRows = newRows
+            collectionView.reloadData()
+            return
         }
 
         let deletionSnapshots = makeDeletionSnapshots(for: deletedIndexPaths)
@@ -763,7 +797,6 @@ extension NodeListViewController: NSCollectionViewDataSource {
         nodeItem.swipeEnabled = !isSearchActive
 
         if isArchived {
-            // Archived items: swipe left = permanent delete, swipe right = unarchive
             nodeItem.setSwipeLeftIcon("trash", tintColor: .systemRed)
             nodeItem.onSwipeLeft = { [weak self] in
                 self?.onNodePermanentlyDeleted?(node.id)
@@ -773,7 +806,6 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 self?.onNodeUnarchived?(node.id)
             }
         } else {
-            // Regular items: swipe left = archive
             nodeItem.setSwipeLeftIcon("archivebox", tintColor: .systemOrange)
             nodeItem.onSwipeLeft = { [weak self] in
                 self?.onNodeDeleted?(node.id)
@@ -1435,7 +1467,11 @@ private struct NodeListRow {
         self.node = node
         self.depth = depth
         self.kind = kind
-        self.rowId = node.id
+        if case .archived = kind {
+            self.rowId = archivedRowId(for: node.id)
+        } else {
+            self.rowId = node.id
+        }
     }
 
     init(archiveHeaderCount: Int, isExpanded: Bool) {

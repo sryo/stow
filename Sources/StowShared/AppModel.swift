@@ -35,7 +35,7 @@ public final class AppModel {
         if let first = state.workspaces.first {
             return first
         }
-        let fallback = Workspace(id: UUID(), name: "Inbox", colorId: .defaultColor(), items: [])
+        let fallback = Workspace(id: UUID(), name: Workspace.defaultName, colorId: .defaultColor(), items: [])
         state.workspaces = [fallback]
         state.selectedWorkspaceId = fallback.id
         persist()
@@ -525,14 +525,14 @@ public final class AppModel {
 
     /// Appends a workspace received from a remote sync source without generating a new ID.
     /// Only inserts if a workspace with the same ID does not already exist.
-    /// If the only local workspace is an empty default "Inbox", replace it with the incoming one.
+    /// If the only local workspace is an empty default workspace, replace it with the incoming one.
     public func insertWorkspaceFromSync(_ workspace: Workspace) {
         guard !state.workspaces.contains(where: { $0.id == workspace.id }) else { return }
 
-        // Deduplicate: if the only local workspace is an empty default Inbox, replace it
+        // Deduplicate: if the only local workspace is an empty default workspace, replace it
         if state.workspaces.count == 1,
            let local = state.workspaces.first,
-           local.name == "Inbox",
+           local.name == Workspace.defaultName,
            local.items.isEmpty,
            local.colorId == .defaultColor() {
             let wasSelected = state.selectedWorkspaceId == local.id
@@ -559,6 +559,8 @@ public final class AppModel {
     /// Merges browser profiles (remote wins for conflicts).
     public func mergeWorkspaceMetadataFromSync(remote: Workspace, intoWorkspaceId localId: UUID) {
         guard let index = state.workspaces.firstIndex(where: { $0.id == localId }) else { return }
+
+        state.workspaces[index].colorId = remote.colorId
 
         // Merge browser profiles: remote wins for conflicts
         for (bundleId, profile) in remote.browserProfiles {
@@ -701,7 +703,7 @@ public final class AppModel {
         }
         // Ensure at least one workspace exists
         if state.workspaces.isEmpty {
-            let fallback = Workspace(id: UUID(), name: "Inbox", colorId: .defaultColor(), items: [])
+            let fallback = Workspace(id: UUID(), name: Workspace.defaultName, colorId: .defaultColor(), items: [])
             state.workspaces.append(fallback)
             state.selectedWorkspaceId = fallback.id
         }

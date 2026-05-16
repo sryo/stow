@@ -4,8 +4,9 @@ import StowShared
 struct NodeListView: View {
     @EnvironmentObject var viewModel: AppViewModel
     let workspaceId: UUID
+    var showHeader: Bool = false
 
-    @State private var searchQuery = ""
+    private var searchQuery: String { viewModel.searchQuery }
 
     private var workspace: Workspace? {
         viewModel.model.workspaces.first { $0.id == workspaceId }
@@ -25,11 +26,35 @@ struct NodeListView: View {
         return workspace.items.filter { $0.isArchived }
     }
 
+    private var flattenedArchivedItems: [FlatNode] {
+        Self.flattenNodes(archivedItems, depth: 0)
+    }
+
+    private static func flattenNodes(_ nodes: [Node], depth: Int) -> [FlatNode] {
+        var result: [FlatNode] = []
+        for node in nodes {
+            result.append(FlatNode(node: node, depth: depth))
+            if case .folder(let folder) = node {
+                result.append(contentsOf: flattenNodes(folder.children, depth: depth + 1))
+            }
+        }
+        return result
+    }
+
     var body: some View {
         let _ = viewModel.refreshTrigger
 
         if let workspace {
             List {
+                if showHeader {
+                    Text(workspace.name)
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+
                 if displayedItems.isEmpty && archivedItems.isEmpty {
                     ContentUnavailableView(
                         searchQuery.isEmpty ? "No Items" : "No Results",
@@ -64,6 +89,7 @@ struct NodeListView: View {
                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                 leadingSwipeAction(for: node)
                             }
+                            .listRowBackground(Color.clear)
                     }
                     .onMove { indices, destination in
                         guard searchQuery.isEmpty else { return }
@@ -79,32 +105,33 @@ struct NodeListView: View {
                         get: { workspace.isArchiveExpanded },
                         set: { viewModel.model.setArchiveExpanded(workspaceId: workspaceId, isExpanded: $0) }
                     )) {
-                        ForEach(archivedItems, id: \.id) { node in
-                            NodeRowView(node: node, parentId: nil, isArchived: true)
+                        ForEach(flattenedArchivedItems, id: \.node.id) { entry in
+                            NodeRowView(node: entry.node, parentId: nil, isArchived: true)
+                                .padding(.leading, CGFloat(entry.depth) * 20)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button(role: .destructive) {
-                                        viewModel.model.permanentlyDeleteNode(id: node.id)
+                                        viewModel.model.permanentlyDeleteNode(id: entry.node.id)
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
-                                        viewModel.model.unarchiveNode(id: node.id)
+                                        viewModel.model.unarchiveNode(id: entry.node.id)
                                     } label: {
                                         Label("Unarchive", systemImage: "arrow.uturn.backward")
                                     }
                                     .tint(.blue)
                                 }
+                                .listRowBackground(Color.clear)
                         }
                     } header: {
                         Text("Archive (\(archivedItems.count))")
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .searchable(text: $searchQuery, prompt: "Search items")
         } else {
             ContentUnavailableView("Workspace Not Found", systemImage: "exclamationmark.triangle")
         }
@@ -141,4 +168,9 @@ struct NodeListView: View {
             EmptyView()
         }
     }
+}
+
+private struct FlatNode {
+    let node: Node
+    let depth: Int
 }
