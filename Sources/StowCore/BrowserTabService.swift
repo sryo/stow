@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-public struct OpenTab: Equatable {
+public struct OpenTab: Equatable, Sendable {
     public let bundleId: String
     public let windowId: String
     public let tabIndex: Int  // 1-based, AppleScript convention
@@ -53,28 +53,36 @@ public enum BrowserTabService {
     }
 
     /// If `url` is open in any supported browser, focus that tab and return true.
-    /// Caller should fall through to `BrowserManager.open` on false.
-    public static func focusIfOpen(url: URL) -> Bool {
+    /// Queries every running browser concurrently; first match wins and the
+    /// remaining queries are cancelled. Caller should fall through to
+    /// `BrowserManager.open` on false. Must NOT be called from the main thread —
+    /// each per-browser AppleScript blocks 50–300ms.
+    public static func focusIfOpen(url: URL) async -> Bool {
         let target = canonicalize(url)
-        func match(_ tabs: [OpenTab]) -> OpenTab? {
-            tabs.first { canonicalize($0.url) == target }
-        }
-        // Walk each running browser in turn; stop as soon as a match is found
-        // so a 100-tab Safari doesn't run after Chrome already had the hit.
-        for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
-            if let hit = match(chromiumTabs(appName: entry.appName, bundleId: entry.bundleId)) {
-                return focus(tab: hit)
+        let match = await withTaskGroup(of: OpenTab?.self) { group -> OpenTab? in
+            for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
+                group.addTask { firstMatch(in: chromiumTabs(appName: entry.appName, bundleId: entry.bundleId), target: target) }
             }
+            if BrowserManager.isRunning(bundleId: arcBundleId) {
+                group.addTask { firstMatch(in: arcTabs(), target: target) }
+            }
+            if BrowserManager.isRunning(bundleId: safariBundleId) {
+                group.addTask { firstMatch(in: safariTabs(), target: target) }
+            }
+            for await result in group {
+                if let hit = result {
+                    group.cancelAll()
+                    return hit
+                }
+            }
+            return nil
         }
-        if BrowserManager.isRunning(bundleId: arcBundleId),
-           let hit = match(arcTabs()) {
-            return focus(tab: hit)
-        }
-        if BrowserManager.isRunning(bundleId: safariBundleId),
-           let hit = match(safariTabs()) {
-            return focus(tab: hit)
-        }
-        return false
+        guard let hit = match else { return false }
+        return focus(tab: hit)
+    }
+
+    private static func firstMatch(in tabs: [OpenTab], target: String) -> OpenTab? {
+        tabs.first { canonicalize($0.url) == target }
     }
 
     // MARK: - Per-browser tab listing

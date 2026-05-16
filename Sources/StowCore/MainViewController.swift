@@ -967,10 +967,13 @@ final class MainViewController: NSViewController {
 
     private func openLink(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
-        if BrowserTabService.focusIfOpen(url: url) { return }
         let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
         let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
-        BrowserManager.open(url: url, profile: profile)
+        // Detach so AppleScript IPC doesn't block the main thread.
+        Task.detached(priority: .userInitiated) {
+            if await BrowserTabService.focusIfOpen(url: url) { return }
+            await MainActor.run { BrowserManager.open(url: url, profile: profile) }
+        }
     }
 
     private func openLinksInFolder(_ folder: Folder) {
