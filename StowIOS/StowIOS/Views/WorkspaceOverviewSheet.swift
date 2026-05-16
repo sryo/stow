@@ -7,6 +7,7 @@ struct WorkspaceOverviewSheet: View {
     @State private var renameWorkspaceId: UUID?
     @State private var renameText = ""
     @State private var deleteWorkspaceId: UUID?
+    @State private var showingAbout = false
 
     var body: some View {
         let _ = viewModel.refreshTrigger
@@ -103,10 +104,20 @@ struct WorkspaceOverviewSheet: View {
             .navigationTitle("Workspaces")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingAbout = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .sheet(isPresented: $showingAbout) {
+            AboutSheet()
         }
         .presentationDetents([.medium])
         .alert("Rename Workspace", isPresented: Binding(
