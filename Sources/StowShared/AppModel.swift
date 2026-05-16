@@ -1,10 +1,20 @@
 import Foundation
+import Combine
 import os
 
 public final class AppModel {
     private let store: DataStore
     public private(set) var state: AppState
+    /// Legacy single-assignee change callback. Kept for Mac AppDelegate; iOS
+    /// prefers the multicast `changes` publisher below. Both fire from the
+    /// same `persist(notify: true)` path.
     public var onChange: (() -> Void)?
+    private let changesSubject = PassthroughSubject<Void, Never>()
+    /// Multicast change stream. Fires after every mutation that bubbles through
+    /// `persist(notify: true)` — UI subscribers should respond by re-reading
+    /// whatever they expose from the model. Compatible with `.sink` and
+    /// `.objectWillChange.send()` patterns alike.
+    public var changes: AnyPublisher<Void, Never> { changesSubject.eraseToAnyPublisher() }
     private let logger = Logger(subsystem: "com.stow.app", category: "model")
 
     public init(store: DataStore = DataStore()) {
@@ -745,6 +755,7 @@ public final class AppModel {
         store.save(state)
         if notify {
             onChange?()
+            changesSubject.send()
         }
     }
 

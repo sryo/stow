@@ -5,8 +5,6 @@ struct WorkspaceSidebarView: View {
     @EnvironmentObject var viewModel: AppViewModel
 
     var body: some View {
-        let _ = viewModel.refreshTrigger
-
         List(selection: Binding(
             get: { viewModel.selectedWorkspaceId },
             set: { id in

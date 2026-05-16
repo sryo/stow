@@ -7,8 +7,6 @@ struct ContentView: View {
     @State private var showingOverview = false
 
     var body: some View {
-        let _ = viewModel.refreshTrigger // observe changes
-
         if sizeClass == .regular {
             // iPad: NavigationSplitView
             NavigationSplitView {

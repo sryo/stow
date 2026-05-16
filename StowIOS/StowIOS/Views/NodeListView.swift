@@ -42,8 +42,6 @@ struct NodeListView: View {
     }
 
     var body: some View {
-        let _ = viewModel.refreshTrigger
-
         if let workspace {
             List {
                 if showHeader {

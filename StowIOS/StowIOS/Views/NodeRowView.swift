@@ -15,8 +15,6 @@ struct NodeRowView: View {
     @State private var showingSnippetEditor = false
 
     var body: some View {
-        let _ = viewModel.refreshTrigger
-
         Group {
             switch node {
             case .folder(let folder):

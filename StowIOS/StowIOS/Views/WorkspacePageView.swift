@@ -9,7 +9,6 @@ struct WorkspacePageView: View {
     @State private var showingAddItem = false
 
     var body: some View {
-        let _ = viewModel.refreshTrigger
         let workspaces = viewModel.workspaces
 
         WorkspacePagerRepresentable(

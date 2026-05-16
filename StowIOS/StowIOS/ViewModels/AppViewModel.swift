@@ -1,11 +1,11 @@
 import SwiftUI
 import UIKit
+import Combine
 import StowShared
 
 @MainActor
 final class AppViewModel: ObservableObject {
     let model: AppModel
-    @Published var refreshTrigger = false
     @Published var showingNewWorkspaceAlert = false
     @Published var newWorkspaceName = ""
     @Published var searchQuery = ""
@@ -23,6 +23,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private static let appGroupID = "group.com.stow.app"
+    private var modelChangeSubscription: AnyCancellable?
 
     init() {
         Self.migrateSyncStateIfNeeded()
@@ -34,10 +35,16 @@ final class AppViewModel: ObservableObject {
         let store = DataStore(baseDirectory: baseDir)
         let model = AppModel(store: store)
         self.model = model
-        model.onChange = { [weak self] in
-            self?.refreshTrigger.toggle()
-            CloudSyncManager.shared.scheduleLocalChanges()
-        }
+
+        // Forward every model change to SwiftUI's invalidation pipeline. Replaces
+        // the old refreshTrigger.toggle() pattern — views no longer need to read
+        // a sentinel @Published; reading any of viewModel's properties is enough.
+        modelChangeSubscription = model.changes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.objectWillChange.send()
+                CloudSyncManager.shared.scheduleLocalChanges()
+            }
 
         // Initialize iCloud sync
         CloudSyncManager.shared.configure(model: model)

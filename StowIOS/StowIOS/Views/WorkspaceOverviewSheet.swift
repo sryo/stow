@@ -10,8 +10,6 @@ struct WorkspaceOverviewSheet: View {
     @State private var showingAbout = false
 
     var body: some View {
-        let _ = viewModel.refreshTrigger
-
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView(.horizontal, showsIndicators: false) {
