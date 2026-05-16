@@ -6,6 +6,7 @@ struct WorkspacePageView: View {
     @Binding var showingOverview: Bool
     @State private var scrollOffset: CGFloat = 0
     @State private var showingEmptyClipboard = false
+    @State private var showingAddItem = false
 
     var body: some View {
         let _ = viewModel.refreshTrigger
@@ -35,12 +36,29 @@ struct WorkspacePageView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    importClipboardContent()
+                // Primary action (tap) opens AddItemView. Long-press reveals
+                // a menu with the legacy paste-from-clipboard path.
+                Menu {
+                    Button {
+                        showingAddItem = true
+                    } label: {
+                        Label("Add Item", systemImage: "plus.square")
+                    }
+                    Button {
+                        importClipboardContent()
+                    } label: {
+                        Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
+                    }
                 } label: {
                     Image(systemName: "plus")
+                } primaryAction: {
+                    showingAddItem = true
                 }
             }
+        }
+        .sheet(isPresented: $showingAddItem) {
+            AddItemView()
+                .environmentObject(viewModel)
         }
         .alert("Nothing to paste", isPresented: $showingEmptyClipboard) {
             Button("OK", role: .cancel) {}

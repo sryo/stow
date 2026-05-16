@@ -48,6 +48,12 @@ struct WorkspaceOverviewSheet: View {
                                     Label("Color", systemImage: "paintpalette")
                                 }
 
+                                if let shareURL = try? viewModel.model.shareWorkspace(id: workspace.id) {
+                                    ShareLink(item: shareURL) {
+                                        Label("Share Link", systemImage: "square.and.arrow.up")
+                                    }
+                                }
+
                                 if viewModel.workspaces.count > 1 {
                                     Divider()
                                     Button(role: .destructive) {
