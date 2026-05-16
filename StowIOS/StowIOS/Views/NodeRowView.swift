@@ -77,11 +77,7 @@ struct NodeRowView: View {
 
     @ViewBuilder
     private func linkRow(_ link: StowShared.Link) -> some View {
-        let domain: String? = {
-            let str = link.url.contains("://") ? link.url : "https://\(link.url)"
-            guard let url = URL(string: str), let host = url.host else { return nil }
-            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        }()
+        let domain: String? = link.displayDomain
 
         nodeLabel(
             systemImage: "globe",
@@ -316,18 +312,7 @@ struct NodeRowView: View {
     // MARK: - Helpers
 
     private static func collectLinks(from nodes: [Node]) -> [String] {
-        var urls: [String] = []
-        for node in nodes {
-            switch node {
-            case .link(let link):
-                urls.append(link.url)
-            case .folder(let folder):
-                urls.append(contentsOf: collectLinks(from: folder.children))
-            default:
-                break
-            }
-        }
-        return urls
+        nodes.flattenLinks().map { $0.url }
     }
 }
 

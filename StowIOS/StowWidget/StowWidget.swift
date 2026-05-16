@@ -46,18 +46,7 @@ struct StowWidgetProvider: TimelineProvider {
     }
 
     private func collectLinks(from nodes: [Node]) -> [StowShared.Link] {
-        var result: [StowShared.Link] = []
-        for node in nodes {
-            switch node {
-            case .link(let link):
-                result.append(link)
-            case .folder(let folder):
-                result.append(contentsOf: collectLinks(from: folder.children))
-            case .task, .snippet:
-                continue
-            }
-        }
-        return result
+        nodes.flattenLinks()
     }
 }
 

@@ -716,11 +716,7 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 shouldFetch = false
             }
 
-            let domain: String? = {
-                let str = link.url.contains("://") ? link.url : "https://\(link.url)"
-                guard let url = URL(string: str), let host = url.host else { return nil }
-                return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-            }()
+            let domain: String? = link.displayDomain
 
             nodeItem.configure(
                 title: link.title,
@@ -1428,18 +1424,7 @@ extension NodeListViewController: NSMenuDelegate {
     }
 
     private func countLinksInFolder(_ folder: Folder) -> Int {
-        var count = 0
-        for child in folder.children {
-            switch child {
-            case .link:
-                count += 1
-            case .folder(let nested):
-                count += countLinksInFolder(nested)
-            default:
-                break
-            }
-        }
-        return count
+        folder.children.flattenLinks().count
     }
 
     @objc private func bulkDelete() {

@@ -994,15 +994,7 @@ final class MainViewController: NSViewController {
     }
 
     private func collectLinks(in folder: Folder) -> [Link] {
-        var out: [Link] = []
-        for child in folder.children {
-            switch child {
-            case .link(let link): out.append(link)
-            case .folder(let nested): out.append(contentsOf: collectLinks(in: nested))
-            default: break
-            }
-        }
-        return out
+        folder.children.flattenLinks()
     }
 
     // MARK: - URL Utilities

@@ -134,7 +134,7 @@ public final class AppModel {
         // Collect all node IDs before removing the workspace so we can sync deletions
         let nodeIds: [UUID]
         if let workspace = state.workspaces.first(where: { $0.id == id }) {
-            nodeIds = collectAllNodeIds(from: workspace.items)
+            nodeIds = workspace.items.flattenIds()
         } else {
             nodeIds = []
         }
@@ -338,7 +338,7 @@ public final class AppModel {
         // Collect child IDs before removal so folder children are also synced as deleted
         let childIds: [UUID]
         if let node = nodeById(id), case .folder(let folder) = node {
-            childIds = collectAllNodeIds(from: folder.children)
+            childIds = folder.children.flattenIds()
         } else {
             childIds = []
         }
@@ -839,17 +839,6 @@ public final class AppModel {
             }
         }
         return nil
-    }
-
-    private func collectAllNodeIds(from nodes: [Node]) -> [UUID] {
-        var ids: [UUID] = []
-        for node in nodes {
-            ids.append(node.id)
-            if case .folder(let folder) = node {
-                ids.append(contentsOf: collectAllNodeIds(from: folder.children))
-            }
-        }
-        return ids
     }
 
     private func containsNode(_ id: UUID, within node: Node) -> Bool {
