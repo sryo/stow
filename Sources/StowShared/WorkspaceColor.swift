@@ -183,3 +183,25 @@ extension UIColor {
     }
 }
 #endif
+
+#if canImport(AppKit)
+extension WorkspaceColorId {
+    /// Dynamic NSColor that resolves differently in light vs dark appearance.
+    /// In light mode it matches `backgroundColor` (base × 92% alpha). In dark
+    /// mode the base is blended 85% toward black, mirroring the UIColor variant.
+    public var adaptiveBackgroundColor: NSColor {
+        if self == .settingsBackground {
+            return color
+        }
+        let base = color
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            if isDark {
+                return base.blended(withFraction: 0.85, of: .black) ?? base
+            } else {
+                return base.withAlphaComponent(0.92)
+            }
+        }
+    }
+}
+#endif

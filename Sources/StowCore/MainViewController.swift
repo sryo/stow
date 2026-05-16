@@ -510,7 +510,7 @@ final class MainViewController: NSViewController {
     }
 
     private func applyBackgroundColor(for colorId: WorkspaceColorId) {
-        let bgColor = colorId.backgroundColor
+        let bgColor = colorId.adaptiveBackgroundColor
         view.layer?.backgroundColor = bgColor.cgColor
         view.window?.backgroundColor = bgColor
     }
@@ -1308,8 +1308,8 @@ extension MainViewController: ScrollWheelPageDelegate {
         let toPage = min(totalPageCount() - 1, fromPage + 1)
         let fraction = offset - CGFloat(fromPage)
 
-        let fromColor = colorForPage(fromPage).backgroundColor
-        let toColor = colorForPage(toPage).backgroundColor
+        let fromColor = colorForPage(fromPage).adaptiveBackgroundColor
+        let toColor = colorForPage(toPage).adaptiveBackgroundColor
 
         if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
             view.layer?.backgroundColor = blended.cgColor
