@@ -56,6 +56,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         // Initialize iCloud sync
         CloudSyncManager.shared.configure(model: model)
+        model.deletionScheduler = { ids in
+            for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
+        }
         NSApp.registerForRemoteNotifications()
 
         NSApp.activate(ignoringOtherApps: true)

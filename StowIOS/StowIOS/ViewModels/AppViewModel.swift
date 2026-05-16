@@ -48,6 +48,9 @@ final class AppViewModel: ObservableObject {
 
         // Initialize iCloud sync
         CloudSyncManager.shared.configure(model: model)
+        model.deletionScheduler = { ids in
+            for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
+        }
         CloudSyncManager.shared.fetchChanges()
 
         UIApplication.shared.registerForRemoteNotifications()

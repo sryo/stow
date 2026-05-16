@@ -15,6 +15,11 @@ public final class AppModel {
     /// whatever they expose from the model. Compatible with `.sink` and
     /// `.objectWillChange.send()` patterns alike.
     public var changes: AnyPublisher<Void, Never> { changesSubject.eraseToAnyPublisher() }
+    /// Called after a delete operation with the set of IDs (workspace and/or
+    /// nodes) that need a corresponding CloudKit deletion. Host code (Mac
+    /// AppDelegate / iOS AppViewModel) wires this to `CloudSyncManager.scheduleDeletion`;
+    /// tests can intercept to verify the scheduled set.
+    public var deletionScheduler: ((Set<UUID>) -> Void)?
     private let logger = Logger(subsystem: "com.stow.app", category: "model")
 
     public init(store: DataStore = DataStore()) {
@@ -156,12 +161,9 @@ public final class AppModel {
             }
         }
         persist()
-        Task { @MainActor in
-            CloudSyncManager.shared.scheduleDeletion(for: id)
-            for nodeId in nodeIds {
-                CloudSyncManager.shared.scheduleDeletion(for: nodeId)
-            }
-        }
+        var scheduled: Set<UUID> = [id]
+        scheduled.formUnion(nodeIds)
+        deletionScheduler?(scheduled)
     }
 
     public func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {
@@ -355,12 +357,9 @@ public final class AppModel {
         updateWorkspace(id: currentWorkspace.id) { workspace in
             _ = removeNode(id: id, nodes: &workspace.items)
         }
-        Task { @MainActor in
-            CloudSyncManager.shared.scheduleDeletion(for: id)
-            for childId in childIds {
-                CloudSyncManager.shared.scheduleDeletion(for: childId)
-            }
-        }
+        var scheduled: Set<UUID> = [id]
+        scheduled.formUnion(childIds)
+        deletionScheduler?(scheduled)
     }
 
     public func setArchiveExpanded(workspaceId: UUID, isExpanded: Bool) {
