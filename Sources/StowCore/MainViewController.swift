@@ -152,7 +152,7 @@ final class MainViewController: NSViewController {
         // Paste button
         pasteButton.translatesAutoresizingMaskIntoConstraints = false
         pasteButton.target = self
-        pasteButton.action = #selector(pasteFromClipboard)
+        pasteButton.action = #selector(importClipboardContent)
 
         // Node list view
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -901,59 +901,20 @@ final class MainViewController: NSViewController {
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
-    @objc private func pasteFromClipboard() {
+    @objc private func importClipboardContent() {
         guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
-        let lines = pasted.components(separatedBy: .newlines)
-
-        let taskPattern = try! NSRegularExpression(pattern: #"^\s*-?\s*\[([ xX]?)\]\s*(.+)"#)
-        var snippetLines: [String] = []
-        var createdAnything = false
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            // 1. Check for task pattern
-            let range = NSRange(line.startIndex..., in: line)
-            if let match = taskPattern.firstMatch(in: line, range: range),
-               let checkRange = Range(match.range(at: 1), in: line),
-               let textRange = Range(match.range(at: 2), in: line) {
-                let checkMark = String(line[checkRange])
-                let taskTitle = String(line[textRange]).trimmingCharacters(in: .whitespaces)
-                let isCompleted = checkMark.lowercased() == "x"
-                let taskId = model.addTask(title: taskTitle, parentId: nil)
-                if isCompleted {
-                    model.toggleTaskCompletion(id: taskId)
-                }
-                createdAnything = true
-                continue
+        for item in ClipboardImportParser.parse(pasted) {
+            switch item {
+            case .task(let title, let isCompleted):
+                let id = model.addTask(title: title, parentId: nil)
+                if isCompleted { model.toggleTaskCompletion(id: id) }
+            case .link(let url, let defaultTitle):
+                let id = model.addLink(urlString: url.absoluteString, title: defaultTitle, parentId: nil)
+                fetchTitleForNewLink(id: id, url: url)
+            case .snippet(let title, let content):
+                model.addSnippet(title: title, content: content, language: nil, parentId: nil)
             }
-
-            // 2. Check for URLs
-            let urls = extractUrls(from: trimmed)
-            if !urls.isEmpty {
-                for url in urls {
-                    let linkId = model.addLink(urlString: url.absoluteString, title: titleForUrl(url), parentId: nil)
-                    fetchTitleForNewLink(id: linkId, url: url)
-                }
-                createdAnything = true
-                continue
-            }
-
-            // 3. Accumulate as snippet text
-            snippetLines.append(line)
         }
-
-        // Create snippet from accumulated non-URL, non-task lines
-        if !snippetLines.isEmpty {
-            let content = snippetLines.joined(separator: "\n")
-            let firstLine = snippetLines.first ?? "Snippet"
-            let title = firstLine.count > 50 ? String(firstLine.prefix(50)) + "…" : firstLine
-            model.addSnippet(title: title, content: content, language: nil, parentId: nil)
-            createdAnything = true
-        }
-
-        _ = createdAnything
     }
 
     @objc func paste(_ sender: Any?) {
@@ -962,7 +923,7 @@ final class MainViewController: NSViewController {
         if view.window?.firstResponder is NSTextView { return }
         // Don't paste when settings are showing
         if model.state.isSettingsSelected { return }
-        pasteFromClipboard()
+        importClipboardContent()
     }
 
     private func openLink(_ link: Link) {
@@ -998,55 +959,6 @@ final class MainViewController: NSViewController {
     }
 
     // MARK: - URL Utilities
-
-    private func normalizedUrl(from input: String) -> URL? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let lower = trimmed.lowercased()
-
-        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
-            return URL(string: trimmed)
-        }
-
-        if lower.hasPrefix("localhost") {
-            return URL(string: "http://\(trimmed)")
-        }
-
-        return nil
-    }
-
-    private func extractUrls(from text: String) -> [URL] {
-        let pattern = #"(?i)\b(?:https?://[^\s<>"',;]+|localhost(?::\d+)?(?:/[^\s<>"',;]*)?)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        var urls: [URL] = []
-
-        regex.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range,
-                  let stringRange = Range(matchRange, in: text) else { return }
-            let candidate = stripTrailingPunctuation(from: String(text[stringRange]))
-            if let url = normalizedUrl(from: candidate) {
-                urls.append(url)
-            }
-        }
-
-        return urls
-    }
-
-    private func stripTrailingPunctuation(from value: String) -> String {
-        var trimmed = value
-        while let last = trimmed.last, ".,;:)]}?!".contains(last) {
-            trimmed.removeLast()
-        }
-        return trimmed
-    }
-
-    private func titleForUrl(_ url: URL) -> String {
-        if let host = url.host {
-            return host
-        }
-        return url.absoluteString
-    }
 
     private func fetchTitleForNewLink(id: UUID, url: URL) {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }

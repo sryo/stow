@@ -36,7 +36,7 @@ struct WorkspacePageView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    pasteFromClipboard()
+                    importClipboardContent()
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -51,80 +51,28 @@ struct WorkspacePageView: View {
 
     // MARK: - Paste from Clipboard
 
-    private func pasteFromClipboard() {
-        guard let pasted = UIPasteboard.general.string,
-              !pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    private func importClipboardContent() {
+        guard let pasted = UIPasteboard.general.string else {
             showingEmptyClipboard = true
             return
         }
-        let lines = pasted.components(separatedBy: .newlines)
-
-        let taskPattern = try! NSRegularExpression(pattern: #"^\s*-?\s*\[([ xX]?)\]\s*(.+)"#)
-        let urlPattern = #"(?i)\b(?:https?://[^\s<>"',;]+|localhost(?::\d+)?(?:/[^\s<>"',;]*)?)"#
-        let urlRegex = try! NSRegularExpression(pattern: urlPattern)
-        var snippetLines: [String] = []
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            // 1. Check for task pattern: - [ ] or - [x]
-            let range = NSRange(line.startIndex..., in: line)
-            if let match = taskPattern.firstMatch(in: line, range: range),
-               let checkRange = Range(match.range(at: 1), in: line),
-               let textRange = Range(match.range(at: 2), in: line) {
-                let checkMark = String(line[checkRange])
-                let taskTitle = String(line[textRange]).trimmingCharacters(in: .whitespaces)
-                let isCompleted = checkMark.lowercased() == "x"
-                let taskId = viewModel.model.addTask(title: taskTitle, parentId: nil)
-                if isCompleted {
-                    viewModel.model.toggleTaskCompletion(id: taskId)
-                }
-                continue
-            }
-
-            // 2. Check for URLs
-            let urls = extractUrls(from: trimmed, regex: urlRegex)
-            if !urls.isEmpty {
-                for url in urls {
-                    let title = url.host ?? url.absoluteString
-                    let linkId = viewModel.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
-                    fetchTitleForNewLink(id: linkId, url: url)
-                }
-                continue
-            }
-
-            // 3. Accumulate as snippet text
-            snippetLines.append(line)
+        let items = ClipboardImportParser.parse(pasted)
+        if items.isEmpty {
+            showingEmptyClipboard = true
+            return
         }
-
-        // Create snippet from accumulated non-URL, non-task lines
-        if !snippetLines.isEmpty {
-            let content = snippetLines.joined(separator: "\n")
-            let firstLine = snippetLines.first ?? "Snippet"
-            let title = firstLine.count > 50 ? String(firstLine.prefix(50)) + "…" : firstLine
-            viewModel.model.addSnippet(title: title, content: content, language: nil, parentId: nil)
-        }
-    }
-
-    private func extractUrls(from text: String, regex: NSRegularExpression) -> [URL] {
-        let range = NSRange(text.startIndex..., in: text)
-        var urls: [URL] = []
-
-        regex.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range,
-                  let stringRange = Range(matchRange, in: text) else { return }
-            var candidate = String(text[stringRange])
-            // Strip trailing punctuation
-            while let last = candidate.last, ".,;:)]}?!".contains(last) {
-                candidate.removeLast()
-            }
-            if let url = URL(string: candidate) {
-                urls.append(url)
+        for item in items {
+            switch item {
+            case .task(let title, let isCompleted):
+                let id = viewModel.model.addTask(title: title, parentId: nil)
+                if isCompleted { viewModel.model.toggleTaskCompletion(id: id) }
+            case .link(let url, let defaultTitle):
+                let id = viewModel.model.addLink(urlString: url.absoluteString, title: defaultTitle, parentId: nil)
+                fetchTitleForNewLink(id: id, url: url)
+            case .snippet(let title, let content):
+                viewModel.model.addSnippet(title: title, content: content, language: nil, parentId: nil)
             }
         }
-
-        return urls
     }
 
     private func fetchTitleForNewLink(id: UUID, url: URL) {
