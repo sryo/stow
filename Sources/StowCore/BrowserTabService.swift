@@ -53,21 +53,21 @@ public enum BrowserTabService {
     }
 
     /// If `url` is open in any supported browser, focus that tab and return true.
-    /// Queries every running browser concurrently; first match wins and the
-    /// remaining queries are cancelled. Caller should fall through to
-    /// `BrowserManager.open` on false. Must NOT be called from the main thread —
-    /// each per-browser AppleScript blocks 50–300ms.
+    /// Returns false on miss or on focus failure — caller should fall through to
+    /// `BrowserManager.open` in either case. Queries each running browser
+    /// concurrently and returns on the first match; `cancelAll` only suppresses
+    /// unstarted tasks (in-flight AppleScripts run to completion).
     public static func focusIfOpen(url: URL) async -> Bool {
         let target = canonicalize(url)
         let match = await withTaskGroup(of: OpenTab?.self) { group -> OpenTab? in
             for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
-                group.addTask { firstMatch(in: chromiumTabs(appName: entry.appName, bundleId: entry.bundleId), target: target) }
+                group.addTask { chromiumTabs(appName: entry.appName, bundleId: entry.bundleId).first { canonicalize($0.url) == target } }
             }
             if BrowserManager.isRunning(bundleId: arcBundleId) {
-                group.addTask { firstMatch(in: arcTabs(), target: target) }
+                group.addTask { arcTabs().first { canonicalize($0.url) == target } }
             }
             if BrowserManager.isRunning(bundleId: safariBundleId) {
-                group.addTask { firstMatch(in: safariTabs(), target: target) }
+                group.addTask { safariTabs().first { canonicalize($0.url) == target } }
             }
             for await result in group {
                 if let hit = result {
@@ -81,8 +81,29 @@ public enum BrowserTabService {
         return focus(tab: hit)
     }
 
-    private static func firstMatch(in tabs: [OpenTab], target: String) -> OpenTab? {
-        tabs.first { canonicalize($0.url) == target }
+    /// Snapshot of every open tab across every running browser, keyed by
+    /// canonical URL (last writer wins on duplicates). For bulk lookups —
+    /// queries each browser exactly once instead of per-URL fan-out.
+    public static func tabsByCanonicalURL() async -> [String: OpenTab] {
+        let lists = await withTaskGroup(of: [OpenTab].self) { group -> [[OpenTab]] in
+            for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
+                group.addTask { chromiumTabs(appName: entry.appName, bundleId: entry.bundleId) }
+            }
+            if BrowserManager.isRunning(bundleId: arcBundleId) {
+                group.addTask { arcTabs() }
+            }
+            if BrowserManager.isRunning(bundleId: safariBundleId) {
+                group.addTask { safariTabs() }
+            }
+            var collected: [[OpenTab]] = []
+            for await list in group { collected.append(list) }
+            return collected
+        }
+        var map: [String: OpenTab] = [:]
+        for list in lists {
+            for tab in list { map[canonicalize(tab.url)] = tab }
+        }
+        return map
     }
 
     // MARK: - Per-browser tab listing
@@ -142,7 +163,7 @@ public enum BrowserTabService {
 
     // MARK: - Focus
 
-    private static func focus(tab: OpenTab) -> Bool {
+    static func focus(tab: OpenTab) -> Bool {
         let script: String
         switch tab.bundleId {
         case safariBundleId:

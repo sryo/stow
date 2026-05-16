@@ -6,7 +6,7 @@ struct BrowserInfo: Equatable {
     let icon: NSImage?
 }
 
-struct BrowserProfile {
+struct BrowserProfile: Sendable {
     let directoryName: String
     let displayName: String
 }

@@ -969,7 +969,6 @@ final class MainViewController: NSViewController {
         guard let url = URL(string: link.url) else { return }
         let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
         let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
-        // Detach so AppleScript IPC doesn't block the main thread.
         Task.detached(priority: .userInitiated) {
             if await BrowserTabService.focusIfOpen(url: url) { return }
             await MainActor.run { BrowserManager.open(url: url, profile: profile) }
@@ -977,16 +976,33 @@ final class MainViewController: NSViewController {
     }
 
     private func openLinksInFolder(_ folder: Folder) {
-        for child in folder.children {
-            switch child {
-            case .link(let link):
-                openLink(link)
-            case .folder(let nested):
-                openLinksInFolder(nested)
-            default:
-                break
+        let links = collectLinks(in: folder)
+        guard !links.isEmpty else { return }
+        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
+        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
+        // One tabs snapshot covers every link — avoids 20 detached Tasks each
+        // re-querying every running browser on bulk open.
+        Task.detached(priority: .userInitiated) {
+            let tabs = await BrowserTabService.tabsByCanonicalURL()
+            for link in links {
+                guard let url = URL(string: link.url) else { continue }
+                let key = BrowserTabService.canonicalize(url)
+                if let tab = tabs[key], BrowserTabService.focus(tab: tab) { continue }
+                await MainActor.run { BrowserManager.open(url: url, profile: profile) }
             }
         }
+    }
+
+    private func collectLinks(in folder: Folder) -> [Link] {
+        var out: [Link] = []
+        for child in folder.children {
+            switch child {
+            case .link(let link): out.append(link)
+            case .folder(let nested): out.append(contentsOf: collectLinks(in: nested))
+            default: break
+            }
+        }
+        return out
     }
 
     // MARK: - URL Utilities
