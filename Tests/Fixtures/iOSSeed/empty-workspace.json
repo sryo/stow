@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "workspaces": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Bookmarks",
+      "colorId": "ocean",
+      "items": [],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    }
+  ],
+  "selectedWorkspaceId": "11111111-1111-1111-1111-111111111111",
+  "isSettingsSelected": false
+}

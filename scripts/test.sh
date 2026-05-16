@@ -29,8 +29,8 @@ run_integration() {
 
 run_ios() {
     echo "▶ iOS simulator scenarios"
-    echo "  → not yet wired (see E15 in the refactor plan)"
-    return 0
+    echo "  → builds the iOS app; full scenario scripts in docs/ios_scenarios.md"
+    ./scripts/build-ios.sh > /dev/null
 }
 
 run_mac_ui() {

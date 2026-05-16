@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "workspaces": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Reading",
+      "colorId": "ember",
+      "items": [
+        {"kind": "link", "id": "33333333-3333-3333-3333-333333333301", "title": "One",   "url": "https://example.com/one"},
+        {"kind": "link", "id": "33333333-3333-3333-3333-333333333302", "title": "Two",   "url": "https://example.com/two"},
+        {"kind": "link", "id": "33333333-3333-3333-3333-333333333303", "title": "Three", "url": "https://example.com/three"},
+        {"kind": "link", "id": "33333333-3333-3333-3333-333333333304", "title": "Four",  "url": "https://example.com/four"},
+        {"kind": "link", "id": "33333333-3333-3333-3333-333333333305", "title": "Five",  "url": "https://example.com/five"}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222200",
+      "name": "Work",
+      "colorId": "moss",
+      "items": [],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222299",
+      "name": "Tools",
+      "colorId": "indigo",
+      "items": [],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    }
+  ],
+  "selectedWorkspaceId": "22222222-2222-2222-2222-222222222222",
+  "isSettingsSelected": false
+}

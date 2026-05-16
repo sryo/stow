@@ -33,6 +33,18 @@ final class AppViewModel: ObservableObject {
         ) ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Stow")
         let store = DataStore(baseDirectory: baseDir)
+
+        #if DEBUG
+        // Seed the App Group container from a JSON fixture before AppModel loads.
+        // Used by ios-simulator-skill scenarios to start each run from a known
+        // state. Set STOW_SEED_FIXTURE=/path/to/fixture.json in the scheme env.
+        if let fixturePath = ProcessInfo.processInfo.environment["STOW_SEED_FIXTURE"],
+           let data = try? Data(contentsOf: URL(fileURLWithPath: fixturePath)) {
+            try? FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+            try? data.write(to: baseDir.appendingPathComponent("data.json"))
+        }
+        #endif
+
         let model = AppModel(store: store)
         self.model = model
 
