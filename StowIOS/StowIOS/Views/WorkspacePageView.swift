@@ -34,28 +34,46 @@ struct WorkspacePageView: View {
                 } label: {
                     Image(systemName: "square.stack")
                 }
+                .disabled(viewModel.isSelecting)
             }
             ToolbarItem(placement: .primaryAction) {
-                // Primary action (tap) opens AddItemView. Long-press reveals
-                // a menu with the legacy paste-from-clipboard path.
-                Menu {
-                    Button {
+                if viewModel.isSelecting {
+                    Button("Done") {
+                        viewModel.clearSelection()
+                    }
+                } else {
+                    Menu {
+                        Button {
+                            showingAddItem = true
+                        } label: {
+                            Label("Add Item", systemImage: "plus.square")
+                        }
+                        Button {
+                            importClipboardContent()
+                        } label: {
+                            Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
+                        }
+                        Divider()
+                        Button {
+                            viewModel.isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    } primaryAction: {
                         showingAddItem = true
-                    } label: {
-                        Label("Add Item", systemImage: "plus.square")
                     }
-                    Button {
-                        importClipboardContent()
-                    } label: {
-                        Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                } primaryAction: {
-                    showingAddItem = true
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if viewModel.isSelecting && !viewModel.selectedNodeIds.isEmpty {
+                BulkActionBar()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isSelecting && !viewModel.selectedNodeIds.isEmpty)
         .sheet(isPresented: $showingAddItem) {
             AddItemView()
                 .environmentObject(viewModel)

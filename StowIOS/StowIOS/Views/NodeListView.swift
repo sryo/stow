@@ -77,7 +77,7 @@ struct NodeListView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     ForEach(displayedItems, id: \.id) { node in
-                        NodeRowView(node: node, parentId: nil)
+                        selectableRow(for: node)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button {
                                     viewModel.model.archiveNode(id: node.id)
@@ -134,6 +134,31 @@ struct NodeListView: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("Workspace Not Found", systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    // MARK: - Selectable Row
+
+    @ViewBuilder
+    private func selectableRow(for node: Node) -> some View {
+        if viewModel.isSelecting {
+            HStack(spacing: 12) {
+                Image(systemName: viewModel.selectedNodeIds.contains(node.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(viewModel.selectedNodeIds.contains(node.id) ? Color.accentColor : Color.secondary)
+                NodeRowView(node: node, parentId: nil)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if viewModel.selectedNodeIds.contains(node.id) {
+                    viewModel.selectedNodeIds.remove(node.id)
+                } else {
+                    viewModel.selectedNodeIds.insert(node.id)
+                }
+            }
+        } else {
+            NodeRowView(node: node, parentId: nil)
         }
     }
 

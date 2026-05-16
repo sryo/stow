@@ -10,6 +10,18 @@ final class AppViewModel: ObservableObject {
     @Published var newWorkspaceName = ""
     @Published var searchQuery = ""
 
+    // Bulk-select state. The pager hosts NodeListView inside a UIHostingController,
+    // which breaks SwiftUI's EditMode environment propagation — so the toolbar
+    // (in WorkspacePageView) and the rows (deep inside the pager pages) coordinate
+    // via these shared @Published fields instead.
+    @Published var isSelecting: Bool = false
+    @Published var selectedNodeIds: Set<UUID> = []
+
+    func clearSelection() {
+        isSelecting = false
+        selectedNodeIds.removeAll()
+    }
+
     private static let appGroupID = "group.com.stow.app"
 
     init() {
