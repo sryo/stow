@@ -1,292 +1,224 @@
 # Stow Architecture
 
-**Last Updated:** 2026-02-10
-**Status:** Post-Refactoring (All 5 Phases Complete)
+**Last updated:** 2026-05-16
 
 ## Overview
 
-Stow is a macOS bookmark management application built with Swift and AppKit. It uses a workspace-based organization system with hierarchical folders and links, featuring drag-and-drop, inline editing, and automatic favicon/title fetching.
+Stow is a workspace-based bookmark manager that runs on macOS (AppKit) and iOS
+(SwiftUI), forked from `Geek-1001/arcmark`. Bookmarks are organized into
+**workspaces** holding **nodes** — links, folders (nested), tasks, and code
+snippets. State syncs across devices via CloudKit; the macOS app additionally
+focuses already-open tabs in Safari / the Chromium family / Arc via
+AppleScript.
 
-## Architecture Patterns
+## Module layout
 
-### 1. Unidirectional Data Flow
-
-```
-User Action → MainViewController → AppModel → AppState → DataStore → Disk
-                     ↑                                        ↓
-                     └──────── onChange callback ─────────────┘
-```
-
-- **AppModel**: Single source of truth, owns AppState
-- **AppState**: Immutable data model (Codable)
-- **DataStore**: Persistence layer (JSON + favicon storage)
-- **MainViewController**: UI coordinator, observes AppModel via onChange callback
-
-### 2. Component Architecture (Post-Refactoring)
-
-**Base Classes** eliminate code duplication:
-- `BaseControl`: Interactive controls with hover + pressed states (~40 lines saved per subclass)
-- `BaseView`: Non-interactive views with hover state only (~40 lines saved per subclass)
-- `InlineEditableTextField`: Reusable inline editing component (~80 lines saved per usage)
-
-**Design System** ensures consistency:
-- `ThemeConstants`: Centralized colors, fonts, spacing, opacity, animations
-- Replaces 50+ hardcoded "magic numbers" throughout codebase
-
-## Project Structure
+Three Swift Package targets plus a sibling Xcode project for iOS-specific
+surfaces.
 
 ```
-Sources/StowCore/
-├── Components/
-│   ├── Base/
-│   │   ├── BaseControl.swift              # Base for interactive controls
-│   │   ├── BaseView.swift                 # Base for custom views
-│   │   └── InlineEditableTextField.swift  # Reusable inline editing
-│   └── Settings/
-│       └── WorkspaceManagementView.swift  # Workspace list in settings (~460 lines)
-├── ViewControllers/
-│   ├── NodeListViewController.swift       # Collection view, drag-drop, context menus (~1150 lines)
-│   └── SearchCoordinator.swift            # Search/filtering logic (~60 lines)
-├── Utilities/
-│   └── Theme/
-│       └── ThemeConstants.swift           # Design system constants
-│
-│  (remaining files are at the root level)
-│
-├── AppDelegate.swift                      # App lifecycle
-├── MainViewController.swift               # Main coordinator (~1240 lines)
-├── Models.swift                           # AppState, Workspace, Node (Link/Folder/Task/Snippet)
-├── AppModel.swift                         # Central state manager
-├── DataStore.swift                        # Persistence layer (JSON + favicon storage)
-├── Constants.swift                        # UserDefaults keys, pasteboard types, notifications
-├── WorkspaceColor.swift                   # Workspace color definitions
-├── SidebarPosition.swift                  # Sidebar position enum
-├── NodeFiltering.swift                    # Recursive tree filtering
-│
-├── FaviconService.swift                   # Async favicon fetching with disk caching
-├── LinkTitleService.swift                 # HTML title extraction from URLs
-├── BrowserManager.swift                   # Browser selection & URL opening
-├── WindowAttachmentService.swift          # Browser window attachment via Accessibility API
-├── ArcImportService.swift                 # Import bookmarks from Arc browser
-├── ShareService.swift                     # Workspace sharing via compressed URLs
-├── WorkspaceExporter.swift                # Export workspaces with embedded favicons
-├── WorkspaceImporter.swift                # Import workspace files
-│
-├── NodeCollectionViewItem.swift           # Collection view item for nodes
-├── NodeRowView.swift                      # Node row view (extends BaseView)
-├── WorkspaceCollectionViewItem.swift      # Collection view item for workspaces
-├── WorkspaceRowView.swift                 # Workspace row view (extends BaseView)
-├── WorkspaceSwitcherView.swift            # Workspace navigation switcher
-├── SearchBarView.swift                    # Search field
-├── SidebarPositionSelector.swift          # Sidebar position picker
-├── ListFlowLayout.swift                   # Custom NSCollectionViewLayout
-├── SnippetEditorView.swift                # Editor UI for code snippets
-├── ScrollWheelPageController.swift        # Scroll-wheel page navigation
-├── IconTitleButton.swift                  # Custom button (extends BaseControl)
-├── CustomTextButton.swift                 # Text button (extends BaseControl)
-├── CustomToggle.swift                     # Toggle switch (extends BaseControl)
-│
-└── SettingsContentViewController.swift    # Settings content (@MainActor)
+Sources/StowShared/    Foundation-only domain layer. AppModel, models, persistence,
+                      CloudKit sync, cross-platform services. Imports neither
+                      AppKit nor UIKit. Used by every other target.
 
-StowIOS/StowIOS/
-├── StowApp.swift                          # iOS app entry point
-├── ViewModels/
-│   └── AppViewModel.swift                 # Observable view model wrapping AppModel
-├── Views/
-│   ├── ContentView.swift                  # Root navigation view
-│   ├── WorkspaceSidebarView.swift         # Sidebar workspace list
-│   ├── WorkspacePicker.swift              # Workspace selection UI
-│   ├── WorkspaceRow.swift                 # Workspace list row
-│   ├── NodeListView.swift                 # Node list container
-│   ├── NodeRowView.swift                  # Individual node row (folder/link/task/snippet)
-│   ├── AddItemView.swift                  # Add new item sheet
-│   ├── WorkspacePageView.swift            # Swipeable workspace pages
-│   ├── FaviconView.swift                  # Favicon display
-│   ├── SettingsView.swift                 # iOS settings screen
-│   ├── WorkspaceSettingsView.swift        # Workspace management settings
-│   └── PinnedLinksView.swift              # Pinned links display
+Sources/StowCore/     macOS AppKit UI on top of StowShared. View controllers,
+                      browser/window integration, page transitions, settings.
 
-StowIOS/StowShareExtension/
-└── ShareViewController.swift              # Share sheet extension for saving URLs
+Sources/StowApp/      Minimal macOS executable entry point. Wires AppDelegate +
+                      MainViewController, hands the model to CloudSyncManager.
 
-StowIOS/StowWidget/
-└── StowWidget.swift                       # Home screen widget showing pinned links
+StowIOS/StowIOS/      SwiftUI iOS app (Xcode project). Depends only on
+                      StowShared. Hosts WorkspacePagerViewController + SwiftUI
+                      sheets. Three additional Xcode targets ship alongside:
+                      StowShareExtension (URL share sheet → workspace) and
+                      StowWidget (home-screen pinned-link widget).
 ```
 
-## Core Data Model
+`PlatformColor` / `PlatformFont` typealiases in `StowShared/PlatformTypes.swift`
+let shared code traffic in colors and fonts without importing the wrong UI
+framework. AppKit-only constants (pasteboard types, `LayoutConstants`,
+`ListMetrics`) live in `Sources/StowCore/AppKitConstants.swift`.
+
+## Data model
 
 ```swift
-AppState                      // Root container
+AppState                      // root container, persisted to data.json
 ├── schemaVersion: Int
 ├── workspaces: [Workspace]
 ├── selectedWorkspaceId: UUID?
 └── isSettingsSelected: Bool
 
-Workspace                     // Named container
+Workspace
 ├── id: UUID
 ├── name: String
-├── colorId: WorkspaceColorId
-└── items: [Node]             // Root-level items
+├── colorId: WorkspaceColorId      // 8 named tints + .settingsBackground + .custom(hex)
+├── items: [Node]
+├── browserProfiles: [String: String]  // bundleId → profileDir; macOS only
+└── isArchiveExpanded: Bool
 
-Node                          // Recursive tree structure
-├── .folder(Folder)
-│   ├── id: UUID
-│   ├── name: String
-│   ├── isExpanded: Bool
-│   └── children: [Node]      // Nested items
-├── .link(Link)
-│   ├── id: UUID
-│   ├── title: String
-│   ├── url: String
-│   └── faviconPath: String?
-├── .task(TaskItem)
-│   ├── id: UUID
-│   ├── title: String
-│   ├── isCompleted: Bool
-│   ├── dueDate: Date?
-│   ├── notes: String?
-│   └── createdAt: Date
-└── .snippet(Snippet)
-    ├── id: UUID
-    ├── title: String
-    ├── content: String
-    ├── language: String?
-    └── createdAt: Date
+Node
+├── .folder(Folder)                   // id, name, children: [Node], isExpanded, isArchived
+├── .link(Link)                       // id, title, url, faviconPath?, isArchived
+├── .task(TaskItem)                   // id, title, isCompleted, dueDate?, notes?, createdAt, isArchived
+└── .snippet(Snippet)                 // id, title, content, language?, createdAt, isArchived
 ```
 
-## Key Design Decisions
+## State management
 
-### State Management
-- **All mutations through AppModel methods** - no direct state access
-- **Automatic persistence** - DataStore saves after every mutation
-- **Observer pattern** - onChange callback for UI updates
-- **Recursive tree operations** - insertNode, updateNode, removeNode, findNodeLocation
-
-### UI Updates
-- **Collection view animations** - calculated diffs for smooth insertions/deletions
-- **Inline rename pattern** - scheduled via `pendingInlineRenameId`, executed after data reload
-- **Hover state management** - centralized in base classes, no duplicate tracking area code
-- **Design consistency** - all components use ThemeConstants for colors/fonts/spacing
-
-### ViewController Decomposition
-- **MainViewController** (~1240 lines) - Coordinator between search, list, and settings
-- **NodeListViewController** (~1150 lines) - Collection view, drag-drop, context menus
-- **SearchCoordinator** (~60 lines) - Search/filtering logic
-- **WorkspaceManagementView** (~460 lines) - Settings workspace management
-
-## Component Patterns
-
-### Creating Interactive Controls
-
-```swift
-final class MyButton: BaseControl {
-    override func handleHoverStateChanged() {
-        layer?.backgroundColor = isHovered
-            ? ThemeConstants.Colors.darkGray
-                .withAlphaComponent(ThemeConstants.Opacity.minimal).cgColor
-            : NSColor.clear.cgColor
-    }
-
-    override func handlePressedStateChanged() {
-        // Update appearance based on isPressed
-    }
-}
+```
+User action  →  AppModel mutation  →  persist()
+                                       ├── DataStore.save  →  data.json
+                                       ├── onChange?()      ←  legacy single-subscriber
+                                       └── changes.send()   ←  multicast publisher (Combine)
+                                                                ├── iOS AppViewModel.objectWillChange
+                                                                └── (future subscribers)
 ```
 
-### Creating Custom Views
+`AppModel.persist` asserts `dispatchPrecondition(.onQueue(.main))` — every
+mutation must originate from the main thread. CloudKit deletion scheduling is
+factored out via `AppModel.deletionScheduler: ((Set<UUID>) -> Void)?`, which Mac
+`AppDelegate` and iOS `AppViewModel` wire to `CloudSyncManager.shared.scheduleDeletion`
+after configuration. Tests intercept it to verify deletion sets without
+touching real CloudKit.
 
-```swift
-final class MyRowView: BaseView {
-    override func handleHoverStateChanged() {
-        // Update appearance based on isHovered
-    }
-}
+`DataStore.load` preserves corrupt or future-schema files as
+`data.json.corrupt-<timestamp>-<reason>` instead of overwriting them — the
+previous silent-fallback behavior could destroy a user's data on the next save.
+
+## CloudKit sync
+
+`Sources/StowShared/Sync/` houses three files:
+
+- `CloudKitRecordMapping.swift` — record-type / field-key constants
+- `RecordConverter.swift` — `Node`/`Workspace` ↔ `CKRecord` conversion
+- `CloudSyncManager.swift` — `CKSyncEngine` host; receives remote changes,
+  buffers parent-arrives-late children, applies merges via the
+  `AppModel.*FromSync` family
+
+`AppModel` exposes a sync-side API distinct from local mutations:
+`upsertNodeFromSync`, `mergeWorkspaceMetadataFromSync`,
+`reorderNodesFromSync`, `reorderWorkspacesFromSync`,
+`deleteNodeFromAnyWorkspace`, `deleteWorkspaceFromSync`. The upsert path
+guards against self-parenting and folder cycles before insertion.
+
+iOS uses an App Group container (`group.com.stow.app`) so the share extension
+and widget see the same `data.json`.
+
+## macOS UI
+
+`MainViewController` is still the central coordinator — owns child VCs
+(`NodeListViewController`, `SettingsContentViewController`), the workspace
+switcher, the search bar, and the scroll-wheel page controller. A
+decomposition plan exists in [`E14_DECOMPOSITION_PLAN.md`](E14_DECOMPOSITION_PLAN.md);
+the split is gated on having an interactive UI-test loop to verify the swipe
+transitions don't regress.
+
+Key collaborators in `Sources/StowCore/`:
+
+| File | Responsibility |
+|---|---|
+| `BrowserManager.swift` | Resolve default browser, open URLs with profile arg |
+| `BrowserTabService.swift` | AppleScript-driven enumeration + focus of already-open tabs across Safari/Chromium/Arc; `focusIfOpen(url:)` runs queries concurrently per browser |
+| `WindowAttachmentService.swift` | Attach Stow as a sibling sidebar to the active browser window via Accessibility API |
+| `GlobalHotkeyService.swift` | Carbon hotkey registration for show/hide toggle |
+| `ScrollWheelPageController.swift` | Trackpad two-finger swipe between workspace pages |
+| `FaviconService.swift` | Async favicon fetch + on-disk cache |
+| `LinkTitleService.swift` | HTML `<title>` extraction for new links |
+| `ArcImportService.swift` | Parse Arc's `StorableSidebar.json` (see `ARC_IMPORT_ARCHITECTURE.md`) |
+| `ShareService.swift` | Compress + base64url-encode a workspace into a `stow://` link |
+| `WorkspaceExporter` / `WorkspaceImporter` | `.stow` file round-trip with embedded favicons |
+
+The component base classes (`BaseControl`, `BaseView`,
+`InlineEditableTextField`) and the design system (`ThemeConstants`) are
+documented separately in [`COMPONENT_USAGE_GUIDE.md`](COMPONENT_USAGE_GUIDE.md).
+
+## iOS UI
+
+SwiftUI throughout, with one UIKit bridge for the inter-workspace pager:
+
+```
+StowApp.swift
+└── ContentView                      // device size routing (iPad split / iPhone stack)
+    └── WorkspacePageView            // toolbar + + button + bulk-select edit mode
+        ├── WorkspacePagerRepresentable
+        │   └── WorkspacePagerViewController  (UIPageViewController)
+        │       └── NodeListView     // per workspace
+        │           └── NodeRowView  // link / folder / task / snippet
+        ├── AddItemView              // sheet — manual add (link/folder/task/snippet)
+        ├── BulkActionBar            // bottom overlay during selection
+        ├── WorkspaceOverviewSheet   // workspace grid + context menu
+        │   └── AboutSheet           // gear icon → version + GitHub link
+        └── ContextMenu              // archive / unarchive / permanent delete
 ```
 
-### Using ThemeConstants
+`AppViewModel` is the SwiftUI bridge into `AppModel`. It subscribes to
+`model.changes` and forwards via `objectWillChange.send()` — the older
+`refreshTrigger.toggle()` pattern that required every view to read a sentinel
+`@Published` is gone. Bulk-select state (`isSelecting`, `selectedNodeIds`)
+lives on `AppViewModel` because SwiftUI's `EditMode` environment doesn't
+propagate through the UIPageViewController bridge.
 
-```swift
-// Colors
-layer?.backgroundColor = ThemeConstants.Colors.darkGray.cgColor
+`adaptiveBackgroundColor` on `WorkspaceColorId` returns dynamic light/dark
+colors on both platforms — macOS adopted this in 2026-05 so workspace tints
+no longer wash out in dark mode.
 
-// With opacity
-let hoverColor = ThemeConstants.Colors.darkGray
-    .withAlphaComponent(ThemeConstants.Opacity.minimal)
+## Shared services
 
-// Fonts
-label.font = ThemeConstants.Fonts.bodyRegular
+`Sources/StowShared/`:
 
-// Spacing
-stackView.spacing = ThemeConstants.Spacing.regular
+| File | Used by |
+|---|---|
+| `AppModel.swift`, `DataStore.swift`, `Models.swift` | Everything |
+| `NodeFiltering.swift` | Mac search bar + iOS `.searchable` |
+| `NodeTraversal.swift` | `Node.flattenLinks()`, `Node.flattenIds()`, `Link.displayDomain`, `Array<Workspace>.first(id:)`/`firstIndex(id:)` |
+| `ClipboardImportParser.swift` | Mac `MainViewController.importClipboardContent` + iOS `WorkspacePageView.importClipboardContent` |
+| `WorkspaceColor.swift` | Both platforms |
+| `Utilities/Theme/ThemeConstants.swift` | Both platforms |
+| `Sync/*` | Both platforms |
+| `ShareService.swift`, `WorkspaceExporter.swift`, `WorkspaceImporter.swift` | Mac (full); iOS uses `ShareService` via `ShareLink` |
+| `FaviconService.swift`, `LinkTitleService.swift`, `ArcImportService.swift` | Mac (iOS bundles them but doesn't currently surface) |
+| `SnippetTitleDerivation.swift` | Both platforms |
 
-// Animation
-CATransaction.setAnimationDuration(ThemeConstants.Animation.durationFast)
+## Testing
+
+`swift test --parallel` runs **138** cases across `StowSharedTests` and
+`StowTests`. CI on `main` and PRs via `.github/workflows/test.yml`. Test
+fixtures live in `Tests/Fixtures/` (organized by suite). iOS-side scenarios
+for the `ios-simulator-skill` plugin are specified in
+[`ios_scenarios.md`](ios_scenarios.md).
+
+`scripts/test.sh` wraps the layers: `unit`, `integration` (CloudKit dev
+container — gated by `STOW_CLOUDKIT_INTEGRATION=1`), `ios` (builds the
+app via `scripts/build-ios.sh`), `mac-ui` (stub).
+
+## Build
+
+```bash
+./scripts/build.sh        # macOS .app bundle via swift-bundler
+./scripts/run.sh          # build + launch
+./scripts/build-ios.sh    # iOS simulator build via xcodebuild
+swift test --parallel     # unit suite
 ```
 
-## Testing Strategy
-
-- **Model tests** - JSON round-trip, move operations, filtering
-- **ThemeConstants tests** - Validates all design values (16 tests)
-- **Base class tests** - Currently skipped (Swift 6 concurrency + XCTest issues)
-- **Total: 32 tests** - All passing, zero failures
-
-## Refactoring Impact (2026-02-10)
-
-**Code Reduction:**
-- Eliminated duplicate code patterns via base classes and ThemeConstants
-- Extracted NodeListViewController, SearchCoordinator, WorkspaceManagementView from MainViewController
-
-**Improvements:**
-- Zero functional regressions
-- Centralized design system (ThemeConstants)
-- Eliminated 6+ instances of duplicate hover state logic
-- Eliminated 3+ instances of duplicate inline editing logic
-- Consistent component patterns across all UI
-
-**Documentation:**
-- 900+ lines of comprehensive inline documentation
-- Component usage guide (400+ lines)
-- Architecture and refactoring history documented
+See [`BUILD_AND_CODESIGN.md`](BUILD_AND_CODESIGN.md) for the bundler config,
+signing identities, and the Info.plist patch sequence
+(swift-bundler v2.0.7 doesn't merge `[apps.*.plist]` reliably; `build.sh`
+patches `CFBundleIdentifier`, `CFBundleURLTypes`, and
+`NSAppleEventsUsageDescription` post-bundle).
 
 ## Dependencies
 
-- **Swift 6** with strict concurrency
-- **AppKit** for macOS UI
-- **Swift Bundler** for app bundle creation
-- No external dependencies for core functionality
-
-## Build System
-
-```bash
-# Build app bundle
-./scripts/build.sh
-
-# Build and run
-./scripts/run.sh
-
-# Run tests
-swift test
-```
-
-See [BUILD_AND_CODESIGN.md](BUILD_AND_CODESIGN.md) for details on build process and code signing.
-
-## Future Considerations
-
-**Optional Enhancements:**
-- Folder structure reorganization (move files into categorized subdirectories)
-- Visual regression testing suite
-- Async XCTest infrastructure for base class tests
-- Performance benchmarking and profiling
-- Memory leak testing with Instruments
-
-**Architecture is Stable:**
-- All 5 refactoring phases complete
-- Production-ready with comprehensive documentation
-- Ready for new feature development
+- Swift 6.2 with strict concurrency
+- AppKit (macOS) / SwiftUI + UIKit (iOS)
+- Combine (publisher in `AppModel`)
+- Swift Bundler 2.x (macOS only, via mint)
+- No external Swift packages beyond the build tooling
 
 ## Resources
 
-- [CLAUDE.md](../CLAUDE.md) - Detailed development guide
-- [REFACTORING_PLAN.md](REFACTORING_PLAN.md) - Complete refactoring history
-- [COMPONENT_USAGE_GUIDE.md](COMPONENT_USAGE_GUIDE.md) - Component usage patterns
-- [BUILD_AND_CODESIGN.md](BUILD_AND_CODESIGN.md) - Build system details
+- [`CLAUDE.md`](../CLAUDE.md) — assistant-facing development notes
+- [`COMPONENT_USAGE_GUIDE.md`](COMPONENT_USAGE_GUIDE.md) — `BaseControl`/`BaseView`/`ThemeConstants` patterns
+- [`BUILD_AND_CODESIGN.md`](BUILD_AND_CODESIGN.md) — build + signing details
+- [`E14_DECOMPOSITION_PLAN.md`](E14_DECOMPOSITION_PLAN.md) — pending `MainViewController` split
+- [`ios_scenarios.md`](ios_scenarios.md) — iOS sim end-to-end scenarios
+- [`ARC_IMPORT_ARCHITECTURE.md`](ARC_IMPORT_ARCHITECTURE.md) — Arc browser import internals

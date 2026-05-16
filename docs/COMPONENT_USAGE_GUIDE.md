@@ -613,7 +613,7 @@ let cornerRadius = ThemeConstants.CornerRadius.medium
 
 ## Additional Resources
 
-- See [REFACTORING_PLAN.md](/REFACTORING_PLAN.md) for the full refactoring history
-- See [CLAUDE.md](/CLAUDE.md) for architecture overview
-- Check the source code for `BaseControl`, `BaseView`, and `InlineEditableTextField` for implementation details
-- Look at existing components like `IconTitleButton`, `NodeRowView`, and `WorkspaceRowView` for real-world examples
+- See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall module layout and where these components sit
+- See [`CLAUDE.md`](../CLAUDE.md) for assistant-facing development notes
+- Source files live in `Sources/StowCore/Components/Base/`: `BaseControl.swift`, `BaseView.swift`, `InlineEditableTextField.swift`
+- Real-world consumers: `IconTitleButton`, `CustomTextButton`, `CustomToggle` (all `BaseControl`); `NodeRowView`, `WorkspaceRowView` (both `BaseView`)
