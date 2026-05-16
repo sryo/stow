@@ -96,6 +96,10 @@ final class ScrollWheelPageController {
         guard isEnabled else { NSLog("[PAGER] disabled"); return event }
         guard let delegate else { NSLog("[PAGER] no delegate"); return event }
 
+        // Don't mutate pager state while the window is hidden — otherwise the
+        // workspace appears on a different page than the user left it on.
+        if let window = event.window, !window.isVisible { return event }
+
         // Let scroll events over the excluded view pass through
         if let excluded = excludedView, trackingState == .idle,
            let window = event.window,
