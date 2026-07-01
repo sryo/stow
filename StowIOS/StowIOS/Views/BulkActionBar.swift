@@ -13,7 +13,7 @@ struct BulkActionBar: View {
 
     private var selectedIds: Set<UUID> { viewModel.selectedNodeIds }
 
-    private var selectedLinks: [Link] {
+    private var selectedLinks: [StowShared.Link] {
         viewModel.currentWorkspace.items.flattenLinks().filter { selectedIds.contains($0.id) }
     }
 

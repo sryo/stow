@@ -912,35 +912,13 @@ final class SettingsContentViewController: NSViewController {
         menu.addItem(renameItem)
 
         // Change Color submenu
-        let colorSubmenu = NSMenu()
-        for colorId in WorkspaceColorId.allCases {
-            let item = NSMenuItem(title: colorId.name, action: #selector(changeWorkspaceColor(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = colorId
-
-            // Add checkmark if current color
-            if workspace.colorId == colorId {
-                item.state = .on
-            }
-
-            // Add color indicator
-            let colorCircle = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-                colorId.color.setFill()
-                let path = NSBezierPath(ovalIn: rect)
-                path.fill()
-                return true
-            }
-            item.image = colorCircle
-
-            colorSubmenu.addItem(item)
-        }
-
-        colorSubmenu.addItem(NSMenuItem.separator())
-        let customColorItem = NSMenuItem(title: "Custom Color…", action: #selector(chooseCustomWorkspaceColor), keyEquivalent: "")
-        customColorItem.target = self
-        colorSubmenu.addItem(customColorItem)
         let colorItem = NSMenuItem(title: "Change Color", action: nil, keyEquivalent: "")
-        colorItem.submenu = colorSubmenu
+        colorItem.submenu = ContextMenuBuilder.workspaceColorSubmenu(
+            currentColorId: workspace.colorId,
+            target: self,
+            colorAction: #selector(changeWorkspaceColor(_:)),
+            customColorAction: #selector(chooseCustomWorkspaceColor)
+        )
         menu.addItem(colorItem)
 
         // Browser Profile submenu

@@ -13,6 +13,8 @@ struct NodeRowView: View {
     @State private var showCopiedCheck = false
     @State private var showingDueDatePicker = false
     @State private var showingSnippetEditor = false
+    @State private var showingLinkURLEditor = false
+    @State private var favicon: UIImage?
 
     var body: some View {
         Group {
@@ -36,6 +38,12 @@ struct NodeRowView: View {
         .sheet(isPresented: $showingSnippetEditor) {
             if case .snippet(let snippet) = node {
                 SnippetEditorSheet(snippetId: snippet.id, initialTitle: snippet.title, initialContent: snippet.content, initialLanguage: snippet.language)
+                    .environmentObject(viewModel)
+            }
+        }
+        .sheet(isPresented: $showingLinkURLEditor) {
+            if case .link(let link) = node {
+                LinkURLEditorSheet(linkId: link.id, initialURL: link.url)
                     .environmentObject(viewModel)
             }
         }
@@ -82,7 +90,8 @@ struct NodeRowView: View {
             title: link.title,
             tintColor: .blue,
             nodeId: link.id,
-            subtitle: domain
+            subtitle: domain,
+            iconImage: favicon
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -92,6 +101,18 @@ struct NodeRowView: View {
             }
         }
         .contextMenu { contextMenuItems(for: node) }
+        .onAppear { loadFavicon(for: link) }
+    }
+
+    private func loadFavicon(for link: StowShared.Link) {
+        let urlString = link.url.contains("://") ? link.url : "https://\(link.url)"
+        guard let url = URL(string: urlString) else { return }
+        FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { image, path in
+            favicon = image
+            if let path, path != link.faviconPath {
+                viewModel.model.updateLinkFaviconPath(id: link.id, path: path)
+            }
+        }
     }
 
     // MARK: - Task
@@ -157,7 +178,8 @@ struct NodeRowView: View {
         tintColor: Color,
         nodeId: UUID,
         strikethrough: Bool = false,
-        subtitle: String? = nil
+        subtitle: String? = nil,
+        iconImage: UIImage? = nil
     ) -> some View {
         if isEditing {
             HStack(spacing: 8) {
@@ -192,8 +214,16 @@ struct NodeRowView: View {
                     }
                 }
             } icon: {
-                Image(systemName: systemImage)
-                    .foregroundStyle(tintColor)
+                if let iconImage {
+                    Image(uiImage: iconImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(tintColor)
+                }
             }
         }
     }
@@ -230,6 +260,12 @@ struct NodeRowView: View {
                 UIPasteboard.general.string = link.url
             } label: {
                 Label("Copy URL", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                showingLinkURLEditor = true
+            } label: {
+                Label("Edit URL", systemImage: "pencil")
             }
 
         case .task(let task):
@@ -311,6 +347,52 @@ struct NodeRowView: View {
 
     private static func collectLinks(from nodes: [Node]) -> [String] {
         nodes.flattenLinks().map { $0.url }
+    }
+}
+
+// MARK: - Link URL Editor Sheet
+
+struct LinkURLEditorSheet: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    @Environment(\.dismiss) var dismiss
+    let linkId: UUID
+    @State private var urlText: String
+
+    init(linkId: UUID, initialURL: String) {
+        self.linkId = linkId
+        _urlText = State(initialValue: initialURL)
+    }
+
+    private var trimmedURL: String {
+        urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("URL") {
+                    TextField("https://example.com", text: $urlText)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle("Edit URL")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        viewModel.model.updateLinkUrl(id: linkId, newUrl: trimmedURL)
+                        dismiss()
+                    }
+                    .disabled(trimmedURL.isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

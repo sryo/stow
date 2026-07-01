@@ -14,6 +14,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var lastManualFrame: NSRect?
     private var isUserHidden: Bool = false
 
+    // Save failures repeat on every mutation while the disk condition persists;
+    // alert once per session and let os.log carry the rest.
+    private var hasShownSaveErrorAlert = false
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenus()
         registerURLHandler()
@@ -59,6 +63,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         model.deletionScheduler = { ids in
             for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
         }
+        model.onSaveError = { [weak self] error in
+            self?.presentSaveError(error)
+        }
         NSApp.registerForRemoteNotifications()
 
         NSApp.activate(ignoringOtherApps: true)
@@ -70,6 +77,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     public func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         CloudSyncManager.shared.fetchChanges()
+    }
+
+    public func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Sync falls back to the 30-second poll timer; log so the degraded
+        // mode is diagnosable instead of silent.
+        NSLog("Stow: push registration failed, sync falls back to polling — \(error.localizedDescription)")
+    }
+
+    private func presentSaveError(_ error: Error) {
+        guard !hasShownSaveErrorAlert else { return }
+        hasShownSaveErrorAlert = true
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Stow couldn't save your data"
+        alert.informativeText = "Your latest changes are kept in memory but could not be written to disk: \(error.localizedDescription)"
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

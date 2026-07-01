@@ -2,9 +2,20 @@ import CloudKit
 import os
 import Foundation
 
+/// Why sync is or isn't running. UIs read this to show a "sync off" state
+/// instead of silently degrading.
+public enum SyncAvailability: Equatable, Sendable {
+    case notConfigured
+    case active
+    /// The build lacks the provisioning profile CloudKit needs (unprovisioned macOS dev builds).
+    case disabledNoProvisioningProfile
+}
+
 @MainActor
 public final class CloudSyncManager {
     public static let shared = CloudSyncManager()
+
+    public private(set) var availability: SyncAvailability = .notConfigured
 
     private let logger = Logger(subsystem: "com.stow.app", category: "sync")
     private let containerID = "iCloud.com.stow.app"
@@ -47,12 +58,18 @@ public final class CloudSyncManager {
     public func configure(model: AppModel) {
         self.model = model
 
+        #if os(macOS)
         // CKContainer(identifier:) crashes with SIGTRAP on macOS Tahoe in builds
         // without a provisioning profile (e.g. development builds outside Xcode).
+        // macOS-only: iOS builds are provisioned through embedded.mobileprovision
+        // or App Store signing, so this file never exists there and the guard
+        // would disable sync on every iOS build.
         guard Bundle.main.path(forResource: "embedded", ofType: "provisionprofile") != nil else {
+            availability = .disabledNoProvisioningProfile
             logger.warning("No provisioning profile — iCloud sync disabled for this build")
             return
         }
+        #endif
 
         let container = CKContainer(identifier: containerID)
         let database = container.privateCloudDatabase
@@ -72,6 +89,7 @@ public final class CloudSyncManager {
         )
 
         syncEngine = CKSyncEngine(configuration)
+        availability = .active
         logger.info("CloudSyncManager configured with container=\(self.containerID, privacy: .public) zone=\(self.zoneName, privacy: .public)")
 
         // Ensure the custom zone exists

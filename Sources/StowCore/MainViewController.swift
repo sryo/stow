@@ -589,22 +589,12 @@ final class MainViewController: NSViewController {
         menu.addItem(renameItem)
 
         let colorItem = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
-        let colorSubmenu = NSMenu()
-        for colorId in WorkspaceColorId.allCases {
-            let colorMenuItem = NSMenuItem(title: colorId.name, action: #selector(changeColorTo(_:)), keyEquivalent: "")
-            colorMenuItem.target = self
-            colorMenuItem.representedObject = colorId
-            colorMenuItem.image = createColorPreviewImage(color: colorId.color)
-            if colorId == model.currentWorkspace.colorId {
-                colorMenuItem.state = .on
-            }
-            colorSubmenu.addItem(colorMenuItem)
-        }
-        colorSubmenu.addItem(NSMenuItem.separator())
-        let customColorItem = NSMenuItem(title: "Custom color…", action: #selector(chooseCustomColor), keyEquivalent: "")
-        customColorItem.target = self
-        colorSubmenu.addItem(customColorItem)
-        colorItem.submenu = colorSubmenu
+        colorItem.submenu = ContextMenuBuilder.workspaceColorSubmenu(
+            currentColorId: model.currentWorkspace.colorId,
+            target: self,
+            colorAction: #selector(changeColorTo(_:)),
+            customColorAction: #selector(chooseCustomColor)
+        )
         menu.addItem(colorItem)
 
         if canMoveLeft || canMoveRight {
@@ -675,25 +665,6 @@ final class MainViewController: NSViewController {
         guard let workspaceId = customColorWorkspaceId else { return }
         let hex = NSColorPanel.shared.color.hexString
         model.updateWorkspaceColor(id: workspaceId, colorId: .custom(hex))
-    }
-
-    private func createColorPreviewImage(color: NSColor, size: CGFloat = 12) -> NSImage {
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
-
-        let rect = NSRect(x: 0, y: 0, width: size, height: size)
-        let path = NSBezierPath(ovalIn: rect)
-        color.setFill()
-        path.fill()
-
-        // Add subtle border
-        let borderColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.20)
-        borderColor.setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
-
-        image.unlockFocus()
-        return image
     }
 
     @objc private func shareWorkspaceFromMenu() {
