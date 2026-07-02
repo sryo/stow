@@ -9,6 +9,10 @@ final class AppViewModel: ObservableObject {
     @Published var showingNewWorkspaceAlert = false
     @Published var newWorkspaceName = ""
     @Published var searchQuery = ""
+    // Save failures repeat on every mutation while the disk condition
+    // persists; alert once per session and let os.log carry the rest.
+    @Published var saveErrorMessage: String?
+    private var hasReportedSaveError = false
 
     // Bulk-select state. The pager hosts NodeListView inside a UIHostingController,
     // which breaks SwiftUI's EditMode environment propagation — so the toolbar
@@ -62,6 +66,11 @@ final class AppViewModel: ObservableObject {
         CloudSyncManager.shared.configure(model: model)
         model.deletionScheduler = { ids in
             for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
+        }
+        model.onSaveError = { [weak self] error in
+            guard let self, !self.hasReportedSaveError else { return }
+            self.hasReportedSaveError = true
+            self.saveErrorMessage = "Your latest changes are kept in memory but could not be written to disk: \(error.localizedDescription)"
         }
         CloudSyncManager.shared.fetchChanges()
 

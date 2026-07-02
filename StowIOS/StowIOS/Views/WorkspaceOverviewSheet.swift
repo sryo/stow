@@ -1,5 +1,28 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import StowShared
+
+/// `.stow` isn't declared in Info.plist, so this resolves to a dynamic type —
+/// enough for the exporter to name files and for round-tripping our own files.
+let stowFileType = UTType(filenameExtension: "stow", conformingTo: .json) ?? .json
+
+struct WorkspaceExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [stowFileType] }
+
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
 
 struct WorkspaceOverviewSheet: View {
     @EnvironmentObject var viewModel: AppViewModel
@@ -8,6 +31,11 @@ struct WorkspaceOverviewSheet: View {
     @State private var renameText = ""
     @State private var deleteWorkspaceId: UUID?
     @State private var showingAbout = false
+    @State private var exportDocument: WorkspaceExportDocument?
+    @State private var exportFilename = ""
+    @State private var showingExporter = false
+    @State private var showingImporter = false
+    @State private var transferErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -53,6 +81,19 @@ struct WorkspaceOverviewSheet: View {
                                     }
                                 }
 
+                                Button {
+                                    do {
+                                        let data = try viewModel.model.exportWorkspace(id: workspace.id)
+                                        exportDocument = WorkspaceExportDocument(data: data)
+                                        exportFilename = workspace.name
+                                        showingExporter = true
+                                    } catch {
+                                        transferErrorMessage = error.localizedDescription
+                                    }
+                                } label: {
+                                    Label("Export File", systemImage: "square.and.arrow.down")
+                                }
+
                                 if viewModel.workspaces.count > 1 {
                                     Divider()
                                     Button(role: .destructive) {
@@ -94,6 +135,14 @@ struct WorkspaceOverviewSheet: View {
                     .padding(.vertical, 16)
                 }
 
+                Button {
+                    showingImporter = true
+                } label: {
+                    Label("Import Workspace…", systemImage: "square.and.arrow.down")
+                        .font(.subheadline)
+                }
+                .padding(.bottom, 8)
+
                 Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
@@ -116,6 +165,40 @@ struct WorkspaceOverviewSheet: View {
         }
         .sheet(isPresented: $showingAbout) {
             AboutSheet()
+        }
+        .fileExporter(
+            isPresented: $showingExporter,
+            document: exportDocument,
+            contentType: stowFileType,
+            defaultFilename: exportFilename
+        ) { result in
+            if case .failure(let error) = result {
+                transferErrorMessage = error.localizedDescription
+            }
+        }
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.item]) { result in
+            switch result {
+            case .success(let url):
+                do {
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    let data = try Data(contentsOf: url)
+                    let id = try viewModel.model.importWorkspace(from: data)
+                    viewModel.selectedWorkspaceId = id
+                } catch {
+                    transferErrorMessage = error.localizedDescription
+                }
+            case .failure(let error):
+                transferErrorMessage = error.localizedDescription
+            }
+        }
+        .alert("Transfer Failed", isPresented: Binding(
+            get: { transferErrorMessage != nil },
+            set: { if !$0 { transferErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(transferErrorMessage ?? "")
         }
         .presentationDetents([.medium])
         .alert("Rename Workspace", isPresented: Binding(

@@ -20,6 +20,13 @@ public final class AppModel {
     /// AppDelegate / iOS AppViewModel) wires this to `CloudSyncManager.scheduleDeletion`;
     /// tests can intercept to verify the scheduled set.
     public var deletionScheduler: ((Set<UUID>) -> Void)?
+    /// Fires when writing state to disk fails. The in-memory model stays
+    /// authoritative; hosts should tell the user their latest change may not
+    /// have been persisted.
+    public var onSaveError: ((Error) -> Void)? {
+        get { store.onSaveError }
+        set { store.onSaveError = newValue }
+    }
     private let logger = Logger(subsystem: "com.stow.app", category: "model")
 
     public init(store: DataStore = DataStore()) {
@@ -36,6 +43,8 @@ public final class AppModel {
                 state.selectedWorkspaceId = state.workspaces.first?.id
             }
         }
+
+        store.cleanOrphanedFavicons(state: state)
     }
 
     public var workspaces: [Workspace] {
@@ -164,6 +173,7 @@ public final class AppModel {
         var scheduled: Set<UUID> = [id]
         scheduled.formUnion(nodeIds)
         deletionScheduler?(scheduled)
+        store.cleanOrphanedFavicons(state: state)
     }
 
     public func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {
@@ -360,6 +370,7 @@ public final class AppModel {
         var scheduled: Set<UUID> = [id]
         scheduled.formUnion(childIds)
         deletionScheduler?(scheduled)
+        store.cleanOrphanedFavicons(state: state)
     }
 
     public func setArchiveExpanded(workspaceId: UUID, isExpanded: Bool) {

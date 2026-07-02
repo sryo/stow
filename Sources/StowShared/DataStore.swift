@@ -1,9 +1,16 @@
 import Foundation
+import os
 
 public final class DataStore {
     private let fileManager = FileManager.default
     private let baseDirectory: URL
     private let dataURL: URL
+    private let logger = Logger(subsystem: "com.stow.app", category: "datastore")
+    /// Invoked when a save fails (encode error, disk full, permissions).
+    /// Persistence stays non-throwing so mutation paths never crash; hosts
+    /// wire this to surface the failure — the in-memory state stays live and
+    /// the next successful save wins.
+    public var onSaveError: ((Error) -> Void)?
 
     public init(baseDirectory: URL? = nil) {
         if let baseDirectory {
@@ -77,7 +84,34 @@ public final class DataStore {
             let data = try encoder.encode(state)
             try data.write(to: dataURL, options: [.atomic])
         } catch {
-            // Failing silently to avoid crashing; this can be surfaced later in a UI.
+            logger.error("Failed to save data.json: \(error.localizedDescription, privacy: .public)")
+            onSaveError?(error)
+        }
+    }
+
+    /// Deletes icon files no longer referenced by any link. Favicons are
+    /// cached per-host and shared across links — and FaviconService also
+    /// resolves icons by host-derived filename when a link's faviconPath is
+    /// nil — so a file is kept while any link's path OR host still maps to it.
+    public func cleanOrphanedFavicons(state: AppState) {
+        let iconsURL = baseDirectory.appendingPathComponent("Icons", isDirectory: true)
+        guard let files = try? fileManager.contentsOfDirectory(at: iconsURL, includingPropertiesForKeys: nil),
+              !files.isEmpty else { return }
+
+        var referenced = Set<String>()
+        for workspace in state.workspaces {
+            for link in workspace.items.flattenLinks() {
+                if let path = link.faviconPath {
+                    referenced.insert((path as NSString).lastPathComponent)
+                }
+                if let host = URL(string: link.url)?.host {
+                    referenced.insert(host.lowercased().replacingOccurrences(of: ":", with: "_") + ".ico")
+                }
+            }
+        }
+
+        for file in files where !referenced.contains(file.lastPathComponent) {
+            try? fileManager.removeItem(at: file)
         }
     }
 

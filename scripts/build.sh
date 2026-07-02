@@ -35,17 +35,23 @@ echo "🔨 Building Stow..."
 cd "$(dirname "$0")/.."
 
 # Read version from VERSION file and update Bundler.toml
-if [ -f "VERSION" ]; then
-    VERSION=$(cat VERSION | tr -d '[:space:]')
-    echo "📌 Version: $VERSION"
+if [ ! -f "VERSION" ]; then
+    echo "❌ Error: VERSION file not found in project root"
+    exit 1
+fi
+VERSION=$(cat VERSION | tr -d '[:space:]')
+if [ -z "$VERSION" ]; then
+    echo "❌ Error: VERSION file is empty"
+    exit 1
+fi
+echo "📌 Version: $VERSION"
 
-    # Update version in Bundler.toml if it differs
-    if grep -q "^version = " Bundler.toml; then
-        CURRENT_VERSION=$(grep "^version = " Bundler.toml | head -1 | sed "s/version = '\(.*\)'/\1/" | tr -d "'")
-        if [ "$CURRENT_VERSION" != "$VERSION" ]; then
-            echo "  → Updating Bundler.toml version to $VERSION"
-            sed -i '' "s/^version = .*/version = '$VERSION'/" Bundler.toml
-        fi
+# Update version in Bundler.toml if it differs
+if grep -q "^version = " Bundler.toml; then
+    CURRENT_VERSION=$(grep "^version = " Bundler.toml | head -1 | sed "s/version = '\(.*\)'/\1/" | tr -d "'")
+    if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+        echo "  → Updating Bundler.toml version to $VERSION"
+        sed -i '' "s/^version = .*/version = '$VERSION'/" Bundler.toml
     fi
 fi
 
@@ -56,6 +62,10 @@ mint run swift-bundler bundle -c release
 # Swift Bundler v2.0.7 has an issue where [apps.*.plist] values don't always merge
 echo "🔧 Patching Info.plist..."
 INFO_PLIST=".build/bundler/Stow.app/Contents/Info.plist"
+if [ ! -f "$INFO_PLIST" ]; then
+    echo "❌ Error: $INFO_PLIST not found — did swift-bundler change its output layout?"
+    exit 1
+fi
 
 # Add CFBundleIdentifier if missing (using PlistBuddy)
 if ! /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" &>/dev/null; then
@@ -144,7 +154,12 @@ echo "✅ Build complete!"
 echo "📦 App bundle: .build/bundler/Stow.app"
 echo ""
 echo "🔍 Verification:"
-echo "  Bundle ID: $(defaults read "$(pwd)/$INFO_PLIST" CFBundleIdentifier 2>/dev/null || echo 'ERROR: Not found')"
+BUNDLE_ID=$(defaults read "$(pwd)/$INFO_PLIST" CFBundleIdentifier 2>/dev/null || true)
+if [ -z "$BUNDLE_ID" ]; then
+    echo "❌ Error: CFBundleIdentifier missing from Info.plist after patching"
+    exit 1
+fi
+echo "  Bundle ID: $BUNDLE_ID"
 echo "  Version: $(defaults read "$(pwd)/$INFO_PLIST" CFBundleShortVersionString 2>/dev/null || echo 'Not set')"
 echo "  Code Sign: $(codesign -dvv ".build/bundler/Stow.app" 2>&1 | grep "^Identifier=" | cut -d= -f2)"
 
