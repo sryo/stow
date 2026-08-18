@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stow - Bookmarks That Follow Your Browser</title>
+  <meta name="description" content="A macOS bookmark manager that attaches to any browser window as a sidebar. Workspaces, nested folders, one local JSON file.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #222;
+      --text-secondary: #666;
+      --accent: #4285F4;
+      --border: #e0e0e0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #2a2a2a;
+        --text-primary: #f0f0f0;
+        --text-secondary: #a0a0a0;
+        --border: #3a3a3a;
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    .container { max-width: 720px; margin: 0 auto; padding: 0 1.5rem; }
+
+    /* Hero */
+    .hero { padding: 140px 2rem 40px; text-align: center; }
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      animation: fadeInUp 0.8s ease;
+    }
+    .hero h2 {
+      font-size: 1.35rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      line-height: 1.7;
+    }
+    .hero__cta a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+    .hero__cta a:hover { text-decoration: underline; }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Two windows side by side: Stow is its own window (340x680 in the app,
+       transparent titlebar over the workspace colour), attached to the edge of
+       a browser window. */
+    .stage {
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+      height: 340px;
+      margin: 3rem 0 2rem;
+      padding: 4px;
+    }
+    .win {
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+    }
+    .lights { display: flex; gap: 6px; padding: 10px 11px; }
+    .light { width: 11px; height: 11px; border-radius: 50%; }
+    .light.r { background: #FF5F57; }
+    .light.y { background: #FEBC2E; }
+    .light.g { background: #28C840; }
+
+    /* Values below come from AppKitConstants.swift, WorkspaceSwitcherView.swift
+       and ThemeConstants.swift, so the mock matches the app it depicts. */
+    .sidebar {
+      width: 250px;
+      flex: none;
+      background: var(--ws, #A3B3FF);
+      padding: 0 8px 8px;                 /* LayoutConstants.windowPadding */
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font: 14px -apple-system, 'SF Pro Text', system-ui, sans-serif;
+      color: rgba(0, 0, 0, 0.8);          /* ListMetrics.titleColor */
+      transition: background 0.2s ease;
+    }
+
+    /* Workspace switcher: pill per workspace, colour circle then name. */
+    .workspaces { display: flex; gap: 4px; overflow: auto; padding-bottom: 2px; }
+    .ws {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font: 600 14px -apple-system, system-ui, sans-serif;
+      color: rgba(20, 20, 20, 0.8);
+      background: none;
+      border: 0;
+      padding: 10px;                      /* Spacing.regular */
+      border-radius: 8px;                 /* CornerRadius.medium */
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .ws:hover { background: rgba(0, 0, 0, 0.06); }
+    .ws.is-on { background: #141414; color: #fff; }
+    .ws .circle {
+      width: 14px;                        /* Sizing.iconSmall */
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid rgba(20, 20, 20, 0.2);
+      flex: none;
+    }
+    .ws.is-on .circle { border-color: rgba(255, 255, 255, 0.35); }
+
+    .tree { overflow: auto; }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 40px;                       /* ListMetrics.rowHeight */
+      margin-bottom: 4px;                 /* verticalGap */
+      padding: 0 8px;                     /* leftPadding */
+      border-radius: 12px;                /* rowCornerRadius */
+      cursor: default;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .row:hover { background: rgba(0, 0, 0, 0.1); }   /* hoverBackgroundColor */
+    .row.is-on { background: rgba(0, 0, 0, 0.2); }   /* selectedBackgroundColor */
+    .row.folder { cursor: pointer; font-weight: 600; }
+    .row .icon {
+      width: 20px;                        /* iconSize */
+      height: 20px;
+      border-radius: 4px;                 /* iconCornerRadius */
+      background: rgba(0, 0, 0, 0.7);     /* iconTintColor */
+      opacity: 0.55;
+      flex: none;
+    }
+    .row .label { overflow: hidden; text-overflow: ellipsis; }
+    .row.child { margin-left: 16px; }     /* indentWidth */
+
+    .page {
+      flex: 1;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .chrome {
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 10px;
+      flex: none;
+    }
+    .url {
+      margin-left: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: var(--bg-secondary);
+      border-radius: 5px;
+      padding: 2px 8px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .viewport {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      padding: 1rem;
+      text-align: center;
+    }
+
+
+    .files__path { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.4rem; font-family: 'SF Mono', Monaco, 'Courier New', monospace; }
+
+    pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 0.8rem;
+      line-height: 1.55;
+    }
+
+    section { padding: 20px 0; }
+    h2.section { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
+    section p { color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.8rem; }
+    section a { color: var(--accent); text-decoration: none; }
+    section a:hover { text-decoration: underline; }
+
+    /* FAQ */
+    .faq-section { max-width: 640px; margin: 0 auto; padding: 40px 24px 60px; }
+    .faq-section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; }
+    details { background: var(--bg-primary); border-bottom: 1px solid var(--border); }
+    details:first-of-type { border-top: 1px solid var(--border); }
+    summary {
+      padding: 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: '+';
+      font-size: 1.25rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+    }
+    details[open] summary::after { content: '−'; }
+    details p {
+      padding: 0 16px 16px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
+    }
+    details code {
+      background: var(--bg-secondary);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    }
+    details a { color: var(--accent); text-decoration: none; }
+    details a:hover { text-decoration: underline; }
+
+    /* Footer */
+    .footer { padding: 40px 2rem; text-align: center; }
+    .footer__bottom {
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 600px) {
+      .hero { padding: 80px 1.5rem 30px; }
+      .hero h1 { font-size: 2.5rem; }
+      .hero h2 { font-size: 1.1rem; }
+      .window { height: 300px; }
+      .sidebar { width: 180px; }
+    }
+  </style>
+</head>
+<body>
+
+  <section class="hero">
+    <h1>Stow</h1>
+    <h2>Bookmarks that follow your browser</h2>
+    <p class="hero__cta"><a href="https://github.com/sryo/stow">View on GitHub</a></p>
+  </section>
+
+  <div class="container">
+    <div class="stage">
+      <div class="win sidebar" id="sidebar">
+        <div class="lights">
+          <span class="light r"></span><span class="light y"></span><span class="light g"></span>
+        </div>
+        <div class="workspaces" id="workspaces"></div>
+        <div class="tree" id="tree"></div>
+      </div>
+      <div class="win page">
+        <div class="chrome">
+          <div class="lights">
+            <span class="light r"></span><span class="light y"></span><span class="light g"></span>
+          </div>
+          <span class="url" id="url">about:blank</span>
+        </div>
+        <div class="viewport"></div>
+      </div>
+    </div>
+
+    <section>
+      <h2 class="section">Install</h2>
+      <pre>git clone https://github.com/sryo/stow
+cd stow && ./scripts/build.sh</pre>
+      <p>
+        macOS, with an iPhone app alongside it. Forked from
+        <a href="https://github.com/Geek-1001/arcmark">Arcmark</a>, then grown into
+        workspaces, nested folders, Arc import and iCloud sync.
+      </p>
+    </section>
+  </div>
+
+  <section class="faq-section">
+    <h2>FAQ</h2>
+
+    <details>
+      <summary>Why not just use browser bookmarks?</summary>
+      <p>
+        Because the browser owns them. Switch from Chrome to Safari and your reading pile
+        stays behind. Stow keeps them beside whichever browser you happen to be using.
+      </p>
+    </details>
+
+    <details>
+      <summary>Which browsers?</summary>
+      <p>
+        Chrome, Arc, Safari, Brave, or any window it can track. It also runs on its own if
+        you'd rather not attach it to anything.
+      </p>
+    </details>
+
+    <details>
+      <summary>Is there an iPhone app?</summary>
+      <p>
+        Yes, with a share extension for saving links from anywhere and a widget for the
+        home screen.
+      </p>
+    </details>
+
+    <details>
+      <summary>Does it sync?</summary>
+      <p>
+        Through your own iCloud. There's no account to make and no server of mine in the
+        middle; on each device the data is a single <code>data.json</code>.
+      </p>
+    </details>
+
+    <details>
+      <summary>I have bookmarks in Arc.</summary>
+      <p>
+        Import them. Stow reads Arc's <code>StorableSidebar.json</code> and brings across
+        pinned tabs and folder structure.
+      </p>
+    </details>
+
+    <details>
+      <summary>Is it free?</summary>
+      <p>Yes, MIT licensed.</p>
+    </details>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__bottom">© 2026 sryo</div>
+    </div>
+  </footer>
+
+  <script>
+    // Workspace colours are the real ones from Sources/StowShared/WorkspaceColor.swift.
+    const DATA = [
+      {
+        name: 'Reading', colorId: 'indigo', color: '#A3B3FF',
+        items: [
+          { folder: 'Later', open: true, children: [
+            { title: 'The Grand Unified Theory of Documents', url: 'https://untested.sonnet.io/' },
+            { title: 'A Case for Small Software', url: 'https://smallandclose.dev/' },
+          ] },
+          { title: 'Hacker News', url: 'https://news.ycombinator.com/' },
+        ],
+      },
+      {
+        name: 'Work', colorId: 'moss', color: '#5EE9B5',
+        items: [
+          { folder: 'Specs', open: false, children: [
+            { title: 'Design tokens v3', url: 'https://www.figma.com/file/tokens' },
+            { title: 'Release checklist', url: 'https://linear.app/checklist' },
+          ] },
+          { title: 'Staging', url: 'https://staging.internal/' },
+          { title: 'Metrics', url: 'https://analytics.internal/dashboard' },
+        ],
+      },
+      {
+        name: 'Weekend', colorId: 'coral', color: '#FFF085',
+        items: [
+          { title: 'Tide times', url: 'https://tides.example/cordoba' },
+          { folder: 'Recipes', open: false, children: [
+            { title: 'Milanesa napolitana', url: 'https://recipes.example/milanesa' },
+          ] },
+        ],
+      },
+    ];
+
+    let current = 0;
+    const el = (id) => document.getElementById(id);
+
+    function renderWorkspaces() {
+      el('workspaces').innerHTML = DATA.map((w, i) =>
+        `<button class="ws${i === current ? ' is-on' : ''}" data-i="${i}">
+           <span class="circle" style="background:${w.color}"></span>${w.name}
+         </button>`).join('');
+      el('workspaces').querySelectorAll('.ws').forEach((b) => {
+        b.addEventListener('click', () => { current = +b.dataset.i; render(); });
+      });
+    }
+
+    function renderTree() {
+      const ws = DATA[current];
+      const rows = [];
+      ws.items.forEach((node, i) => {
+        if (node.folder) {
+          rows.push(`<div class="row folder" data-folder="${i}">
+            <span class="icon"></span><span class="label">${node.folder}</span></div>`);
+          if (node.open) {
+            node.children.forEach((c) => {
+              rows.push(`<div class="row child" data-url="${c.url}">
+                <span class="icon"></span><span class="label">${c.title}</span></div>`);
+            });
+          }
+        } else {
+          rows.push(`<div class="row" data-url="${node.url}">
+            <span class="icon"></span><span class="label">${node.title}</span></div>`);
+        }
+      });
+      el('tree').innerHTML = rows.join('');
+      el('tree').querySelectorAll('[data-folder]').forEach((r) => {
+        r.addEventListener('click', () => {
+          const node = DATA[current].items[+r.dataset.folder];
+          node.open = !node.open;
+          render();
+        });
+      });
+      el('tree').querySelectorAll('[data-url]').forEach((r) => {
+        r.addEventListener('click', () => {
+          el('url').textContent = r.dataset.url;
+          el('tree').querySelectorAll('.row').forEach((x) => x.classList.remove('is-on'));
+          r.classList.add('is-on');
+        });
+      });
+    }
+
+    function render() {
+      el('sidebar').style.setProperty('--ws', DATA[current].color);
+      renderWorkspaces();
+      renderTree();
+    }
+
+    render();
+  </script>
+</body>
+</html>
