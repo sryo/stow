@@ -21,8 +21,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenus()
         registerURLHandler()
+        #if DEBUG
+        switch ProcessInfo.processInfo.environment["STOW_APPEARANCE"] {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
+        #endif
 
-        let model = AppModel()
+        let model = AppModel(store: Self.makeDataStore())
         let mainViewController = MainViewController(model: model)
         self.mainViewController = mainViewController
 
@@ -69,6 +76,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApp.registerForRemoteNotifications()
 
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// `STOW_DATA_DIR` points debug builds at a scratch data directory, for UI work
+    /// against fixtures without touching the real library.
+    private static func makeDataStore() -> DataStore {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["STOW_DATA_DIR"], !path.isEmpty {
+            return DataStore(baseDirectory: URL(fileURLWithPath: path, isDirectory: true))
+        }
+        #endif
+        return DataStore()
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {
@@ -173,6 +191,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(NSMenuItem.separator())
+        let findItem = NSMenuItem(title: "Find…", action: #selector(focusSearch), keyEquivalent: "f")
+        findItem.target = self
+        editMenu.addItem(findItem)
+        let jumpItem = NSMenuItem(title: "Jump to Item", action: #selector(toggleJumpMode), keyEquivalent: "j")
+        jumpItem.target = self
+        editMenu.addItem(jumpItem)
 
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
@@ -251,6 +276,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc private func newFolder() {
         mainViewController?.createFolderAndBeginRename(parentId: nil)
+    }
+
+    @objc private func focusSearch() {
+        showMainWindow()
+        mainViewController?.focusSearch()
+    }
+
+    @objc private func toggleJumpMode() {
+        mainViewController?.toggleJumpMode()
     }
 
     @objc private func switchToWorkspaceByTag(_ sender: NSMenuItem) {

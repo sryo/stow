@@ -25,16 +25,16 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
                 placeholderOpacity: ThemeConstants.Opacity.medium,
                 textOpacity: ThemeConstants.Opacity.full,
                 iconOpacity: ThemeConstants.Opacity.high,
-                font: ThemeConstants.Fonts.bodyMedium,
-                iconPointSize: ThemeConstants.Sizing.iconMedium,
+                font: StowTheme.Font.field,
+                iconPointSize: 13,
                 iconWeight: .medium,
-                clearIconPointSize: ThemeConstants.Sizing.iconSmall,
-                clearIconWeight: .medium,
-                iconTitleSpacing: ThemeConstants.Spacing.regular,
-                clearSpacing: ThemeConstants.Spacing.medium,
-                horizontalPadding: ThemeConstants.Spacing.regular,
-                verticalPadding: ThemeConstants.Spacing.regular,
-                cornerRadius: ThemeConstants.CornerRadius.medium
+                clearIconPointSize: 10,
+                clearIconWeight: .bold,
+                iconTitleSpacing: StowTheme.List.glyphToTitle,
+                clearSpacing: 6,
+                horizontalPadding: StowTheme.List.horizontalInset + 2,
+                verticalPadding: 6,
+                cornerRadius: StowTheme.Chrome.fieldRadius
             )
         }
 
@@ -48,6 +48,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     private let iconView = NSImageView()
     private let textField = NSTextField(string: "")
     private let clearButton = NSButton()
+    private let countLabel = NSTextField(labelWithString: "")
+    private let shortcutLabel = NSTextField(labelWithString: "⌘F")
     private var iconLeadingConstraint: NSLayoutConstraint?
     private var iconWidthConstraint: NSLayoutConstraint?
     private var iconHeightConstraint: NSLayoutConstraint?
@@ -80,6 +82,39 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     }
 
     var onTextChange: ((String) -> Void)?
+
+    /// When set, colors come from the workspace palette instead of the style.
+    var colors: StowTheme.Colors? {
+        didSet { applyStyle() }
+    }
+
+    /// Result count shown while filtering, e.g. "4 of 37". Nil hides it.
+    var resultSummary: String? {
+        didSet {
+            countLabel.stringValue = resultSummary ?? ""
+            countLabel.isHidden = resultSummary == nil
+        }
+    }
+
+    var isFocused: Bool {
+        guard let editor = textField.currentEditor() else { return false }
+        return window?.firstResponder === editor
+    }
+
+    private var firstResponderObservation: NSKeyValueObservation?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        firstResponderObservation = window?.observe(\.firstResponder) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.updateFocusRing() }
+        }
+    }
+
+    func focus() {
+        window?.makeFirstResponder(textField)
+        textField.currentEditor()?.selectAll(nil)
+        updateFocusRing()
+    }
 
     init(style: Style = .defaultSearch) {
         self.style = style
@@ -119,9 +154,24 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         clearButton.target = self
         clearButton.action = #selector(clearTapped)
 
+        clearButton.setAccessibilityLabel("Clear search")
+        textField.setAccessibilityLabel("Search")
+
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.font = StowTheme.Font.meta
+        countLabel.isHidden = true
+        countLabel.setContentHuggingPriority(.required, for: .horizontal)
+        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
+        shortcutLabel.font = StowTheme.Font.keycap
+        shortcutLabel.setContentHuggingPriority(.required, for: .horizontal)
+
         addSubview(iconView)
         addSubview(textField)
         addSubview(clearButton)
+        addSubview(countLabel)
+        addSubview(shortcutLabel)
 
         iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: style.horizontalPadding)
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: style.iconPointSize)
@@ -130,7 +180,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         clearWidthConstraint = clearButton.widthAnchor.constraint(equalToConstant: max(style.clearIconPointSize, 16))
         clearHeightConstraint = clearButton.heightAnchor.constraint(equalToConstant: max(style.clearIconPointSize, 16))
         textLeadingConstraint = textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: style.iconTitleSpacing)
-        textTrailingConstraint = textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -style.clearSpacing)
+        textTrailingConstraint = textField.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -style.clearSpacing)
 
         NSLayoutConstraint.activate([
             iconLeadingConstraint!,
@@ -145,13 +195,51 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
 
             textLeadingConstraint!,
             textTrailingConstraint!,
-            textField.centerYAnchor.constraint(equalTo: centerYAnchor)
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            countLabel.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -4),
+            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            shortcutLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.horizontalPadding),
+            shortcutLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    // Text field cells resolve dynamic colors against the drawing appearance, which isn't
+    // always the view's, so these are flattened to the view's appearance up front.
+    private var ink: NSColor { flattened(colors?.inkPrimary ?? style.baseColor.withAlphaComponent(style.textOpacity)) }
+    private var secondaryInk: NSColor { flattened(colors?.inkSecondary ?? style.baseColor.withAlphaComponent(style.placeholderOpacity)) }
+
+    private func flattened(_ color: NSColor) -> NSColor {
+        var result = color
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            result = color.usingColorSpace(.sRGB) ?? color
+        }
+        return result
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyStyle()
+    }
+
+    private func updateFocusRing() {
+        let focused = isFocused
+        layer?.borderWidth = focused ? 2 : 0
+        layer?.borderColor = resolvedCGColor(colors?.accent ?? .controlAccentColor)
+        shortcutLabel.isHidden = focused || !textField.stringValue.isEmpty
     }
 
     private func applyStyle() {
         layer?.cornerRadius = style.cornerRadius
-        layer?.backgroundColor = style.baseColor.withAlphaComponent(style.backgroundOpacity).cgColor
+        if let colors {
+            layer?.backgroundColor = resolvedCGColor(colors.hover)
+        } else {
+            layer?.backgroundColor = style.baseColor.withAlphaComponent(style.backgroundOpacity).cgColor
+        }
+        countLabel.textColor = secondaryInk
+        shortcutLabel.textColor = secondaryInk
+        updateFocusRing()
 
         iconLeadingConstraint?.constant = style.horizontalPadding
         iconWidthConstraint?.constant = style.iconPointSize
@@ -164,13 +252,13 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         textTrailingConstraint?.constant = -style.clearSpacing
 
         iconView.image = symbolImage(name: "magnifyingglass", pointSize: style.iconPointSize, weight: style.iconWeight)
-        iconView.contentTintColor = style.baseColor.withAlphaComponent(style.iconOpacity)
+        iconView.contentTintColor = secondaryInk
 
         clearButton.image = symbolImage(name: "xmark", pointSize: style.clearIconPointSize, weight: style.clearIconWeight)
-        clearButton.contentTintColor = style.baseColor.withAlphaComponent(style.iconOpacity)
+        clearButton.contentTintColor = secondaryInk
 
         textField.font = style.font
-        textField.textColor = style.baseColor.withAlphaComponent(style.textOpacity)
+        textField.textColor = ink
         updatePlaceholder()
         updateClearButtonVisibility()
         invalidateIntrinsicContentSize()
@@ -179,7 +267,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     private func updatePlaceholder() {
         guard let placeholder = textField.placeholderString, !placeholder.isEmpty else { return }
         let attributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: style.baseColor.withAlphaComponent(style.placeholderOpacity),
+            .foregroundColor: secondaryInk,
             .font: style.font
         ]
         textField.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: attributes)
@@ -187,6 +275,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
 
     private func updateClearButtonVisibility() {
         clearButton.isHidden = textField.stringValue.isEmpty
+        updateFocusRing()
     }
 
     private func symbolImage(name: String, pointSize: CGFloat, weight: NSFont.Weight) -> NSImage? {
@@ -202,6 +291,14 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         updateClearButtonVisibility()
         onTextChange?("")
         window?.makeFirstResponder(textField)
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        updateFocusRing()
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        updateFocusRing()
     }
 
     func controlTextDidChange(_ obj: Notification) {

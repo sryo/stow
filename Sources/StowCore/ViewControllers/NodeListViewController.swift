@@ -31,7 +31,7 @@ final class NodeListViewController: NSViewController {
     fileprivate let collectionView = ContextMenuCollectionView()
     let scrollView = NSScrollView()
     private let dropIndicator = DropIndicatorView()
-    private let listMetrics = ListMetrics()
+    private var listMetrics = ListMetrics()
     private let contextMenu = NSMenu()
 
     // Overscroll shadow views
@@ -99,8 +99,42 @@ final class NodeListViewController: NSViewController {
     // State
     var isSearchActive: Bool = false
     var workspaceColor: WorkspaceColorId = .defaultColor() {
-        didSet { updateShadows() }
+        didSet {
+            guard workspaceColor != oldValue else { return }
+            listMetrics.colors = StowTheme.colors(for: workspaceColor, tint: tintMode)
+            dropIndicator.accentColor = listMetrics.colors.accent
+            updateShadows()
+            collectionView.reloadData()
+        }
     }
+    var tintMode: StowTheme.TintMode = .full {
+        didSet {
+            guard tintMode != oldValue else { return }
+            listMetrics.colors = StowTheme.colors(for: workspaceColor, tint: tintMode)
+            updateShadows()
+            collectionView.reloadData()
+        }
+    }
+
+    /// While true, rows show a–z jump letters and plain letter keys activate rows.
+    var isJumpModeActive = false {
+        didSet {
+            guard isJumpModeActive != oldValue else { return }
+            for item in collectionView.visibleItems() {
+                guard let nodeItem = item as? NodeCollectionViewItem,
+                      let indexPath = collectionView.indexPath(for: item),
+                      let row = row(at: indexPath) else { continue }
+                var isArchived = false
+                if case .archived = row.kind { isArchived = true }
+                let letter: String? = isJumpModeActive && !isArchived && indexPath.item < 26
+                    ? String(UnicodeScalar(UInt8(97 + indexPath.item))) : nil
+                nodeItem.setHintCharacter(letter)
+            }
+        }
+    }
+
+    /// The view that holds keyboard focus when the list is active.
+    var focusTarget: NSView { collectionView }
 
     // MARK: - Initialization
 
@@ -215,9 +249,8 @@ final class NodeListViewController: NSViewController {
     }
 
     func updateShadows() {
-        let bgColor = workspaceColor.backgroundColor
-        let opaqueColor = bgColor.cgColor
-        let clearColor = bgColor.withAlphaComponent(0).cgColor
+        let opaqueColor = view.resolvedCGColor(listMetrics.colors.surface)
+        let clearColor = opaqueColor.copy(alpha: 0) ?? opaqueColor
 
         let clipView = scrollView.contentView
         let docHeight = scrollView.documentView?.frame.height ?? 0
@@ -688,102 +721,75 @@ extension NodeListViewController: NSCollectionViewDataSource {
         let isArchived: Bool
         if case .archived = row.kind { isArchived = true } else { isArchived = false }
 
+        let kind: NodeRowContent.Kind
+        let title: String
+        var shouldFetchFavicon: URL?
         switch node {
         case .folder(let folder):
-            let icon = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
-            icon?.isTemplate = true
-            nodeItem.configure(
-                title: folder.name,
-                icon: icon,
-                titleFont: listMetrics.folderTitleFont,
-                depth: row.depth,
-                metrics: listMetrics,
-                showDelete: false,
-                onDelete: nil,
-                isSelected: isSelected
-            )
+            title = folder.name
+            kind = .folder(isExpanded: folder.isExpanded || isSearchActive, childCount: folder.children.count)
         case .link(let link):
-            let globeIconConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-            let placeholder = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?.withSymbolConfiguration(globeIconConfig)
-            placeholder?.isTemplate = true
-            var iconToUse = placeholder
-            var shouldFetch = true
+            var favicon: NSImage?
             if let path = link.faviconPath,
                FileManager.default.fileExists(atPath: path),
                let image = NSImage(contentsOfFile: path) {
-                image.isTemplate = false
-                iconToUse = image
-                shouldFetch = false
+                favicon = image
+            } else {
+                shouldFetchFavicon = URL(string: link.url)
             }
-
-            let domain: String? = link.displayDomain
-
-            nodeItem.configure(
-                title: link.title,
-                icon: iconToUse,
-                titleFont: listMetrics.linkTitleFont,
-                depth: row.depth,
-                metrics: listMetrics,
-                showDelete: !isArchived,
-                onDelete: isArchived ? nil : { [weak self] in
-                    self?.onNodeDeleted?(link.id)
-                    self?.clearSelections()
-                },
-                isSelected: isSelected,
-                subtitle: domain
-            )
-
-            if shouldFetch, let url = URL(string: link.url) {
-                FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
-                    guard let path else { return }
-                    NotificationCenter.default.post(
-                        name: .init("UpdateLinkFavicon"),
-                        object: nil,
-                        userInfo: ["linkId": link.id, "path": path]
-                    )
-                }
-            }
+            title = link.title
+            kind = .link(favicon: favicon, domain: link.displayDomain)
         case .task(let task):
-            let iconName = task.isCompleted ? "checkmark.circle.fill" : "circle"
-            let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
-            icon?.isTemplate = true
-            nodeItem.configure(
-                title: task.title,
-                icon: icon,
-                titleFont: listMetrics.linkTitleFont,
-                depth: row.depth,
-                metrics: listMetrics,
-                showDelete: !isArchived,
-                onDelete: isArchived ? nil : { [weak self] in
-                    self?.onNodeDeleted?(task.id)
-                    self?.clearSelections()
-                },
-                isSelected: isSelected,
-                isCompleted: task.isCompleted,
-                dueDate: task.dueDate
-            )
+            title = task.title
+            kind = .task(isCompleted: task.isCompleted, dueDate: task.dueDate)
         case .snippet(let snippet):
-            let icon = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
-            icon?.isTemplate = true
-            let displayTitle = snippet.language != nil ? "\(snippet.title) (\(snippet.language!))" : snippet.title
-            nodeItem.configure(
-                title: displayTitle,
-                icon: icon,
-                titleFont: listMetrics.linkTitleFont,
-                depth: row.depth,
-                metrics: listMetrics,
-                showDelete: !isArchived,
-                onDelete: isArchived ? nil : { [weak self] in
-                    self?.onNodeDeleted?(snippet.id)
-                    self?.clearSelections()
-                },
-                isSelected: isSelected
-            )
+            title = snippet.title
+            kind = .snippet(language: snippet.language)
         }
 
-        // Assign hint letter (a-z for first 26 regular items)
-        if !isArchived && indexPath.item < 26 {
-            let letter = String(UnicodeScalar(UInt8(97 + indexPath.item))) // 'a' = 97
+        let isFolder: Bool
+        if case .folder = node { isFolder = true } else { isFolder = false }
+        let slotAction: (() -> Void)?
+        if isArchived {
+            slotAction = { [weak self] in self?.onNodeUnarchived?(node.id) }
+        } else if isFolder {
+            slotAction = nil
+        } else {
+            slotAction = { [weak self] in
+                self?.onNodeDeleted?(node.id)
+                self?.clearSelections()
+            }
+        }
+
+        nodeItem.configure(
+            content: NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived),
+            metrics: listMetrics,
+            isSelected: isSelected,
+            showSlotAction: slotAction != nil,
+            onSlotAction: slotAction
+        )
+        if case .folder(let folder) = node, !isSearchActive {
+            nodeItem.onDisclosure = { [weak self] in
+                self?.onFolderToggled?(folder.id, !folder.isExpanded)
+            }
+        } else {
+            nodeItem.onDisclosure = nil
+        }
+
+        if let url = shouldFetchFavicon, case .link(let link) = node {
+            FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
+                guard let path else { return }
+                NotificationCenter.default.post(
+                    name: .init("UpdateLinkFavicon"),
+                    object: nil,
+                    userInfo: ["linkId": link.id, "path": path]
+                )
+            }
+        }
+
+        // Jump letters (a–z for the first 26 rows) appear only in jump mode.
+        if isJumpModeActive && !isArchived && indexPath.item < 26 {
+            let letter = String(UnicodeScalar(UInt8(97 + indexPath.item)))
             nodeItem.setHintCharacter(letter)
         } else {
             nodeItem.setHintCharacter(nil)
@@ -1474,7 +1480,7 @@ private struct NodeListRow {
 private final class DropIndicatorView: NSView {
     private let lineThickness: CGFloat = 2
     private let highlightCornerRadius: CGFloat = 8
-    private let accentColor = NSColor.controlAccentColor
+    var accentColor: NSColor = .controlAccentColor
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1494,7 +1500,7 @@ private final class DropIndicatorView: NSView {
         isHidden = false
         self.frame = frame
         layer?.cornerRadius = lineThickness / 2
-        layer?.backgroundColor = accentColor.cgColor
+        layer?.backgroundColor = resolvedCGColor(accentColor)
         layer?.borderWidth = 0
     }
 
@@ -1502,8 +1508,8 @@ private final class DropIndicatorView: NSView {
         isHidden = false
         self.frame = frame
         layer?.cornerRadius = highlightCornerRadius
-        layer?.backgroundColor = accentColor.withAlphaComponent(0.12).cgColor
-        layer?.borderColor = accentColor.cgColor
+        layer?.backgroundColor = resolvedCGColor(accentColor.withAlphaComponent(0.12))
+        layer?.borderColor = resolvedCGColor(accentColor)
         layer?.borderWidth = 2
     }
 
@@ -1585,18 +1591,17 @@ private final class ArchiveHeaderItem: NSCollectionViewItem {
         disclosureIcon.wantsLayer = true
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
+        titleLabel.font = StowTheme.Font.section
         titleLabel.lineBreakMode = .byTruncatingTail
 
         container.addSubview(disclosureIcon)
         container.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
-            disclosureIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            disclosureIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: StowTheme.List.horizontalInset),
             disclosureIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            disclosureIcon.widthAnchor.constraint(equalToConstant: 12),
-            disclosureIcon.heightAnchor.constraint(equalToConstant: 12),
+            disclosureIcon.widthAnchor.constraint(equalToConstant: StowTheme.List.disclosureWidth),
+            disclosureIcon.heightAnchor.constraint(equalToConstant: StowTheme.List.disclosureWidth),
 
             titleLabel.leadingAnchor.constraint(equalTo: disclosureIcon.trailingAnchor, constant: 6),
             titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
@@ -1606,14 +1611,17 @@ private final class ArchiveHeaderItem: NSCollectionViewItem {
 
     func configure(count: Int, isExpanded: Bool, metrics: ListMetrics, onClick: @escaping () -> Void) {
         self.onClick = onClick
-        titleLabel.stringValue = "Archive (\(count))"
-        titleLabel.textColor = metrics.titleColor.withAlphaComponent(ThemeConstants.Opacity.low)
+        titleLabel.stringValue = "Archive · \(count)"
+        titleLabel.textColor = metrics.secondaryColor
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.button)
+        view.setAccessibilityLabel("Archive, \(count) items, \(isExpanded ? "expanded" : "collapsed")")
 
         let chevronName = isExpanded ? "chevron.down" : "chevron.right"
-        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
         let icon = NSImage(systemSymbolName: chevronName, accessibilityDescription: nil)?.withSymbolConfiguration(config)
         icon?.isTemplate = true
         disclosureIcon.image = icon
-        disclosureIcon.contentTintColor = metrics.titleColor.withAlphaComponent(ThemeConstants.Opacity.low)
+        disclosureIcon.contentTintColor = metrics.secondaryColor
     }
 }

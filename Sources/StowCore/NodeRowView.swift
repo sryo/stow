@@ -1,25 +1,58 @@
 import AppKit
 
+/// What a row shows. Built by the list controller from a `Node`.
+struct NodeRowContent {
+    enum Kind {
+        case folder(isExpanded: Bool, childCount: Int)
+        case link(favicon: NSImage?, domain: String?)
+        case task(isCompleted: Bool, dueDate: Date?)
+        case snippet(language: String?)
+    }
+
+    var kind: Kind
+    var title: String
+    var depth: Int
+    var isArchived: Bool
+
+    var typeName: String {
+        switch kind {
+        case .folder: return "Folder"
+        case .link: return "Link"
+        case .task: return "Task"
+        case .snippet: return "Snippet"
+        }
+    }
+}
+
+/// One list row: guide lines, disclosure, type glyph, title, metadata and a trailing
+/// action slot. Hover actions, multi-select checks and jump letters all render in the
+/// slot, so they never cover the metadata.
 final class NodeRowView: BaseView {
     private let contentContainer = NSView()
+    private let guidesView = GuideLinesView()
+    private let disclosureButton = NSButton()
     private let iconView = NSImageView()
     private let editableTitle = InlineEditableTextField()
-    private let subtitleLabel = NSTextField(labelWithString: "")
-    private let deleteButton = NSButton()
-    private let hintLabel = NSTextField(labelWithString: "")
-    private let dueDateLabel = NSTextField(labelWithString: "")
+    private let metaLabel = NSTextField(labelWithString: "")
+    private let badgeLabel = BadgeLabel()
+    private let slotButton = NSButton()
+    private let slotKeycap = NSTextField(labelWithString: "")
     private let swipeLeftActionView = NSImageView()
     private let swipeRightActionView = NSImageView()
+
+    private var content: NodeRowContent?
     private var isSelected = false
-    private var showsDeleteButton = false
+    private var showsSlotAction = false
+    private var jumpLetter: String?
     private var metrics = ListMetrics()
-    private var onDelete: (() -> Void)?
-    private var iconLeadingConstraint: NSLayoutConstraint?
-    private var iconWidthConstraint: NSLayoutConstraint?
-    private var iconHeightConstraint: NSLayoutConstraint?
+    private var onSlotAction: (() -> Void)?
+    var onDisclosure: (() -> Void)?
+
+    private var disclosureLeadingConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
-    private var titleToSubtitleConstraint: NSLayoutConstraint?
-    private var titleToDueDateConstraint: NSLayoutConstraint?
+    private var titleTrailingToMeta: NSLayoutConstraint?
+    private var titleTrailingToBadge: NSLayoutConstraint?
+    private var titleTrailingToSlot: NSLayoutConstraint?
 
     // Swipe state
     private var panGesture: NSPanGestureRecognizer?
@@ -48,59 +81,54 @@ final class NodeRowView: BaseView {
         layer?.cornerRadius = metrics.rowCornerRadius
         layer?.masksToBounds = true
 
-        // Pan gesture for swipe
         let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         pan.delaysPrimaryMouseButtonEvents = false
         addGestureRecognizer(pan)
         panGesture = pan
 
-        // Swipe action backgrounds
-        swipeRightActionView.translatesAutoresizingMaskIntoConstraints = false
-        swipeRightActionView.imageScaling = .scaleProportionallyDown
-        swipeRightActionView.wantsLayer = true
-        let rightIcon = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)
-        rightIcon?.isTemplate = true
-        swipeRightActionView.image = rightIcon
-        swipeRightActionView.contentTintColor = .systemGreen
-        swipeRightActionView.isHidden = true
+        for actionView in [swipeRightActionView, swipeLeftActionView] {
+            actionView.translatesAutoresizingMaskIntoConstraints = false
+            actionView.imageScaling = .scaleProportionallyDown
+            actionView.wantsLayer = true
+            actionView.isHidden = true
+            addSubview(actionView)
+        }
 
-        swipeLeftActionView.translatesAutoresizingMaskIntoConstraints = false
-        swipeLeftActionView.imageScaling = .scaleProportionallyDown
-        swipeLeftActionView.wantsLayer = true
-        let leftIcon = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
-        leftIcon?.isTemplate = true
-        swipeLeftActionView.image = leftIcon
-        swipeLeftActionView.contentTintColor = .systemRed
-        swipeLeftActionView.isHidden = true
-
-        addSubview(swipeRightActionView)
-        addSubview(swipeLeftActionView)
-
-        // Content container (moves during swipe)
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.wantsLayer = true
+        contentContainer.layer?.cornerRadius = metrics.rowCornerRadius
         addSubview(contentContainer)
 
         contentLeadingConstraint = contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor)
 
         NSLayoutConstraint.activate([
             contentLeadingConstraint!,
-            contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentContainer.widthAnchor.constraint(equalTo: widthAnchor),
             contentContainer.topAnchor.constraint(equalTo: topAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            swipeRightActionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            swipeRightActionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             swipeRightActionView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            swipeRightActionView.widthAnchor.constraint(equalToConstant: 24),
-            swipeRightActionView.heightAnchor.constraint(equalToConstant: 24),
+            swipeRightActionView.widthAnchor.constraint(equalToConstant: 18),
+            swipeRightActionView.heightAnchor.constraint(equalToConstant: 18),
 
-            swipeLeftActionView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            swipeLeftActionView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             swipeLeftActionView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            swipeLeftActionView.widthAnchor.constraint(equalToConstant: 24),
-            swipeLeftActionView.heightAnchor.constraint(equalToConstant: 24),
+            swipeLeftActionView.widthAnchor.constraint(equalToConstant: 18),
+            swipeLeftActionView.heightAnchor.constraint(equalToConstant: 18),
         ])
 
-        // Setup content views inside container
+        guidesView.translatesAutoresizingMaskIntoConstraints = false
+
+        disclosureButton.translatesAutoresizingMaskIntoConstraints = false
+        disclosureButton.isBordered = false
+        disclosureButton.imagePosition = .imageOnly
+        disclosureButton.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+        disclosureButton.target = self
+        disclosureButton.action = #selector(handleDisclosure)
+        disclosureButton.wantsLayer = true
+
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyDown
         iconView.wantsLayer = true
@@ -108,175 +136,229 @@ final class NodeRowView: BaseView {
         iconView.layer?.masksToBounds = true
 
         editableTitle.translatesAutoresizingMaskIntoConstraints = false
+        editableTitle.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        editableTitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        deleteButton.translatesAutoresizingMaskIntoConstraints = false
-        deleteButton.bezelStyle = .texturedRounded
-        deleteButton.isBordered = false
-        let deleteIconConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .bold)
-        deleteButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
-            .withSymbolConfiguration(deleteIconConfig)
-        deleteButton.target = self
-        deleteButton.action = #selector(handleDelete)
-        deleteButton.setButtonType(.momentaryChange)
+        metaLabel.translatesAutoresizingMaskIntoConstraints = false
+        metaLabel.font = StowTheme.Font.meta
+        metaLabel.lineBreakMode = .byTruncatingTail
+        metaLabel.alignment = .right
+        metaLabel.setContentHuggingPriority(.required, for: .horizontal)
+        // Metadata gives way before the title does.
+        metaLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        subtitleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
-        subtitleLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.isHidden = true
-        subtitleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        badgeLabel.setContentCompressionResistancePriority(.defaultLow + 1, for: .horizontal)
 
-        dueDateLabel.translatesAutoresizingMaskIntoConstraints = false
-        dueDateLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        dueDateLabel.isHidden = true
-        dueDateLabel.setContentHuggingPriority(.required, for: .horizontal)
-        dueDateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        slotButton.translatesAutoresizingMaskIntoConstraints = false
+        slotButton.isBordered = false
+        slotButton.imagePosition = .imageOnly
+        slotButton.target = self
+        slotButton.action = #selector(handleSlotAction)
+        slotButton.setButtonType(.momentaryChange)
 
-        hintLabel.translatesAutoresizingMaskIntoConstraints = false
-        hintLabel.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .medium)
-        hintLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
-        hintLabel.alignment = .center
-        hintLabel.isHidden = true
-        hintLabel.setContentHuggingPriority(.required, for: .horizontal)
+        slotKeycap.translatesAutoresizingMaskIntoConstraints = false
+        slotKeycap.font = StowTheme.Font.keycap
+        slotKeycap.alignment = .center
+        slotKeycap.wantsLayer = true
+        slotKeycap.layer?.cornerRadius = 4
+        slotKeycap.layer?.borderWidth = 1
+        slotKeycap.isHidden = true
 
-        contentContainer.addSubview(hintLabel)
-        contentContainer.addSubview(iconView)
-        contentContainer.addSubview(editableTitle)
-        contentContainer.addSubview(subtitleLabel)
-        contentContainer.addSubview(dueDateLabel)
-        contentContainer.addSubview(deleteButton)
+        for v in [guidesView, disclosureButton, iconView, editableTitle, metaLabel, badgeLabel, slotButton, slotKeycap] as [NSView] {
+            contentContainer.addSubview(v)
+        }
 
-        iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16)
-        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 26)
-        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 26)
-
-        titleToSubtitleConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: editableTitle.trailingAnchor, constant: 6)
-        titleToDueDateConstraint = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8)
-        titleToDueDateConstraint?.isActive = true
+        disclosureLeadingConstraint = disclosureButton.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: metrics.leftPadding)
+        titleTrailingToMeta = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: metaLabel.leadingAnchor, constant: -6)
+        titleTrailingToBadge = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6)
+        titleTrailingToSlot = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: slotButton.leadingAnchor, constant: -4)
 
         NSLayoutConstraint.activate([
-            iconLeadingConstraint!,
+            guidesView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            guidesView.trailingAnchor.constraint(equalTo: disclosureButton.leadingAnchor),
+            guidesView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            guidesView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+
+            disclosureLeadingConstraint!,
+            disclosureButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            disclosureButton.widthAnchor.constraint(equalToConstant: metrics.disclosureWidth),
+            disclosureButton.heightAnchor.constraint(equalToConstant: metrics.disclosureWidth),
+
+            iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            iconWidthConstraint!,
-            iconHeightConstraint!,
+            iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
 
-            editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 14),
+            editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
             editableTitle.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            titleTrailingToSlot!,
 
-            subtitleLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: dueDateLabel.leadingAnchor, constant: -8),
+            metaLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            metaLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4),
 
-            dueDateLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            dueDateLabel.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -8),
+            badgeLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            badgeLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4),
 
-            hintLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            hintLabel.widthAnchor.constraint(equalToConstant: 14),
-            hintLabel.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6),
+            slotButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6),
+            slotButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            slotButton.widthAnchor.constraint(equalToConstant: metrics.actionSlot),
+            slotButton.heightAnchor.constraint(equalToConstant: metrics.actionSlot),
 
-            deleteButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -16),
-            deleteButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            deleteButton.widthAnchor.constraint(equalToConstant: 22),
-            deleteButton.heightAnchor.constraint(equalToConstant: 22)
+            slotKeycap.centerXAnchor.constraint(equalTo: slotButton.centerXAnchor),
+            slotKeycap.centerYAnchor.constraint(equalTo: slotButton.centerYAnchor),
+            slotKeycap.widthAnchor.constraint(equalToConstant: 16),
+            slotKeycap.heightAnchor.constraint(equalToConstant: 16),
         ])
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.row)
     }
 
-    func configure(title: String,
-                   icon: NSImage?,
-                   titleFont: NSFont,
-                   showDelete: Bool,
+    // MARK: - Configuration
+
+    func configure(content: NodeRowContent,
                    metrics: ListMetrics,
-                   onDelete: (() -> Void)?,
                    isSelected: Bool,
-                   isCompleted: Bool = false,
-                   dueDate: Date? = nil,
-                   subtitle: String? = nil) {
+                   showSlotAction: Bool,
+                   onSlotAction: (() -> Void)?) {
+        self.content = content
         self.metrics = metrics
         self.isSelected = isSelected
-        updateVisualState()
+        self.showsSlotAction = showSlotAction
+        self.onSlotAction = onSlotAction
+
+        let titleFont: NSFont
+        if case .folder = content.kind { titleFont = metrics.folderTitleFont } else { titleFont = metrics.linkTitleFont }
+
         if editableTitle.isEditing {
-            if editableTitle.text != title {
+            if editableTitle.text != content.title {
                 cancelInlineRename()
-                editableTitle.text = title
+                editableTitle.text = content.title
             }
         } else {
-            editableTitle.text = title
+            editableTitle.text = content.title
         }
         editableTitle.font = titleFont
+        editableTitle.textColor = metrics.titleColor
 
-        // Apply completed styling
-        if isCompleted {
-            editableTitle.textColor = metrics.titleColor.withAlphaComponent(0.4)
-            let attributedString = NSAttributedString(
-                string: title,
-                attributes: [
+        disclosureLeadingConstraint?.constant = metrics.leftPadding + CGFloat(content.depth) * metrics.indentWidth
+        guidesView.depth = content.depth
+        guidesView.leftPadding = metrics.leftPadding
+        guidesView.indent = metrics.indentWidth
+        guidesView.color = metrics.colors.guide
+
+        metaLabel.isHidden = true
+        badgeLabel.isHidden = true
+        disclosureButton.isHidden = true
+        var metaText: String?
+        var metaColor = metrics.secondaryColor
+
+        switch content.kind {
+        case .folder(let isExpanded, let childCount):
+            disclosureButton.isHidden = false
+            disclosureButton.contentTintColor = metrics.secondaryColor
+            disclosureButton.frameCenterRotation = 0
+            disclosureButton.image = NSImage(
+                systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+                accessibilityDescription: isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)"
+            )?.withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+            disclosureButton.setAccessibilityLabel(isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)")
+            setIcon(symbol: isExpanded ? "folder" : "folder.fill", tint: metrics.iconTintColor)
+            if childCount > 0 { metaText = "\(childCount)" }
+
+        case .link(let favicon, let domain):
+            if let favicon {
+                favicon.isTemplate = false
+                iconView.image = favicon
+                iconView.contentTintColor = nil
+            } else {
+                setIcon(symbol: "link", tint: metrics.iconTintColor)
+            }
+            metaText = domain
+
+        case .task(let isCompleted, let dueDate):
+            setIcon(symbol: isCompleted ? "checkmark.circle.fill" : "circle", tint: isCompleted ? metrics.secondaryColor : metrics.iconTintColor)
+            if isCompleted {
+                editableTitle.attributedText = NSAttributedString(string: content.title, attributes: [
                     .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: metrics.titleColor.withAlphaComponent(0.4),
-                    .font: titleFont
-                ]
-            )
-            editableTitle.attributedText = attributedString
-        } else {
-            editableTitle.textColor = metrics.titleColor
+                    .foregroundColor: metrics.secondaryColor,
+                    .font: titleFont,
+                ])
+            }
+            if let dueDate {
+                metaText = Self.dueFormatter.string(from: dueDate)
+                if !isCompleted && dueDate < Calendar.current.startOfDay(for: Date()) {
+                    metaColor = metrics.colors.overdue
+                    metaText = "! " + (metaText ?? "")
+                }
+            }
+
+        case .snippet(let language):
+            setIcon(symbol: "chevron.left.forwardslash.chevron.right", tint: metrics.iconTintColor)
+            if let language, !language.isEmpty {
+                badgeLabel.isHidden = false
+                badgeLabel.text = language
+                badgeLabel.textColor = metrics.secondaryColor
+                badgeLabel.strokeColor = metrics.colors.stroke
+            }
         }
 
-        iconView.image = icon
-        if let icon {
-            iconView.contentTintColor = icon.isTemplate ? metrics.iconTintColor : nil
+        if let metaText {
+            metaLabel.stringValue = metaText
+            metaLabel.textColor = metaColor
+            metaLabel.isHidden = false
         }
-
-        // Due date label
-        if let dueDate {
-            dueDateLabel.isHidden = false
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
-            dueDateLabel.stringValue = formatter.string(from: dueDate)
-            dueDateLabel.textColor = dueDate < Date() ? NSColor.systemRed : metrics.titleColor.withAlphaComponent(0.6)
-        } else {
-            dueDateLabel.isHidden = true
-        }
-
-        // Subtitle label (e.g. domain for links)
-        if let subtitle, !subtitle.isEmpty {
-            subtitleLabel.stringValue = subtitle
-            subtitleLabel.isHidden = false
-            titleToSubtitleConstraint?.isActive = true
-            titleToDueDateConstraint?.isActive = false
-        } else {
-            subtitleLabel.stringValue = ""
-            subtitleLabel.isHidden = true
-            titleToSubtitleConstraint?.isActive = false
-            titleToDueDateConstraint?.isActive = true
-        }
+        titleTrailingToMeta?.isActive = !metaLabel.isHidden
+        titleTrailingToBadge?.isActive = !badgeLabel.isHidden
 
         layer?.cornerRadius = metrics.rowCornerRadius
-        iconView.layer?.cornerRadius = metrics.iconCornerRadius
-        deleteButton.contentTintColor = metrics.deleteTintColor
-        iconWidthConstraint?.constant = metrics.iconSize
-        iconHeightConstraint?.constant = metrics.iconSize
+        contentContainer.layer?.cornerRadius = metrics.rowCornerRadius
+        setAccessibilityLabel(accessibilityDescription(for: content))
 
-        showsDeleteButton = showDelete
-        self.onDelete = onDelete
-
-        // Reset swipe state
         resetSwipe(animated: false)
-
+        updateVisualState()
         refreshHoverState()
     }
 
-    func setHintCharacter(_ hint: String?) {
-        if let hint {
-            hintLabel.stringValue = hint
-            hintLabel.isHidden = false
-        } else {
-            hintLabel.stringValue = ""
-            hintLabel.isHidden = true
-        }
+    private static let dueFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
+
+    private func setIcon(symbol: String, tint: NSColor) {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+        image?.isTemplate = true
+        iconView.image = image
+        iconView.contentTintColor = tint
     }
 
-    func setIndentation(depth: Int, metrics: ListMetrics) {
-        iconLeadingConstraint?.constant = metrics.leftPadding + CGFloat(depth) * metrics.indentWidth
+    private func accessibilityDescription(for content: NodeRowContent) -> String {
+        var parts = [content.typeName, content.title]
+        switch content.kind {
+        case .folder(let isExpanded, let count):
+            parts.append(isExpanded ? "expanded" : "collapsed")
+            parts.append("\(count) items")
+        case .link(_, let domain):
+            if let domain { parts.append(domain) }
+        case .task(let done, let due):
+            parts.append(done ? "completed" : "not completed")
+            if let due { parts.append("due \(Self.dueFormatter.string(from: due))") }
+        case .snippet(let language):
+            if let language { parts.append(language) }
+        }
+        if content.isArchived { parts.append("archived") }
+        if isSelected { parts.append("selected") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Shows a jump letter in the action slot, or nil to hide it.
+    func setHintCharacter(_ hint: String?) {
+        jumpLetter = hint
+        updateVisualState()
     }
 
     func setSwipeRightIcon(_ symbolName: String, tintColor: NSColor) {
@@ -298,31 +380,77 @@ final class NodeRowView: BaseView {
     }
 
     func beginInlineRename(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-        editableTitle.beginInlineRename(onCommit: onCommit, onCancel: onCancel)
+        editableTitle.beginInlineRename(
+            onCommit: { [weak self] value in onCommit(value); self?.updateVisualState() },
+            onCancel: { [weak self] in onCancel(); self?.updateVisualState() }
+        )
+        updateVisualState()
     }
 
     func cancelInlineRename() {
         editableTitle.cancelInlineRename()
+        updateVisualState()
     }
 
-    @objc private func handleDelete() {
-        onDelete?()
+    @objc private func handleSlotAction() {
+        onSlotAction?()
+    }
+
+    @objc private func handleDisclosure() {
+        onDisclosure?()
     }
 
     override func handleHoverStateChanged() {
         updateVisualState()
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateVisualState()
+        guidesView.needsDisplay = true
+    }
+
     private func updateVisualState() {
-        if isSelected {
-            contentContainer.layer?.backgroundColor = metrics.selectedBackgroundColor.cgColor
-            deleteButton.isHidden = true
+        let isEditing = editableTitle.isEditing
+        let fill: NSColor
+        if isEditing {
+            fill = metrics.colors.raised
+        } else if isSelected {
+            fill = metrics.selectedBackgroundColor
         } else if isHovered {
-            contentContainer.layer?.backgroundColor = metrics.hoverBackgroundColor.cgColor
-            deleteButton.isHidden = !showsDeleteButton
+            fill = metrics.hoverBackgroundColor
         } else {
-            contentContainer.layer?.backgroundColor = NSColor.clear.cgColor
-            deleteButton.isHidden = true
+            fill = .clear
+        }
+        contentContainer.layer?.backgroundColor = resolvedCGColor(fill)
+        contentContainer.layer?.borderWidth = isEditing ? 1.5 : 0
+        contentContainer.layer?.borderColor = resolvedCGColor(metrics.colors.accent)
+
+        // Action slot priority: jump letter, then multi-select check, then hover action.
+        slotKeycap.isHidden = true
+        slotButton.isHidden = true
+        if let jumpLetter {
+            slotKeycap.isHidden = false
+            slotKeycap.stringValue = jumpLetter
+            slotKeycap.textColor = metrics.titleColor
+            slotKeycap.layer?.borderColor = resolvedCGColor(metrics.colors.stroke)
+        } else if isSelected {
+            slotButton.isHidden = false
+            slotButton.isEnabled = false
+            slotButton.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Selected")?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+            slotButton.contentTintColor = metrics.colors.accent
+        } else if isHovered && showsSlotAction && !isEditing {
+            let archived = content?.isArchived ?? false
+            let title = content?.title ?? ""
+            slotButton.isHidden = false
+            slotButton.isEnabled = true
+            let label = archived ? "Put back \(title)" : "Archive \(title)"
+            slotButton.image = NSImage(systemSymbolName: archived ? "arrow.uturn.backward" : "archivebox", accessibilityDescription: label)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+            slotButton.contentTintColor = metrics.secondaryColor
+            slotButton.toolTip = archived ? "Put Back" : "Archive (⌘⌫)"
+            slotButton.setAccessibilityLabel(label)
         }
     }
 
@@ -339,7 +467,6 @@ final class NodeRowView: BaseView {
             swipeDirection = .none
 
         case .changed:
-            // Directional locking on first significant movement
             if swipeDirection == .none {
                 if abs(translation.x) > 5 || abs(translation.y) > 5 {
                     swipeDirection = abs(translation.x) > abs(translation.y) ? .horizontal : .vertical
@@ -350,7 +477,6 @@ final class NodeRowView: BaseView {
 
             let deltaX = translation.x
 
-            // Rubber-band effect at edges
             let clampedDelta: CGFloat
             if abs(deltaX) > maxSwipeDistance {
                 let overflow = abs(deltaX) - maxSwipeDistance
@@ -362,11 +488,9 @@ final class NodeRowView: BaseView {
 
             contentLeadingConstraint?.constant = clampedDelta
 
-            // Show/hide action icons
             swipeRightActionView.isHidden = clampedDelta <= 0
             swipeLeftActionView.isHidden = clampedDelta >= 0
 
-            // Visual feedback at threshold
             let pastThreshold = abs(clampedDelta) >= swipeThreshold
             if clampedDelta > 0 {
                 swipeRightActionView.alphaValue = pastThreshold ? 1.0 : 0.5
@@ -400,9 +524,9 @@ final class NodeRowView: BaseView {
     }
 
     private func resetSwipe(animated: Bool) {
-        if animated {
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
+                context.duration = StowTheme.Motion.normal
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 context.allowsImplicitAnimation = true
                 contentLeadingConstraint?.constant = 0
@@ -416,5 +540,63 @@ final class NodeRowView: BaseView {
             swipeLeftActionView.isHidden = true
         }
         swipeDirection = .none
+    }
+}
+
+/// Vertical hierarchy guides, one per ancestor level, centered under each ancestor's disclosure.
+private final class GuideLinesView: NSView {
+    var depth = 0 { didSet { needsDisplay = true } }
+    var leftPadding: CGFloat = 8
+    var indent: CGFloat = 16
+    var color: NSColor = .separatorColor { didSet { needsDisplay = true } }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard depth > 0 else { return }
+        color.setFill()
+        let scale = window?.backingScaleFactor ?? 2
+        let width = 1 / scale * 2
+        for level in 0..<depth {
+            let x = leftPadding + CGFloat(level) * indent + StowTheme.List.disclosureWidth / 2
+            NSRect(x: (x * scale).rounded() / scale, y: 0, width: width, height: bounds.height).fill()
+        }
+    }
+}
+
+/// A small outlined monospaced tag, used for snippet languages.
+private final class BadgeLabel: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    var text: String {
+        get { label.stringValue }
+        set { label.stringValue = newValue; invalidateIntrinsicContentSize() }
+    }
+    var textColor: NSColor = .secondaryLabelColor { didSet { label.textColor = textColor } }
+    var strokeColor: NSColor = .separatorColor { didSet { updateLayer() } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        layer?.borderWidth = 1
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = StowTheme.Font.badge
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 15),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.borderColor = resolvedCGColor(strokeColor)
     }
 }

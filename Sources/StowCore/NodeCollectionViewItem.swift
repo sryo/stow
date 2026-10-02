@@ -8,32 +8,25 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
         view = rowView
     }
 
-    func configure(title: String,
-                   icon: NSImage?,
-                   titleFont: NSFont,
-                   depth: Int,
+    func configure(content: NodeRowContent,
                    metrics: ListMetrics,
-                   showDelete: Bool,
-                   onDelete: (() -> Void)?,
                    isSelected: Bool,
-                   isCompleted: Bool = false,
-                   dueDate: Date? = nil,
-                   subtitle: String? = nil) {
+                   showSlotAction: Bool,
+                   onSlotAction: (() -> Void)?) {
         view.alphaValue = 1
         view.layer?.transform = CATransform3DIdentity
-        rowView.setIndentation(depth: depth, metrics: metrics)
         rowView.configure(
-            title: title,
-            icon: icon,
-            titleFont: titleFont,
-            showDelete: showDelete,
+            content: content,
             metrics: metrics,
-            onDelete: onDelete,
             isSelected: isSelected,
-            isCompleted: isCompleted,
-            dueDate: dueDate,
-            subtitle: subtitle
+            showSlotAction: showSlotAction,
+            onSlotAction: onSlotAction
         )
+    }
+
+    var onDisclosure: (() -> Void)? {
+        get { rowView.onDisclosure }
+        set { rowView.onDisclosure = newValue }
     }
 
     var onSwipeRight: (() -> Void)? {

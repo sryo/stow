@@ -15,7 +15,7 @@ final class MainViewController: NSViewController {
     private let settingsViewController = SettingsContentViewController()
 
     // UI Components
-    private let workspaceSwitcher = WorkspaceSwitcherView(style: .defaultStyle)
+    private let workspaceSwitcher = WorkspaceBarView()
     private let searchField = SearchBarView(style: .defaultSearch)
     private let pasteButton = IconTitleButton(
         title: "Paste from clipboard",
@@ -47,6 +47,9 @@ final class MainViewController: NSViewController {
     private var lastWorkspaceId: UUID?
     private var pendingWorkspaceRenameId: UUID?
     private var customColorWorkspaceId: UUID?
+    private var displayedColorId: WorkspaceColorId = .defaultColor()
+    private var appearanceObservation: NSKeyValueObservation?
+    private var hasClaimedInitialFocus = false
 
     init(model: AppModel) {
         self.model = model
@@ -78,6 +81,7 @@ final class MainViewController: NSViewController {
         setupNodeListCallbacks()
         bindModel()
         reloadData()
+        observeAppearanceChanges()
 
         // Listen for favicon updates
         NotificationCenter.default.addObserver(
@@ -102,6 +106,16 @@ final class MainViewController: NSViewController {
         }
         updatePageWidth()
         pageController.jumpToPage(currentPageIndex())
+        // Start with the list focused, not the search field. AppKit picks the first key
+        // view when the window first becomes key, so take focus back once that happens.
+        if let window = view.window, !hasClaimedInitialFocus {
+            hasClaimedInitialFocus = true
+            window.initialFirstResponder = nodeListViewController.focusTarget
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowDidFirstBecomeKey(_:)),
+                name: NSWindow.didBecomeKeyNotification, object: window
+            )
+        }
     }
 
     override func viewDidLayout() {
@@ -168,7 +182,7 @@ final class MainViewController: NSViewController {
         bottomBar.addSubview(pasteButton)
 
         contentStack.orientation = .vertical
-        contentStack.spacing = 10
+        contentStack.spacing = 6
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.alignment = .centerX
         contentStack.addArrangedSubview(searchField)
@@ -213,7 +227,7 @@ final class MainViewController: NSViewController {
             // Content stack fills area below topBar
             contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
             contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
-            contentStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
+            contentStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6),
             contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
 
             // Settings view pinned to same content area
@@ -469,6 +483,9 @@ final class MainViewController: NSViewController {
             let activeItems = workspace.items.filter { !$0.isArchived }
             let archivedItems = workspace.items.filter { $0.isArchived }
             let filteredNodes = searchCoordinator.filter(nodes: activeItems)
+            searchField.resultSummary = searchCoordinator.isSearchActive
+                ? "\(Self.leafCount(filteredNodes)) of \(Self.leafCount(activeItems))"
+                : nil
 
             // Skip node list rebuild if mid-rename to preserve text field focus
             if !isNodeRenaming {
@@ -488,7 +505,7 @@ final class MainViewController: NSViewController {
         let workspaces = model.workspaces
 
         workspaceSwitcher.workspaces = workspaces.map { workspace in
-            WorkspaceSwitcherView.WorkspaceItem(
+            WorkspaceBarView.WorkspaceItem(
                 id: workspace.id,
                 name: workspace.name,
                 colorId: workspace.colorId
@@ -511,8 +528,22 @@ final class MainViewController: NSViewController {
 
     private func applyBackgroundColor(for colorId: WorkspaceColorId) {
         let bgColor = colorId.adaptiveBackgroundColor
-        view.layer?.backgroundColor = bgColor.cgColor
+        view.layer?.backgroundColor = view.resolvedCGColor(bgColor)
         view.window?.backgroundColor = bgColor
+        displayedColorId = colorId
+        let colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
+        searchField.colors = colors
+        pasteButton.colors = colors
+    }
+
+    private func observeAppearanceChanges() {
+        appearanceObservation = view.observe(\.effectiveAppearance) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.applyBackgroundColor(for: self.displayedColorId)
+                self.nodeListViewController.updateShadows()
+            }
+        }
     }
 
     // MARK: - Page Navigation
@@ -1079,38 +1110,81 @@ final class MainViewController: NSViewController {
     /// Handles plain a-z key presses for item activation.
     /// Returns true if the event was consumed.
     private func handlePlainKeyEvent(_ event: NSEvent) -> Bool {
-        // Must be our window
         guard event.window === view.window, view.window?.isKeyWindow == true else { return false }
-        // No modifiers (ignore Cmd+key, Ctrl+key, etc.)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.isEmpty || flags == .capsLock else { return false }
-        // Not on settings page
-        guard !model.state.isSettingsSelected else { return false }
-        // Not swiping
-        guard !isSwiping else { return false }
-        // Not editing text (search field, inline rename, etc.)
-        if let responder = view.window?.firstResponder, responder is NSTextView { return false }
+        guard flags.isEmpty || flags == .capsLock || flags == .shift else { return false }
+        guard !model.state.isSettingsSelected, !isSwiping else { return false }
+        let isEditingText = view.window?.firstResponder is NSTextView
 
-        guard let chars = event.charactersIgnoringModifiers,
-              chars.count == 1,
-              let scalar = chars.unicodeScalars.first,
-              scalar.value >= 97 && scalar.value <= 122 else { return false } // a-z
+        // Esc leaves jump mode, or clears an active search and returns to the list.
+        if event.keyCode == 53 {
+            if nodeListViewController.isJumpModeActive {
+                nodeListViewController.isJumpModeActive = false
+                return true
+            }
+            if searchCoordinator.isSearchActive || isEditingText && searchField.isFocused {
+                searchField.text = ""
+                searchCoordinator.updateQuery("")
+                view.window?.makeFirstResponder(nil)
+                return true
+            }
+            return false
+        }
 
+        if isEditingText { return false }
+
+        guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
+              let scalar = chars.unicodeScalars.first else { return false }
+
+        if chars == "/" && flags.isEmpty {
+            focusSearch()
+            return true
+        }
+
+        // Letters activate rows only in jump mode, so a stray keystroke can't open a link.
+        guard nodeListViewController.isJumpModeActive, flags.isEmpty || flags == .capsLock,
+              scalar.value >= 97 && scalar.value <= 122 else { return false }
+
+        nodeListViewController.isJumpModeActive = false
         let index = Int(scalar.value - 97)
-        guard let node = nodeListViewController.visibleNode(at: index) else { return false }
+        guard let node = nodeListViewController.visibleNode(at: index) else { return true }
 
         switch node {
         case .link(let link):
             openLink(link)
         case .folder(let folder):
-            if searchCoordinator.isSearchActive { return false }
-            model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
+            if !searchCoordinator.isSearchActive {
+                model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
+            }
         case .task(let task):
             model.toggleTaskCompletion(id: task.id)
         case .snippet(let snippet):
             copySnippetToClipboard(snippet.id)
         }
         return true
+    }
+
+    private static func leafCount(_ nodes: [Node]) -> Int {
+        nodes.reduce(0) { total, node in
+            if case .folder(let folder) = node { return total + leafCount(folder.children) }
+            return total + 1
+        }
+    }
+
+    @objc private func windowDidFirstBecomeKey(_ note: Notification) {
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: note.object)
+        view.window?.makeFirstResponder(nodeListViewController.focusTarget)
+    }
+
+    func focusSearch() {
+        guard !model.state.isSettingsSelected else { return }
+        nodeListViewController.isJumpModeActive = false
+        searchField.focus()
+    }
+
+    func toggleJumpMode() {
+        guard !model.state.isSettingsSelected else { return }
+        nodeListViewController.isJumpModeActive.toggle()
     }
 
     /// Switches to workspace at the given index (0-based). Called from AppDelegate Cmd+1-9.
@@ -1279,13 +1353,12 @@ extension MainViewController: ScrollWheelPageDelegate {
         let toPage = min(totalPageCount() - 1, fromPage + 1)
         let fraction = offset - CGFloat(fromPage)
 
-        let fromColor = colorForPage(fromPage).adaptiveBackgroundColor
-        let toColor = colorForPage(toPage).adaptiveBackgroundColor
+        let fromColor = resolvedColor(colorForPage(fromPage).adaptiveBackgroundColor)
+        let toColor = resolvedColor(colorForPage(toPage).adaptiveBackgroundColor)
 
         if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
             view.layer?.backgroundColor = blended.cgColor
             view.window?.backgroundColor = blended
-            workspaceSwitcher.swipeShadowColor = blended
         }
 
         // Update workspace switcher sliding highlight
@@ -1302,9 +1375,17 @@ extension MainViewController: ScrollWheelPageDelegate {
         }
     }
 
+    /// Flattens a dynamic color to a concrete sRGB color in the current appearance.
+    private func resolvedColor(_ color: NSColor) -> NSColor {
+        var result = color
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            result = color.usingColorSpace(.sRGB) ?? color
+        }
+        return result
+    }
+
     func pagerDidSnapToPage(_ pageIndex: Int) {
         workspaceSwitcher.visualPageOffset = nil
-        workspaceSwitcher.swipeShadowColor = nil
 
         cleanupSwipeTransition()
 

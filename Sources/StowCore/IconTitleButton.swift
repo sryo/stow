@@ -25,13 +25,13 @@ final class IconTitleButton: BaseControl {
                 foregroundColor: ThemeConstants.Colors.darkGray,
                 foregroundInactiveOpacity: ThemeConstants.Opacity.high,
                 foregroundActiveOpacity: ThemeConstants.Opacity.full,
-                font: ThemeConstants.Fonts.bodyMedium,
-                iconPointSize: ThemeConstants.Sizing.iconMedium,
+                font: StowTheme.Font.control,
+                iconPointSize: 13,
                 iconWeight: .medium,
-                iconTitleSpacing: ThemeConstants.Spacing.medium,
-                horizontalPadding: ThemeConstants.Spacing.regular,
-                verticalPadding: ThemeConstants.Spacing.regular,
-                cornerRadius: ThemeConstants.CornerRadius.medium,
+                iconTitleSpacing: StowTheme.List.glyphToTitle,
+                horizontalPadding: StowTheme.List.horizontalInset + 2,
+                verticalPadding: 8,
+                cornerRadius: StowTheme.List.rowRadius,
                 fillsWidth: true
             )
         }
@@ -80,6 +80,11 @@ final class IconTitleButton: BaseControl {
         didSet {
             updateIcon()
         }
+    }
+
+    /// When set, colors come from the workspace palette instead of the style.
+    var colors: StowTheme.Colors? {
+        didSet { updateAppearance() }
     }
 
     var titleText: String {
@@ -194,7 +199,19 @@ final class IconTitleButton: BaseControl {
         }
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
     private func updateAppearance() {
+        if let colors {
+            let fill: NSColor = isPressed ? colors.multiSelected : (isHovered ? colors.hover : .clear)
+            layer?.backgroundColor = resolvedCGColor(fill)
+            titleField.textColor = colors.inkPrimary
+            imageView.contentTintColor = colors.inkPrimary
+            return
+        }
         let backgroundOpacity: CGFloat
         if isPressed {
             backgroundOpacity = style.pressedBackgroundOpacity

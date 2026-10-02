@@ -1,0 +1,367 @@
+{
+ "schemaVersion": 2,
+ "workspaces": [
+  {
+   "id": "55555555-5555-5555-5555-000000000001",
+   "name": "Research",
+   "colorId": "ocean",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000001",
+      "title": "Linear",
+      "url": "https://linear.app",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000002",
+      "title": "GitHub",
+      "url": "https://github.com",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "folder",
+     "folder": {
+      "id": "44444444-4444-4444-4444-000000000008",
+      "name": "Design refs",
+      "children": [
+       {
+        "type": "link",
+        "link": {
+         "id": "44444444-4444-4444-4444-000000000003",
+         "title": "Apple HIG \u00b7 Sidebars",
+         "url": "https://developer.apple.com/design/human-interface-guidelines/sidebars",
+         "isArchived": false
+        }
+       },
+       {
+        "type": "link",
+        "link": {
+         "id": "44444444-4444-4444-4444-000000000004",
+         "title": "Figma community",
+         "url": "https://www.figma.com/community",
+         "isArchived": false
+        }
+       },
+       {
+        "type": "folder",
+        "folder": {
+         "id": "44444444-4444-4444-4444-000000000007",
+         "name": "Type",
+         "children": [
+          {
+           "type": "link",
+           "link": {
+            "id": "44444444-4444-4444-4444-000000000005",
+            "title": "SF Pro",
+            "url": "https://developer.apple.com/fonts/",
+            "isArchived": false
+           }
+          },
+          {
+           "type": "link",
+           "link": {
+            "id": "44444444-4444-4444-4444-000000000006",
+            "title": "Practical Typography",
+            "url": "https://practicaltypography.com",
+            "isArchived": false
+           }
+          }
+         ],
+         "isExpanded": true
+        }
+       }
+      ],
+      "isExpanded": true
+     }
+    },
+    {
+     "type": "folder",
+     "folder": {
+      "id": "44444444-4444-4444-4444-000000000011",
+      "name": "Reading",
+      "children": [
+       {
+        "type": "link",
+        "link": {
+         "id": "44444444-4444-4444-4444-000000000009",
+         "title": "Hacker News",
+         "url": "https://news.ycombinator.com",
+         "isArchived": false
+        }
+       },
+       {
+        "type": "link",
+        "link": {
+         "id": "44444444-4444-4444-4444-000000000010",
+         "title": "MDN Web Docs",
+         "url": "https://developer.mozilla.org",
+         "isArchived": false
+        }
+       }
+      ],
+      "isExpanded": false
+     }
+    },
+    {
+     "type": "task",
+     "task": {
+      "id": "44444444-4444-4444-4444-000000000012",
+      "title": "Review launch checklist",
+      "isCompleted": false,
+      "createdAt": 812675944.4028502,
+      "dueDate": 812503144.4028502
+     }
+    },
+    {
+     "type": "task",
+     "task": {
+      "id": "44444444-4444-4444-4444-000000000013",
+      "title": "Send design notes",
+      "isCompleted": false,
+      "createdAt": 812675944.4028502,
+      "dueDate": 812762344.4028502
+     }
+    },
+    {
+     "type": "task",
+     "task": {
+      "id": "44444444-4444-4444-4444-000000000014",
+      "title": "Book flights",
+      "isCompleted": true,
+      "createdAt": 812675944.4028502
+     }
+    },
+    {
+     "type": "snippet",
+     "snippet": {
+      "id": "44444444-4444-4444-4444-000000000015",
+      "title": "curl health check",
+      "content": "curl -fsS https://example.com/health",
+      "language": "Shell",
+      "createdAt": 812675944.4028502
+     }
+    },
+    {
+     "type": "snippet",
+     "snippet": {
+      "id": "44444444-4444-4444-4444-000000000016",
+      "title": "debounce helper",
+      "content": "echo hi",
+      "language": "Swift",
+      "createdAt": 812675944.4028502
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000017",
+      "title": "Vercel dashboard",
+      "url": "https://vercel.com/dashboard",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000018",
+      "title": "YouTube \u00b7 WWDC sessions",
+      "url": "https://www.youtube.com/@Apple",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000019",
+      "title": "Calendar",
+      "url": "https://calendar.google.com",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000020",
+      "title": "Notion \u00b7 Launch plan",
+      "url": "https://www.notion.so",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000021",
+      "title": "An archived link with a long title",
+      "url": "https://example.com/old",
+      "isArchived": true
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000002",
+   "name": "Personal",
+   "colorId": "ember",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000022",
+      "title": "Bank",
+      "url": "https://example.com",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "task",
+     "task": {
+      "id": "44444444-4444-4444-4444-000000000023",
+      "title": "Call mom",
+      "isCompleted": false,
+      "createdAt": 812675944.4028502,
+      "dueDate": 812675944.4028502
+     }
+    },
+    {
+     "type": "folder",
+     "folder": {
+      "id": "44444444-4444-4444-4444-000000000025",
+      "name": "Trips",
+      "children": [
+       {
+        "type": "link",
+        "link": {
+         "id": "44444444-4444-4444-4444-000000000024",
+         "title": "Lisbon",
+         "url": "https://example.com/lisbon",
+         "isArchived": false
+        }
+       }
+      ],
+      "isExpanded": true
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000003",
+   "name": "Engineering",
+   "colorId": "coral",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000026",
+      "title": "CI",
+      "url": "https://github.com/actions",
+      "isArchived": false
+     }
+    },
+    {
+     "type": "snippet",
+     "snippet": {
+      "id": "44444444-4444-4444-4444-000000000027",
+      "title": "deploy",
+      "content": "echo hi",
+      "language": "Shell",
+      "createdAt": 812675944.4028502
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000004",
+   "name": "Inbox",
+   "colorId": "moss",
+   "items": [],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000005",
+   "name": "Side proj",
+   "colorId": "indigo",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000028",
+      "title": "Repo",
+      "url": "https://github.com",
+      "isArchived": false
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000006",
+   "name": "Inspiration",
+   "colorId": "graphite",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000029",
+      "title": "Dribbble",
+      "url": "https://dribbble.com",
+      "isArchived": false
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000007",
+   "name": "Apricot",
+   "colorId": "ruby",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000030",
+      "title": "Example",
+      "url": "https://example.com",
+      "isArchived": false
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  },
+  {
+   "id": "55555555-5555-5555-5555-000000000008",
+   "name": "Leaf",
+   "colorId": "tangerine",
+   "items": [
+    {
+     "type": "link",
+     "link": {
+      "id": "44444444-4444-4444-4444-000000000031",
+      "title": "Example",
+      "url": "https://example.com",
+      "isArchived": false
+     }
+    }
+   ],
+   "browserProfiles": {},
+   "isArchiveExpanded": false
+  }
+ ],
+ "selectedWorkspaceId": "55555555-5555-5555-5555-000000000001",
+ "isSettingsSelected": false
+}

@@ -30,6 +30,12 @@ public enum StowTheme {
         case off
     }
 
+    /// The user's tint preference. Full is the default.
+    public static var preferredTint: TintMode {
+        get { UserDefaults.standard.string(forKey: "StowTintMode").flatMap(TintMode.init(rawValue:)) ?? .full }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "StowTintMode") }
+    }
+
     public enum Density: String, Codable, CaseIterable, Sendable {
         case compact, comfortable
     }

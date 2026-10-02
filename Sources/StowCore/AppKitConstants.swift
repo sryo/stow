@@ -7,21 +7,41 @@ public struct LayoutConstants {
     public static let windowPadding: CGFloat = 8
 }
 
+/// Row geometry, type and colors for the node list, all resolved from `StowTheme`.
 public struct ListMetrics {
-    public let rowHeight: CGFloat = 40
-    public let verticalGap: CGFloat = 4
-    public let leftPadding: CGFloat = 8
-    public let iconSize: CGFloat = 20
-    public let indentWidth: CGFloat = 16
-    public let rowCornerRadius: CGFloat = 12
-    public let iconCornerRadius: CGFloat = 4
-    public let linkTitleFont: NSFont = NSFont.systemFont(ofSize: 14, weight: .regular)
-    public let folderTitleFont: NSFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-    public let titleColor: NSColor = NSColor.black.withAlphaComponent(0.8)
-    public let hoverBackgroundColor: NSColor = NSColor.black.withAlphaComponent(0.1)
-    public let selectedBackgroundColor: NSColor = NSColor.black.withAlphaComponent(0.2)
-    public let deleteTintColor: NSColor = NSColor.black.withAlphaComponent(0.5)
-    public let iconTintColor: NSColor = NSColor.black.withAlphaComponent(0.7)
+    public var density: StowTheme.Density = .compact
+    public var colors: StowTheme.Colors
 
-    public init() {}
+    public var rowHeight: CGFloat { StowTheme.List.rowHeight(density) }
+    public let verticalGap: CGFloat = StowTheme.List.rowGap
+    public let leftPadding: CGFloat = StowTheme.List.horizontalInset
+    public let iconSize: CGFloat = StowTheme.List.glyphSize
+    public let indentWidth: CGFloat = StowTheme.List.indent
+    public let disclosureWidth: CGFloat = StowTheme.List.disclosureWidth
+    public let actionSlot: CGFloat = StowTheme.List.actionSlot
+    public let rowCornerRadius: CGFloat = StowTheme.List.rowRadius
+    public let iconCornerRadius: CGFloat = StowTheme.List.glyphRadius
+    public var linkTitleFont: NSFont { StowTheme.Font.row }
+    public var folderTitleFont: NSFont { StowTheme.Font.rowEmphasized }
+
+    public var titleColor: NSColor { colors.inkPrimary }
+    public var secondaryColor: NSColor { colors.inkSecondary }
+    public var iconTintColor: NSColor { colors.inkSecondary }
+    public var hoverBackgroundColor: NSColor { colors.hover }
+    public var selectedBackgroundColor: NSColor { colors.multiSelected }
+
+    public init(colors: StowTheme.Colors = StowTheme.colors(for: .defaultColor())) {
+        self.colors = colors
+    }
+}
+
+extension NSView {
+    /// Resolves a dynamic color against this view's appearance, for use on CALayers.
+    func resolvedCGColor(_ color: NSColor) -> CGColor {
+        var result = color.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            result = color.cgColor
+        }
+        return result
+    }
 }
