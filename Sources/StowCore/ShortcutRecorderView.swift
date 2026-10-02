@@ -12,10 +12,10 @@ final class ShortcutRecorderView: NSView {
     private var monitor: Any?
 
     // Style constants matching SettingsButton / browser popup
-    private let baseBackgroundColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.08)
-    private let recordingBackgroundColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.14)
-    private let textColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 1.0)
-    private let placeholderColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.5)
+    private var baseBackgroundColor: NSColor { SettingsColors.fill }
+    private var recordingBackgroundColor: NSColor { SettingsColors.fillStrong }
+    private var textColor: NSColor { SettingsColors.ink }
+    private var placeholderColor: NSColor { SettingsColors.inkSecondary }
     private let cornerRadius: CGFloat = 8
 
     // UI elements
@@ -36,7 +36,7 @@ final class ShortcutRecorderView: NSView {
     private func setupUI() {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.backgroundColor = baseBackgroundColor.cgColor
+        layer?.backgroundColor = resolvedCGColor(baseBackgroundColor)
         layer?.cornerRadius = cornerRadius
 
         // Shortcut display label
@@ -83,19 +83,19 @@ final class ShortcutRecorderView: NSView {
             shortcutLabel.stringValue = "Press shortcut…"
             shortcutLabel.textColor = placeholderColor
             recordButton.title = "Cancel"
-            layer?.backgroundColor = recordingBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(recordingBackgroundColor)
             clearButton.isHidden = true
         } else if let shortcut = currentShortcut {
             shortcutLabel.stringValue = shortcut.displayString
             shortcutLabel.textColor = textColor
             recordButton.title = "Record"
-            layer?.backgroundColor = baseBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(baseBackgroundColor)
             clearButton.isHidden = false
         } else {
             shortcutLabel.stringValue = "None"
             shortcutLabel.textColor = placeholderColor
             recordButton.title = "Record"
-            layer?.backgroundColor = baseBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(baseBackgroundColor)
             clearButton.isHidden = true
         }
     }
@@ -167,8 +167,8 @@ final class ShortcutRecorderView: NSView {
 private final class ShortcutActionButton: NSButton {
     private var trackingArea: NSTrackingArea?
 
-    private let normalColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.6)
-    private let hoverColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 1.0)
+    private var normalColor: NSColor { SettingsColors.inkSecondary }
+    private var hoverColor: NSColor { SettingsColors.ink }
 
     init(title: String) {
         super.init(frame: .zero)

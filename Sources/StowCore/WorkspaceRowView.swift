@@ -54,11 +54,11 @@ final class WorkspaceRowView: BaseView {
                 titleTrailing: 14,
                 deleteTrailing: 12,
                 titleFont: NSFont.systemFont(ofSize: 14, weight: .regular),
-                titleColor: NSColor.black.withAlphaComponent(0.8),
-                handleTintColor: NSColor.black.withAlphaComponent(0.4),
-                colorSquareBorderColor: NSColor(calibratedRed: baseColorValue, green: baseColorValue, blue: baseColorValue, alpha: 0.15),
-                deleteTintColor: NSColor.black.withAlphaComponent(0.5),
-                hoverBackgroundColor: NSColor.black.withAlphaComponent(0.1),
+                titleColor: SettingsColors.ink,
+                handleTintColor: SettingsColors.inkSecondary,
+                colorSquareBorderColor: SettingsColors.stroke,
+                deleteTintColor: SettingsColors.inkSecondary,
+                hoverBackgroundColor: SettingsColors.fill,
                 handleIconName: "line.3.horizontal",
                 handleIconSize: 18,
                 handleIconWeight: .medium,
@@ -105,7 +105,7 @@ final class WorkspaceRowView: BaseView {
         colorSquare.layer?.cornerRadius = style.colorSquareCornerRadius
         colorSquare.layer?.masksToBounds = true
         colorSquare.layer?.borderWidth = style.colorSquareBorderWidth
-        colorSquare.layer?.borderColor = style.colorSquareBorderColor.cgColor
+        colorSquare.layer?.borderColor = resolvedCGColor(style.colorSquareBorderColor)
 
         // Title field
         editableTitle.translatesAutoresizingMaskIntoConstraints = false
@@ -115,7 +115,7 @@ final class WorkspaceRowView: BaseView {
         // Profile label
         profileLabel.translatesAutoresizingMaskIntoConstraints = false
         profileLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        profileLabel.textColor = NSColor.black.withAlphaComponent(0.4)
+        profileLabel.textColor = SettingsColors.inkSecondary
         profileLabel.isHidden = true
 
         // Delete button
@@ -224,7 +224,7 @@ final class WorkspaceRowView: BaseView {
             context.timingFunction = ThemeConstants.Animation.timingFunction
 
             if isHovered {
-                layer?.backgroundColor = style.hoverBackgroundColor.cgColor
+                layer?.backgroundColor = resolvedCGColor(style.hoverBackgroundColor)
                 deleteButton.animator().alphaValue = 1.0
             } else {
                 layer?.backgroundColor = NSColor.clear.cgColor

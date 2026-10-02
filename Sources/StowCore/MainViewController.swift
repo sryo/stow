@@ -79,6 +79,8 @@ final class MainViewController: NSViewController {
         bindModel()
         reloadData()
         observeAppearanceChanges()
+        NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
+        nodeListViewController.tintMode = StowTheme.preferredTint
 
         // Listen for favicon updates
         NotificationCenter.default.addObserver(
@@ -1213,6 +1215,12 @@ final class MainViewController: NSViewController {
             if case .folder(let folder) = node { return total + leafCount(folder.children) }
             return total + 1
         }
+    }
+
+    @objc private func tintModeChanged() {
+        nodeListViewController.tintMode = StowTheme.preferredTint
+        workspaceSwitcher.workspaceColor = workspaceSwitcher.workspaceColor
+        applyBackgroundColor(for: displayedColorId)
     }
 
     @objc private func windowDidFirstBecomeKey(_ note: Notification) {

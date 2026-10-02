@@ -55,7 +55,7 @@ final class CustomToggle: BaseControl {
         // Title label
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = ThemeConstants.Fonts.bodyRegular
-        titleLabel.textColor = ThemeConstants.Colors.darkGray
+        titleLabel.textColor = SettingsColors.ink
         titleLabel.lineBreakMode = .byTruncatingTail
 
         // Switch container
@@ -111,13 +111,12 @@ final class CustomToggle: BaseControl {
         // Switch background color
         let backgroundColor: NSColor
         if isOn {
-            backgroundColor = ThemeConstants.Colors.darkGray
+            backgroundColor = SettingsColors.selection
         } else {
-            backgroundColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.subtle)
+            backgroundColor = SettingsColors.fillStrong
         }
 
-        // Thumb color
-        let thumbColor = ThemeConstants.Colors.white
+        let thumbColor = isOn ? SettingsColors.onSelection : SettingsColors.raised
 
         // Position thumb
         let thumbLeadingOffset = isOn ? (switchWidth - thumbSize - thumbInset) : thumbInset
@@ -130,8 +129,8 @@ final class CustomToggle: BaseControl {
                 context.duration = ThemeConstants.Animation.durationNormal
                 context.timingFunction = ThemeConstants.Animation.timingFunction
 
-                switchContainer.layer?.backgroundColor = backgroundColor.cgColor
-                switchThumb.layer?.backgroundColor = thumbColor.cgColor
+                switchContainer.layer?.backgroundColor = resolvedCGColor(backgroundColor)
+                switchThumb.layer?.backgroundColor = resolvedCGColor(thumbColor)
                 switchContainer.alphaValue = controlOpacity
                 titleLabel.alphaValue = controlOpacity
 
@@ -139,8 +138,8 @@ final class CustomToggle: BaseControl {
                 switchContainer.layoutSubtreeIfNeeded()
             }
         } else {
-            switchContainer.layer?.backgroundColor = backgroundColor.cgColor
-            switchThumb.layer?.backgroundColor = thumbColor.cgColor
+            switchContainer.layer?.backgroundColor = resolvedCGColor(backgroundColor)
+            switchThumb.layer?.backgroundColor = resolvedCGColor(thumbColor)
             switchContainer.alphaValue = controlOpacity
             titleLabel.alphaValue = controlOpacity
             thumbLeadingConstraint?.constant = thumbLeadingOffset

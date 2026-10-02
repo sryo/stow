@@ -29,7 +29,7 @@ final class CustomTextButton: BaseControl {
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = ThemeConstants.Fonts.systemFont(size: 13, weight: .medium)
-        titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+        titleLabel.textColor = SettingsColors.ink
         titleLabel.alignment = .left
 
         addSubview(titleLabel)
@@ -59,15 +59,15 @@ final class CustomTextButton: BaseControl {
 
     private func updateAppearance() {
         if isPressed {
-            titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.medium)
+            titleLabel.textColor = SettingsColors.inkSecondary
         } else if isHovered {
-            titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.full)
+            titleLabel.textColor = SettingsColors.ink
         } else {
-            titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+            titleLabel.textColor = SettingsColors.ink
         }
 
         if !isEnabled {
-            titleLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.low)
+            titleLabel.textColor = SettingsColors.inkSecondary
         }
     }
 }

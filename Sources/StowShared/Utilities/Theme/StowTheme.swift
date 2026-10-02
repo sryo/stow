@@ -292,7 +292,7 @@ extension StowTheme {
 
     /// Appearance-aware colors for one workspace color. Each property resolves to the
     /// light or dark palette at draw time, so views get dark mode for free.
-    public struct Colors {
+    public struct Colors: Sendable {
         public let light: Palette
         public let dark: Palette
 

@@ -53,11 +53,11 @@ final class SidebarPositionSelector: NSControl {
 
         leftIcon.translatesAutoresizingMaskIntoConstraints = false
         leftIcon.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
-        leftIcon.contentTintColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+        leftIcon.contentTintColor = SettingsColors.ink
 
         leftLabel.translatesAutoresizingMaskIntoConstraints = false
         leftLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        leftLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+        leftLabel.textColor = SettingsColors.ink
         leftLabel.isEditable = false
         leftLabel.isBordered = false
         leftLabel.backgroundColor = .clear
@@ -69,11 +69,11 @@ final class SidebarPositionSelector: NSControl {
 
         rightIcon.translatesAutoresizingMaskIntoConstraints = false
         rightIcon.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-        rightIcon.contentTintColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+        rightIcon.contentTintColor = SettingsColors.ink
 
         rightLabel.translatesAutoresizingMaskIntoConstraints = false
         rightLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        rightLabel.textColor = ThemeConstants.Colors.darkGray.withAlphaComponent(ThemeConstants.Opacity.high)
+        rightLabel.textColor = SettingsColors.ink
         rightLabel.isEditable = false
         rightLabel.isBordered = false
         rightLabel.backgroundColor = .clear
@@ -233,8 +233,6 @@ final class SidebarPositionSelector: NSControl {
     }
 
     private func updateAppearance(animated: Bool) {
-        let darkGray = ThemeConstants.Colors.darkGray
-
         let updateButton: (NSView, NSImageView, NSTextField, String) -> Void = { button, icon, label, value in
             let isSelected = self.selectedPosition == value
             let isHovered = self.hoveredButton === button && self.isEnabled
@@ -243,33 +241,31 @@ final class SidebarPositionSelector: NSControl {
             // Background color
             let backgroundColor: NSColor
             if isSelected {
-                backgroundColor = darkGray
-            } else if isPressed {
-                backgroundColor = darkGray.withAlphaComponent(ThemeConstants.Opacity.extraSubtle)
-            } else if isHovered {
-                backgroundColor = darkGray.withAlphaComponent(ThemeConstants.Opacity.minimal)
+                backgroundColor = SettingsColors.selection
+            } else if isPressed || isHovered {
+                backgroundColor = SettingsColors.fillStrong
             } else {
-                backgroundColor = darkGray.withAlphaComponent(ThemeConstants.Opacity.subtle)
+                backgroundColor = SettingsColors.fill
             }
 
             // Text and icon color
             let foregroundColor: NSColor
             if isSelected {
-                foregroundColor = ThemeConstants.Colors.white
+                foregroundColor = SettingsColors.onSelection
             } else {
-                foregroundColor = darkGray.withAlphaComponent(self.isEnabled ? ThemeConstants.Opacity.high : ThemeConstants.Opacity.low)
+                foregroundColor = self.isEnabled ? SettingsColors.ink : SettingsColors.inkSecondary
             }
 
             if animated {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = ThemeConstants.Animation.durationFast
                     context.timingFunction = ThemeConstants.Animation.timingFunction
-                    button.layer?.backgroundColor = backgroundColor.cgColor
+                    button.layer?.backgroundColor = self.resolvedCGColor(backgroundColor)
                     icon.contentTintColor = foregroundColor
                     label.textColor = foregroundColor
                 }
             } else {
-                button.layer?.backgroundColor = backgroundColor.cgColor
+                button.layer?.backgroundColor = self.resolvedCGColor(backgroundColor)
                 icon.contentTintColor = foregroundColor
                 label.textColor = foregroundColor
             }

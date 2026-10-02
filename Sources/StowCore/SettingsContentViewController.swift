@@ -15,8 +15,8 @@ final class SettingsContentViewController: NSViewController {
     private let controlLabelSpacing: CGFloat = 4    // Distance between label and control
 
     // Color constants
-    private let sectionHeaderColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.5)
-    private let regularTextColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 1.0)
+    private var sectionHeaderColor: NSColor { SettingsColors.inkSecondary }
+    private var regularTextColor: NSColor { SettingsColors.ink }
 
     // Browser section
     private let browserPopupContainer = NSView()
@@ -27,6 +27,8 @@ final class SettingsContentViewController: NSViewController {
     private let alwaysOnTopToggle = CustomToggle(title: "Always on Top")
     private let attachSidebarToggle = CustomToggle(title: "Attach to Window as Sidebar")
     private let sidebarPositionSelector = SidebarPositionSelector()
+    private let tintLabel = NSTextField(labelWithString: "Workspace color")
+    private let tintControl = NSSegmentedControl(labels: ["Full", "Subtle", "Off"], trackingMode: .selectOne, target: nil, action: nil)
 
     // Keyboard shortcuts section
     private let shortcutRecorderView = ShortcutRecorderView()
@@ -227,6 +229,17 @@ final class SettingsContentViewController: NSViewController {
         // Workspace Management Section
         let workspaceHeader = createSectionHeader("Manage Workspaces")
 
+        tintLabel.font = NSFont.systemFont(ofSize: 13)
+        tintLabel.textColor = regularTextColor
+        tintLabel.translatesAutoresizingMaskIntoConstraints = false
+        tintControl.translatesAutoresizingMaskIntoConstraints = false
+        tintControl.target = self
+        tintControl.action = #selector(tintModeChanged)
+        tintControl.controlSize = .small
+        tintControl.setAccessibilityLabel("Workspace color")
+        tintControl.toolTip = "Full fills the window with the workspace color. Subtle tints it lightly. Off keeps it neutral."
+        tintControl.selectedSegment = StowTheme.TintMode.allCases.firstIndex(of: StowTheme.preferredTint) ?? 0
+
         let separator2 = createSeparator()
 
         // Browser Section
@@ -235,7 +248,7 @@ final class SettingsContentViewController: NSViewController {
         // Browser popup container with styled background
         browserPopupContainer.translatesAutoresizingMaskIntoConstraints = false
         browserPopupContainer.wantsLayer = true
-        browserPopupContainer.layer?.backgroundColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.08).cgColor
+        browserPopupContainer.layer?.backgroundColor = view.resolvedCGColor(SettingsColors.fill)
         browserPopupContainer.layer?.cornerRadius = 8
 
         browserPopup.translatesAutoresizingMaskIntoConstraints = false
@@ -247,7 +260,7 @@ final class SettingsContentViewController: NSViewController {
 
         // Set content tint color for the chevron arrow
         if #available(macOS 14.0, *) {
-            browserPopup.contentTintColor = NSColor(calibratedRed: 0.078, green: 0.078, blue: 0.078, alpha: 0.80)
+            browserPopup.contentTintColor = SettingsColors.ink
         }
 
         let separator3 = createSeparator()
@@ -276,7 +289,7 @@ final class SettingsContentViewController: NSViewController {
         importButton.translatesAutoresizingMaskIntoConstraints = false
 
         importStatusLabel.font = NSFont.systemFont(ofSize: 11)
-        importStatusLabel.textColor = NSColor.secondaryLabelColor
+        importStatusLabel.textColor = SettingsColors.inkSecondary
         importStatusLabel.maximumNumberOfLines = 0
         importStatusLabel.lineBreakMode = .byWordWrapping
         importStatusLabel.alignment = .center
@@ -295,6 +308,8 @@ final class SettingsContentViewController: NSViewController {
         contentView.addSubview(shortcutRecorderView)
         contentView.addSubview(separatorShortcuts)
         contentView.addSubview(workspaceHeader)
+        contentView.addSubview(tintLabel)
+        contentView.addSubview(tintControl)
         contentView.addSubview(workspaceCollectionView)
         contentView.addSubview(separator2)
         contentView.addSubview(browserHeader)
@@ -366,7 +381,13 @@ final class SettingsContentViewController: NSViewController {
 
                 // Workspace Collection View - full width without horizontal padding
             workspaceCollectionView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            workspaceCollectionView.topAnchor.constraint(equalTo: workspaceHeader.bottomAnchor, constant: sectionHeaderSpacing),
+            tintLabel.leadingAnchor.constraint(equalTo: workspaceHeader.leadingAnchor),
+            tintLabel.centerYAnchor.constraint(equalTo: tintControl.centerYAnchor),
+            tintControl.topAnchor.constraint(equalTo: workspaceHeader.bottomAnchor, constant: sectionHeaderSpacing),
+            tintControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+            tintControl.leadingAnchor.constraint(greaterThanOrEqualTo: tintLabel.trailingAnchor, constant: 8),
+
+            workspaceCollectionView.topAnchor.constraint(equalTo: tintControl.bottomAnchor, constant: sectionHeaderSpacing),
             workspaceCollectionView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
 
             // Separator 2
@@ -453,6 +474,13 @@ final class SettingsContentViewController: NSViewController {
         workspaceCollectionViewHeightConstraint?.isActive = true
     }
 
+    @objc private func tintModeChanged() {
+        let modes = StowTheme.TintMode.allCases
+        guard modes.indices.contains(tintControl.selectedSegment) else { return }
+        StowTheme.preferredTint = modes[tintControl.selectedSegment]
+        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
+    }
+
     private func loadPreferences() {
         // Load Always on Top state
         let alwaysOnTopEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled)
@@ -516,12 +544,12 @@ final class SettingsContentViewController: NSViewController {
         if hasPermission {
             permissionStatusLabel.stringValue = "Accessibility: ✓ granted"
             // Use a darker green for better readability
-            permissionStatusLabel.textColor = NSColor(calibratedRed: 0.13, green: 0.67, blue: 0.29, alpha: 1.0)
+            permissionStatusLabel.textColor = SettingsColors.success
             openSettingsButton.isHidden = true
         } else {
             permissionStatusLabel.stringValue = "Accessibility: ✗ not granted"
             // Use a darker red for better readability
-            permissionStatusLabel.textColor = NSColor(calibratedRed: 0.85, green: 0.23, blue: 0.23, alpha: 1.0)
+            permissionStatusLabel.textColor = SettingsColors.danger
             openSettingsButton.isHidden = false
         }
     }
@@ -761,7 +789,7 @@ final class SettingsContentViewController: NSViewController {
 
     private func showImportStatus(_ message: String, isError: Bool) {
         importStatusLabel.stringValue = message
-        importStatusLabel.textColor = isError ? NSColor.systemRed : regularTextColor
+        importStatusLabel.textColor = isError ? SettingsColors.danger : regularTextColor
         importStatusLabel.isHidden = false
     }
 
@@ -1222,17 +1250,11 @@ private final class FlippedContentView: NSView {
 private final class SettingsButton: NSButton {
     // Style constants
     private struct Style {
-        // Base color reference: #141414 = RGB(20, 20, 20) = (20/255, 20/255, 20/255)
-        private static let baseColorValue: CGFloat = 20.0 / 255.0  // 0.0784313725
-
-        // Enabled state
-        static let baseBackgroundColor = NSColor(calibratedRed: baseColorValue, green: baseColorValue, blue: baseColorValue, alpha: 0.08)
-        static let hoverBackgroundColor = NSColor(calibratedRed: baseColorValue, green: baseColorValue, blue: baseColorValue, alpha: 0.12)
-        static let textColor = NSColor(calibratedRed: baseColorValue, green: baseColorValue, blue: baseColorValue, alpha: 1.0)
-
-        // Disabled state
-        static let disabledBackgroundColor = NSColor(calibratedRed: 191.0/255.0, green: 193.0/255.0, blue: 195.0/255.0, alpha: 1.0) // #BFC1C3
-        static let disabledTextColor = NSColor(calibratedRed: baseColorValue, green: baseColorValue, blue: baseColorValue, alpha: 1.0) // #141414 (same as enabled)
+        static var baseBackgroundColor: NSColor { SettingsColors.fill }
+        static var hoverBackgroundColor: NSColor { SettingsColors.fillStrong }
+        static var textColor: NSColor { SettingsColors.ink }
+        static var disabledBackgroundColor: NSColor { SettingsColors.fill }
+        static var disabledTextColor: NSColor { SettingsColors.inkSecondary }
 
         static let cornerRadius: CGFloat = 8
         static let fontSize: CGFloat = 13
@@ -1263,7 +1285,7 @@ private final class SettingsButton: NSButton {
         font = NSFont.systemFont(ofSize: Style.fontSize)
 
         // Setup layer
-        layer?.backgroundColor = Style.baseBackgroundColor.cgColor
+        layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
         layer?.cornerRadius = Style.cornerRadius
 
         // Set text color
@@ -1307,7 +1329,7 @@ private final class SettingsButton: NSButton {
             }
 
             // Apply disabled background styling (without actually disabling the button)
-            layer?.backgroundColor = Style.disabledBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(Style.disabledBackgroundColor)
 
             // Update text color to #141414 with full opacity
             let attributes: [NSAttributedString.Key: Any] = [
@@ -1325,7 +1347,7 @@ private final class SettingsButton: NSButton {
             spinner?.isHidden = true
 
             // Restore enabled background styling
-            layer?.backgroundColor = Style.baseBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
 
             // Restore text color
             updateTextColor(Style.textColor)
@@ -1356,7 +1378,7 @@ private final class SettingsButton: NSButton {
         super.mouseEntered(with: event)
         // Only show hover effect if not loading
         if !isLoading {
-            layer?.backgroundColor = Style.hoverBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(Style.hoverBackgroundColor)
         }
     }
 
@@ -1364,9 +1386,9 @@ private final class SettingsButton: NSButton {
         super.mouseExited(with: event)
         // Restore appropriate background based on loading state
         if isLoading {
-            layer?.backgroundColor = Style.disabledBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(Style.disabledBackgroundColor)
         } else {
-            layer?.backgroundColor = Style.baseBackgroundColor.cgColor
+            layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
         }
     }
 
@@ -1379,7 +1401,7 @@ private final class SettingsButton: NSButton {
 
 private final class WorkspaceDropIndicatorView: NSView {
     private let lineThickness: CGFloat = 2
-    private let accentColor = NSColor.controlAccentColor
+    private var accentColor: NSColor { SettingsColors.accent }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1399,11 +1421,15 @@ private final class WorkspaceDropIndicatorView: NSView {
         isHidden = false
         self.frame = frame
         layer?.cornerRadius = lineThickness / 2
-        layer?.backgroundColor = accentColor.cgColor
+        layer?.backgroundColor = resolvedCGColor(accentColor)
         layer?.borderWidth = 0
     }
 
     func hide() {
         isHidden = true
     }
+}
+
+extension Notification.Name {
+    static let stowTintModeChanged = Notification.Name("StowTintModeChanged")
 }
