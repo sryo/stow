@@ -158,6 +158,9 @@ final class MainViewController: NSViewController {
         // Search field
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.placeholder = "Search…"
+        searchField.onMoveDown = { [weak self] in
+            self?.nodeListViewController.focusList()
+        }
         searchField.onTextChange = { [weak self] text in
             self?.nodeListViewController.clearSelections()
             self?.searchCoordinator.updateQuery(text)
@@ -1125,7 +1128,7 @@ final class MainViewController: NSViewController {
             if searchCoordinator.isSearchActive || isEditingText && searchField.isFocused {
                 searchField.text = ""
                 searchCoordinator.updateQuery("")
-                view.window?.makeFirstResponder(nil)
+                nodeListViewController.focusList()
                 return true
             }
             return false

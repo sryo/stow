@@ -47,6 +47,9 @@ final class NodeRowView: BaseView {
     private var metrics = ListMetrics()
     private var onSlotAction: (() -> Void)?
     var onDisclosure: (() -> Void)?
+    var isKeyboardFocused = false {
+        didSet { if isKeyboardFocused != oldValue { updateVisualState() } }
+    }
 
     private var disclosureLeadingConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
@@ -423,7 +426,7 @@ final class NodeRowView: BaseView {
             fill = .clear
         }
         contentContainer.layer?.backgroundColor = resolvedCGColor(fill)
-        contentContainer.layer?.borderWidth = isEditing ? 1.5 : 0
+        contentContainer.layer?.borderWidth = (isEditing || isKeyboardFocused) ? 2 : 0
         contentContainer.layer?.borderColor = resolvedCGColor(metrics.colors.accent)
 
         // Action slot priority: jump letter, then multi-select check, then hover action.

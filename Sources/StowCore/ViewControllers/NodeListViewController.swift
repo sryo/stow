@@ -446,7 +446,11 @@ final class NodeListViewController: NSViewController {
 
         if oldSet == newSet {
             visibleRows = newRows
-            collectionView.reloadData()
+            if oldIds == newIds {
+                reconfigureVisibleItems()
+            } else {
+                collectionView.reloadData()
+            }
             return
         }
 
@@ -494,7 +498,9 @@ final class NodeListViewController: NSViewController {
             if !insertedIndexPaths.isEmpty {
                 collectionView.insertItems(at: Set(insertedIndexPaths))
             }
-        }, completionHandler: nil)
+        }, completionHandler: { [weak self] _ in
+            self?.reconfigureVisibleItems()
+        })
     }
 
     private func makeDeletionSnapshots(for indexPaths: [IndexPath]) -> [NSImageView] {
@@ -626,6 +632,178 @@ final class NodeListViewController: NSViewController {
         }
     }
 
+    // MARK: - Keyboard
+
+    /// The row the keyboard acts on. Drawn with a focus ring while the list has focus.
+    private var keyboardCursorId: UUID? {
+        didSet {
+            guard keyboardCursorId != oldValue else { return }
+            updateKeyboardCursorVisuals()
+        }
+    }
+
+    /// Like CSS :focus-visible: the ring appears once the keyboard is used and hides on click.
+    private var isKeyboardNavigating = false
+
+    private var listHasFocus: Bool {
+        isKeyboardNavigating && view.window?.isKeyWindow == true && view.window?.firstResponder === collectionView
+    }
+
+    func mouseInteractionOccurred() {
+        guard isKeyboardNavigating else { return }
+        isKeyboardNavigating = false
+        updateKeyboardCursorVisuals()
+    }
+
+    /// Takes keyboard focus, e.g. when leaving search with Esc or the down arrow.
+    func focusList() {
+        view.window?.makeFirstResponder(collectionView)
+        isKeyboardNavigating = true
+        if keyboardCursorId == nil || cursorIndex == nil {
+            keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+        }
+        updateKeyboardCursorVisuals()
+    }
+
+    func listFocusChanged() {
+        if listHasFocus && keyboardCursorId == nil {
+            keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+        }
+        updateKeyboardCursorVisuals()
+    }
+
+    private func updateKeyboardCursorVisuals() {
+        let showRing = listHasFocus
+        for item in collectionView.visibleItems() {
+            guard let nodeItem = item as? NodeCollectionViewItem,
+                  let indexPath = collectionView.indexPath(for: item),
+                  let row = row(at: indexPath) else { continue }
+            nodeItem.setKeyboardFocused(showRing && row.id == keyboardCursorId)
+        }
+    }
+
+    private var cursorIndex: Int? {
+        guard let id = keyboardCursorId else { return nil }
+        return visibleRows.firstIndex(where: { $0.id == id })
+    }
+
+    private func moveCursor(to index: Int) {
+        guard !visibleRows.isEmpty else { return }
+        let clamped = min(max(index, 0), visibleRows.count - 1)
+        keyboardCursorId = visibleRows[clamped].id
+        let indexPath = IndexPath(item: clamped, section: 0)
+        collectionView.scrollToItems(at: [indexPath], scrollPosition: .nearestHorizontalEdge)
+    }
+
+    func activate(_ node: Node) {
+        switch node {
+        case .folder(let folder):
+            onFolderToggled?(folder.id, !folder.isExpanded)
+        case .link(let link):
+            onNodeSelected?(link.id)
+        case .task(let task):
+            onTaskToggled?(task.id)
+        case .snippet(let snippet):
+            onSnippetClicked?(snippet.id)
+        }
+    }
+
+    /// Handles a key pressed while the list has focus. Returns true when consumed.
+    func handleListKey(_ event: NSEvent) -> Bool {
+        guard inlineRenameNodeId == nil else { return false }
+        if !isKeyboardNavigating {
+            isKeyboardNavigating = true
+            if keyboardCursorId == nil || cursorIndex == nil {
+                keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+            }
+            updateKeyboardCursorVisuals()
+            // The first arrow press only reveals where the cursor is.
+            if [125, 126].contains(event.keyCode) && event.modifierFlags.intersection([.command, .option, .shift, .control]).isEmpty {
+                return true
+            }
+        }
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        let index = cursorIndex
+        let row = index.flatMap { visibleRows.indices.contains($0) ? visibleRows[$0] : nil }
+
+        switch (event.keyCode, flags) {
+        case (125, []): // down
+            moveCursor(to: (index ?? -1) + 1)
+        case (126, []): // up
+            moveCursor(to: (index ?? visibleRows.count) - 1)
+        case (115, []), (126, [.command]): // home, cmd-up
+            moveCursor(to: 0)
+        case (119, []), (125, [.command]): // end, cmd-down
+            moveCursor(to: visibleRows.count - 1)
+
+        case (123, []): // left: collapse, or go to parent
+            guard let index, let row else { return true }
+            if case .folder(let folder) = row.node, folder.isExpanded, !isSearchActive {
+                onFolderToggled?(folder.id, false)
+            } else if row.depth > 0,
+                      let parent = visibleRows[..<index].lastIndex(where: { $0.depth == row.depth - 1 }) {
+                moveCursor(to: parent)
+            } else if case .archiveHeader(_, true) = row.kind {
+                onArchiveToggled?(false)
+            }
+        case (124, []): // right: expand, or go to first child
+            guard let index, let row else { return true }
+            if case .folder(let folder) = row.node, !isSearchActive {
+                if !folder.isExpanded {
+                    onFolderToggled?(folder.id, true)
+                } else if index + 1 < visibleRows.count, visibleRows[index + 1].depth > row.depth {
+                    moveCursor(to: index + 1)
+                }
+            } else if case .archiveHeader(_, false) = row.kind {
+                onArchiveToggled?(true)
+            }
+
+        case (36, []), (76, []): // return, enter
+            guard let row else { return true }
+            if case .archiveHeader(_, let isExpanded) = row.kind {
+                onArchiveToggled?(!isExpanded)
+            } else if case .archived = row.kind {
+                return true
+            } else if let node = row.node {
+                activate(node)
+            }
+        case (36, [.option]), (76, [.option]): // option-return: row actions menu
+            guard let index, row?.node != nil else { return true }
+            showContextMenu(forRowAt: index)
+        case (120, []): // F2: rename
+            guard let index, let node = row?.node, case .regular = row?.kind else { return true }
+            beginInlineRename(nodeId: node.id, indexPath: IndexPath(item: index, section: 0))
+        case (51, [.command]), (117, [.command]): // cmd-delete: archive
+            guard let index, let node = row?.node, case .regular = row?.kind else { return true }
+            onNodeDeleted?(node.id)
+            clearSelections()
+            // Keep the cursor in place on the row that slides up.
+            DispatchQueue.main.async { [weak self] in self?.moveCursor(to: index) }
+        case (49, [.option]): // option-space: add/remove from multi-selection
+            guard let node = row?.node, case .regular = row?.kind else { return true }
+            toggleSelection(for: node.id)
+        case (53, []): // esc
+            if !selectedNodeIds.isEmpty { clearSelections() } else { return false }
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func showContextMenu(forRowAt index: Int) {
+        let indexPath = IndexPath(item: index, section: 0)
+        guard let frame = frameForItem(at: indexPath) else { return }
+        contextIndexPath = indexPath
+        if let node = visibleRows[index].node {
+            isBulkContextMenu = selectedNodeIds.contains(node.id) && !selectedNodeIds.isEmpty
+        }
+        contextMenu.popUp(positioning: nil, at: NSPoint(x: frame.minX + 40, y: frame.maxY), in: collectionView)
+    }
+
+    /// Shown in context menus as hints for the list's keyboard shortcuts (F2, ⌘⌫).
+    fileprivate static let renameKey = String(Character(UnicodeScalar(NSF2FunctionKey)!))
+    fileprivate static let archiveKey = String(Character(UnicodeScalar(NSBackspaceCharacter)!))
+
     // MARK: - Drop Indicator
 
     private func showDropIndicator(at indexPath: IndexPath, operation: NSCollectionView.DropOperation) {
@@ -701,10 +879,37 @@ extension NodeListViewController: NSCollectionViewDataSource {
         guard let row = row(at: indexPath) else {
             return collectionView.makeItem(withIdentifier: NodeCollectionViewItem.identifier, for: indexPath)
         }
+        let identifier: NSUserInterfaceItemIdentifier
+        if case .archiveHeader = row.kind {
+            identifier = ArchiveHeaderItem.identifier
+        } else {
+            identifier = NodeCollectionViewItem.identifier
+        }
+        let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath)
+        return configure(item, at: indexPath)
+    }
+}
+
+extension NodeListViewController {
+    /// Re-applies row content to on-screen cells whose identity didn't change but whose
+    /// node did (folder expanded, task completed, title edited).
+    func reconfigureVisibleItems() {
+        for item in collectionView.visibleItems() {
+            guard let indexPath = collectionView.indexPath(for: item),
+                  let row = row(at: indexPath) else { continue }
+            let isHeader: Bool
+            if case .archiveHeader = row.kind { isHeader = true } else { isHeader = false }
+            guard isHeader == (item is ArchiveHeaderItem) else { continue }
+            _ = configure(item, at: indexPath)
+        }
+    }
+
+    @discardableResult
+    fileprivate func configure(_ item: NSCollectionViewItem, at indexPath: IndexPath) -> NSCollectionViewItem {
+        guard let row = row(at: indexPath) else { return item }
 
         // Handle archive header row
         if case .archiveHeader(let count, let isExpanded) = row.kind {
-            let item = collectionView.makeItem(withIdentifier: ArchiveHeaderItem.identifier, for: indexPath)
             if let headerItem = item as? ArchiveHeaderItem {
                 headerItem.configure(count: count, isExpanded: isExpanded, metrics: listMetrics) { [weak self] in
                     self?.onArchiveToggled?(!isExpanded)
@@ -713,7 +918,6 @@ extension NodeListViewController: NSCollectionViewDataSource {
             return item
         }
 
-        let item = collectionView.makeItem(withIdentifier: NodeCollectionViewItem.identifier, for: indexPath)
         guard let nodeItem = item as? NodeCollectionViewItem else { return item }
         guard let node = row.node else { return item }
 
@@ -786,6 +990,8 @@ extension NodeListViewController: NSCollectionViewDataSource {
                 )
             }
         }
+
+        nodeItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
 
         // Jump letters (a–z for the first 26 rows) appear only in jump mode.
         if isJumpModeActive && !isArchived && indexPath.item < 26 {
@@ -922,16 +1128,8 @@ extension NodeListViewController: NSCollectionViewDelegate {
                 self.clearSelections()
             }
 
-            switch node {
-            case .folder(let folder):
-                self.onFolderToggled?(folder.id, !folder.isExpanded)
-            case .link(let link):
-                self.onNodeSelected?(link.id)
-            case .task(let task):
-                self.onTaskToggled?(task.id)
-            case .snippet(let snippet):
-                self.onSnippetClicked?(snippet.id)
-            }
+            self.keyboardCursorId = row.id
+            self.activate(node)
 
             self.collectionView.deselectItems(at: indexPaths)
         }
@@ -1128,13 +1326,14 @@ extension NodeListViewController: NSMenuDelegate {
                 menu.addItem(openAll)
             }
 
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
+            rename.keyEquivalentModifierMask = []
             rename.target = self
             menu.addItem(rename)
 
             addMoveToSubmenu()
 
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
             archive.target = self
             archive.representedObject = node.id
             menu.addItem(archive)
@@ -1144,13 +1343,14 @@ extension NodeListViewController: NSMenuDelegate {
             editUrl.representedObject = ["nodeId": link.id, "currentUrl": link.url]
             menu.addItem(editUrl)
 
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
+            rename.keyEquivalentModifierMask = []
             rename.target = self
             menu.addItem(rename)
 
             addMoveToSubmenu()
 
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
             archive.target = self
             archive.representedObject = node.id
             menu.addItem(archive)
@@ -1175,13 +1375,14 @@ extension NodeListViewController: NSMenuDelegate {
 
             menu.addItem(NSMenuItem.separator())
 
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
+            rename.keyEquivalentModifierMask = []
             rename.target = self
             menu.addItem(rename)
 
             addMoveToSubmenu()
 
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
             archive.target = self
             archive.representedObject = node.id
             menu.addItem(archive)
@@ -1198,13 +1399,14 @@ extension NodeListViewController: NSMenuDelegate {
 
             menu.addItem(NSMenuItem.separator())
 
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
+            rename.keyEquivalentModifierMask = []
             rename.target = self
             menu.addItem(rename)
 
             addMoveToSubmenu()
 
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: "")
+            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
             archive.target = self
             archive.representedObject = node.id
             menu.addItem(archive)
@@ -1535,6 +1737,7 @@ private final class ContextMenuCollectionView: NSCollectionView {
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let indexPath = indexPathForItem(at: location)
+        parentViewController?.mouseInteractionOccurred()
 
         // If clicking on empty space, notify the callback
         if indexPath == nil {
@@ -1569,6 +1772,27 @@ private final class ContextMenuCollectionView: NSCollectionView {
     override func draggingExited(_ sender: NSDraggingInfo?) {
         super.draggingExited(sender)
         onDragExit?()
+    }
+
+    // NSCollectionView's own arrow-key handling selects items, and selecting an item
+    // activates it here, so all list keys go through the controller instead.
+    override func keyDown(with event: NSEvent) {
+        if parentViewController?.handleListKey(event) == true { return }
+        let arrowKeys: Set<UInt16> = [123, 124, 125, 126]
+        if arrowKeys.contains(event.keyCode) { return }
+        super.keyDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        parentViewController?.listFocusChanged()
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        parentViewController?.listFocusChanged()
+        return ok
     }
 }
 

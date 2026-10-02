@@ -52,6 +52,10 @@ final class NodeCollectionViewItem: NSCollectionViewItem {
         rowView.setSwipeLeftIcon(symbolName, tintColor: tintColor)
     }
 
+    func setKeyboardFocused(_ focused: Bool) {
+        rowView.isKeyboardFocused = focused
+    }
+
     func setHintCharacter(_ hint: String?) {
         rowView.setHintCharacter(hint)
     }
