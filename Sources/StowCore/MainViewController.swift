@@ -1,7 +1,6 @@
 import AppKit
 import ObjectiveC
 
-nonisolated(unsafe) private var datePickerKey: UInt8 = 0
 nonisolated(unsafe) private var taskIdKey: UInt8 = 0
 nonisolated(unsafe) private var panelKey: UInt8 = 0
 
@@ -1032,79 +1031,15 @@ final class MainViewController: NSViewController {
     }
 
     private func showDatePickerForTask(_ taskId: UUID) {
-        guard let node = model.nodeById(taskId), case .task(let task) = node else { return }
-
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
-                            styleMask: [.titled, .closable],
-                            backing: .buffered, defer: false)
-        panel.title = "Set due date"
-        panel.isFloatingPanel = true
-
-        let datePicker = NSDatePicker()
-        datePicker.datePickerStyle = .textFieldAndStepper
-        datePicker.datePickerMode = .single
-        datePicker.dateValue = task.dueDate ?? Date()
-        datePicker.translatesAutoresizingMaskIntoConstraints = false
-
-        let saveButton = NSButton(title: "Save", target: nil, action: nil)
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let clearButton = NSButton(title: "Clear", target: nil, action: nil)
-        clearButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let contentView = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
-        contentView.addSubview(datePicker)
-        contentView.addSubview(saveButton)
-        contentView.addSubview(clearButton)
-
-        NSLayoutConstraint.activate([
-            datePicker.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            datePicker.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-
-            saveButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            saveButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
-
-            clearButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
-            clearButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
-        ])
-
-        panel.contentView = contentView
-
-        saveButton.target = self
-        saveButton.tag = 1
-        clearButton.target = self
-        clearButton.tag = 0
-
-        // Store task ID and panel reference for the action
-        panel.representedURL = URL(string: "task://\(taskId.uuidString)")
-
-        saveButton.action = #selector(datePickerSave(_:))
-        clearButton.action = #selector(datePickerClear(_:))
-
-        // Store references
-        objc_setAssociatedObject(saveButton, &datePickerKey, datePicker, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(saveButton, &taskIdKey, taskId, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(clearButton, &taskIdKey, taskId, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(saveButton, &panelKey, panel, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(clearButton, &panelKey, panel, .OBJC_ASSOCIATION_RETAIN)
-
-        panel.center()
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func datePickerSave(_ sender: NSButton) {
-        guard let datePicker = objc_getAssociatedObject(sender, &datePickerKey) as? NSDatePicker,
-              let taskId = objc_getAssociatedObject(sender, &taskIdKey) as? UUID,
-              let panel = objc_getAssociatedObject(sender, &panelKey) as? NSPanel else { return }
-        model.updateTaskDueDate(id: taskId, dueDate: datePicker.dateValue)
-        panel.close()
-    }
-
-    @objc private func datePickerClear(_ sender: NSButton) {
-        guard let taskId = objc_getAssociatedObject(sender, &taskIdKey) as? UUID,
-              let panel = objc_getAssociatedObject(sender, &panelKey) as? NSPanel else { return }
-        model.updateTaskDueDate(id: taskId, dueDate: nil)
-        panel.close()
+        guard let node = model.nodeById(taskId), case .task(let task) = node,
+              let anchor = nodeListViewController.rowAnchorView(for: taskId) else { return }
+        let editor = DueDatePopoverController(dueDate: task.dueDate) { [weak self] date in
+            self?.model.updateTaskDueDate(id: taskId, dueDate: date)
+        }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = editor
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
     private func showSnippetEditor(_ snippetId: UUID) {

@@ -694,6 +694,14 @@ final class NodeListViewController: NSViewController {
         updateKeyboardCursorVisuals()
     }
 
+    /// The on-screen row view for a node, for anchoring popovers.
+    func rowAnchorView(for nodeId: UUID) -> NSView? {
+        guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }) else { return nil }
+        let indexPath = IndexPath(item: index, section: 0)
+        collectionView.scrollToItems(at: [indexPath], scrollPosition: .nearestHorizontalEdge)
+        return collectionView.item(at: indexPath)?.view
+    }
+
     func listFocusChanged() {
         if listHasFocus && keyboardCursorId == nil {
             keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
