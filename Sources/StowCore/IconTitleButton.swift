@@ -36,6 +36,14 @@ final class IconTitleButton: BaseControl {
             )
         }
 
+        /// Compact bottom-bar button that hugs its title.
+        static var toolbar: Style {
+            var style = pasteAction
+            style.fillsWidth = false
+            style.horizontalPadding = 8
+            return style
+        }
+
         static var addWorkspace: Style {
             Style(
                 backgroundColor: ThemeConstants.Colors.darkGray,

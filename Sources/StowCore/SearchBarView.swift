@@ -65,12 +65,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         }
     }
 
-    var placeholder: String {
-        get { textField.placeholderString ?? "" }
-        set {
-            textField.placeholderString = newValue
-            updatePlaceholder()
-        }
+    var placeholder: String = "" {
+        didSet { updatePlaceholder() }
     }
 
     var text: String {
@@ -267,7 +263,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     }
 
     private func updatePlaceholder() {
-        guard let placeholder = textField.placeholderString, !placeholder.isEmpty else { return }
+        guard !placeholder.isEmpty else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: secondaryInk,
             .font: style.font

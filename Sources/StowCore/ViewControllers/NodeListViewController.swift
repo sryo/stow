@@ -31,6 +31,7 @@ final class NodeListViewController: NSViewController {
     fileprivate let collectionView = ContextMenuCollectionView()
     let scrollView = NSScrollView()
     private let dropIndicator = DropIndicatorView()
+    private let emptyStateView = EmptyStateView()
     private var listMetrics = ListMetrics()
     private let contextMenu = NSMenu()
 
@@ -104,7 +105,9 @@ final class NodeListViewController: NSViewController {
             listMetrics.colors = StowTheme.colors(for: workspaceColor, tint: tintMode)
             dropIndicator.accentColor = listMetrics.colors.accent
             updateShadows()
-            collectionView.reloadData()
+            // Restyle in place: a reloadData here would race the row diff that
+            // follows a workspace switch and desync the item count.
+            reconfigureVisibleItems()
         }
     }
     var tintMode: StowTheme.TintMode = .full {
@@ -112,7 +115,9 @@ final class NodeListViewController: NSViewController {
             guard tintMode != oldValue else { return }
             listMetrics.colors = StowTheme.colors(for: workspaceColor, tint: tintMode)
             updateShadows()
-            collectionView.reloadData()
+            // Restyle in place: a reloadData here would race the row diff that
+            // follows a workspace switch and desync the item count.
+            reconfigureVisibleItems()
         }
     }
 
@@ -161,6 +166,7 @@ final class NodeListViewController: NSViewController {
         super.viewDidLoad()
         setupCollectionView()
         setupScrollView()
+        setupEmptyState()
         setupShadowViews()
         setupNotifications()
     }
@@ -220,6 +226,29 @@ final class NodeListViewController: NSViewController {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    private func setupEmptyState() {
+        emptyStateView.translatesAutoresizingMaskIntoConstraints = false
+        emptyStateView.isHidden = true
+        view.addSubview(emptyStateView)
+        NSLayoutConstraint.activate([
+            emptyStateView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            emptyStateView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            emptyStateView.topAnchor.constraint(equalTo: view.topAnchor),
+            emptyStateView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    /// Shown over the list when there are no active rows. Nil hides it.
+    var emptyState: EmptyStateCopy? {
+        didSet {
+            emptyStateView.isHidden = emptyState == nil
+            if let emptyState {
+                emptyStateView.colors = listMetrics.colors
+                emptyStateView.show(emptyState)
+            }
+        }
     }
 
     private func setupShadowViews() {

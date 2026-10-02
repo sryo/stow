@@ -17,11 +17,8 @@ final class MainViewController: NSViewController {
     // UI Components
     private let workspaceSwitcher = WorkspaceBarView()
     private let searchField = SearchBarView(style: .defaultSearch)
-    private let pasteButton = IconTitleButton(
-        title: "Paste from clipboard",
-        symbolName: "plus",
-        style: .pasteAction
-    )
+    private let newButton = IconTitleButton(title: "New", symbolName: "plus", style: .toolbar)
+    private let pasteButton = IconTitleButton(title: "Paste", symbolName: "doc.on.clipboard", style: .toolbar)
 
     // Page navigation
     private let pageController = ScrollWheelPageController()
@@ -170,6 +167,12 @@ final class MainViewController: NSViewController {
         pasteButton.translatesAutoresizingMaskIntoConstraints = false
         pasteButton.target = self
         pasteButton.action = #selector(importClipboardContent)
+        pasteButton.toolTip = "Paste links, tasks or text from the clipboard (⌘V)"
+
+        newButton.translatesAutoresizingMaskIntoConstraints = false
+        newButton.target = self
+        newButton.action = #selector(showNewItemMenu)
+        newButton.toolTip = "New folder, task, snippet or workspace"
 
         // Node list view
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -182,6 +185,7 @@ final class MainViewController: NSViewController {
         // Build content stack (search + nodeList + paste)
         let bottomBar = NSView()
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
+        bottomBar.addSubview(newButton)
         bottomBar.addSubview(pasteButton)
 
         contentStack.orientation = .vertical
@@ -204,7 +208,9 @@ final class MainViewController: NSViewController {
         let pad = LayoutConstants.windowPadding
 
         NSLayoutConstraint.activate([
-            pasteButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
+            newButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
+            newButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
+            newButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
             pasteButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor),
             pasteButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
             pasteButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
@@ -489,6 +495,13 @@ final class MainViewController: NSViewController {
             searchField.resultSummary = searchCoordinator.isSearchActive
                 ? "\(Self.leafCount(filteredNodes)) of \(Self.leafCount(activeItems))"
                 : nil
+            if !filteredNodes.isEmpty {
+                nodeListViewController.emptyState = nil
+            } else if searchCoordinator.isSearchActive {
+                nodeListViewController.emptyState = .noResults(query: searchField.text, isTouch: false)
+            } else {
+                nodeListViewController.emptyState = .emptyWorkspace(name: workspace.name, isTouch: false)
+            }
 
             // Skip node list rebuild if mid-rename to preserve text field focus
             if !isNodeRenaming {
@@ -537,6 +550,7 @@ final class MainViewController: NSViewController {
         let colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
         searchField.colors = colors
         pasteButton.colors = colors
+        newButton.colors = colors
     }
 
     private func observeAppearanceChanges() {
@@ -905,6 +919,33 @@ final class MainViewController: NSViewController {
         let newId = model.addFolder(name: "Untitled", parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
     }
+
+    @objc private func showNewItemMenu() {
+        let menu = NSMenu()
+        let entries: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("New Folder", "folder", "N", [.command], #selector(menuNewFolder)),
+            ("New Task", "circle", "", [], #selector(menuNewTask)),
+            ("New Snippet", "chevron.left.forwardslash.chevron.right", "", [], #selector(menuNewSnippet)),
+        ]
+        for (title, symbol, key, mask, action) in entries {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let workspace = NSMenuItem(title: "New Workspace…", action: #selector(menuNewWorkspace), keyEquivalent: "n")
+        workspace.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
+        workspace.target = self
+        menu.addItem(workspace)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: newButton.bounds.height + 4), in: newButton)
+    }
+
+    @objc private func menuNewFolder() { createFolderAndBeginRename(parentId: nil) }
+    @objc private func menuNewTask() { createTaskAndBeginRename(parentId: nil) }
+    @objc private func menuNewSnippet() { createSnippetAndBeginRename(parentId: nil) }
+    @objc private func menuNewWorkspace() { promptCreateWorkspace() }
 
     @objc private func importClipboardContent() {
         guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
