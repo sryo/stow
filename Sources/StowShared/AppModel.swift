@@ -153,6 +153,12 @@ public final class AppModel {
         }
     }
 
+    public func updateWorkspaceIcon(id: UUID, icon: WorkspaceIcon) {
+        updateWorkspace(id: id) { workspace in
+            workspace.icon = icon
+        }
+    }
+
     public func deleteWorkspace(id: UUID) {
         guard state.workspaces.count > 1 else { return }
         // Collect all node IDs before removing the workspace so we can sync deletions

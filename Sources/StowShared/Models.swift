@@ -31,18 +31,20 @@ public struct Workspace: Codable, Identifiable, Equatable {
     public var items: [Node]
     public var browserProfiles: [String: String]
     public var isArchiveExpanded: Bool
+    public var icon: WorkspaceIcon
 
     enum CodingKeys: String, CodingKey {
-        case id, name, colorId, items, browserProfiles, isArchiveExpanded
+        case id, name, colorId, items, browserProfiles, isArchiveExpanded, icon
     }
 
-    public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], browserProfiles: [String: String] = [:], isArchiveExpanded: Bool = false) {
+    public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], browserProfiles: [String: String] = [:], isArchiveExpanded: Bool = false, icon: WorkspaceIcon = .favicons) {
         self.id = id
         self.name = name
         self.colorId = colorId
         self.items = items
         self.browserProfiles = browserProfiles
         self.isArchiveExpanded = isArchiveExpanded
+        self.icon = icon
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +55,7 @@ public struct Workspace: Codable, Identifiable, Equatable {
         items = try container.decode([Node].self, forKey: .items)
         browserProfiles = try container.decodeIfPresent([String: String].self, forKey: .browserProfiles) ?? [:]
         isArchiveExpanded = try container.decodeIfPresent(Bool.self, forKey: .isArchiveExpanded) ?? false
+        icon = try container.decodeIfPresent(WorkspaceIcon.self, forKey: .icon) ?? .favicons
     }
 }
 
@@ -162,6 +165,32 @@ public struct Snippet: Codable, Identifiable, Equatable, Sendable {
         language = try container.decodeIfPresent(String.self, forKey: .language)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+    }
+}
+
+/// What a workspace's tile shows: its favicons (a letter when it has none), a letter,
+/// or a symbol. Stored as "favicons", "letter" or "symbol:<SF Symbol name>".
+public enum WorkspaceIcon: Codable, Equatable, Hashable, Sendable {
+    case favicons, letter, symbol(String)
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        if value == "letter" {
+            self = .letter
+        } else if value.hasPrefix("symbol:") {
+            self = .symbol(String(value.dropFirst("symbol:".count)))
+        } else {
+            self = .favicons
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .favicons: try container.encode("favicons")
+        case .letter: try container.encode("letter")
+        case .symbol(let name): try container.encode("symbol:\(name)")
+        }
     }
 }
 
