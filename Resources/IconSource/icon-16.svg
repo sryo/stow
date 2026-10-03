@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Pixel-hinted 16px master: every edge on a whole pixel. Ribbon 5px wide with a two-row
+       stepped notch; window 6 rows = 1 dark title-bar row + 5 slab rows; the column under the
+       ribbon's right edge is darkened to stand in for the ribbon's cast shadow. -->
+  <g id="background">
+    <rect x="1" y="1" width="14" height="14" rx="3.5" fill="#1C1C1F" shape-rendering="geometricPrecision"/>
+  </g>
+  <g id="window">
+    <rect x="8" y="5" width="5" height="1" fill="#3A3A3F"/>
+    <rect x="8" y="6" width="5" height="5" fill="#B9BDC6"/>
+    <rect x="8" y="6" width="1" height="5" fill="#80848C"/>
+    <rect x="12" y="5" width="1" height="1" fill="#2C2C30"/>
+    <rect x="12" y="10" width="1" height="1" fill="#6B6E74"/>
+  </g>
+  <g id="ribbon">
+    <path d="M3 3h5v11h-1v-1h-1v-1h-1v1h-1v1h-1z" fill="#5DE8BF"/>
+  </g>
+</svg>

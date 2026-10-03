@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <filter id="tile-shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14"/></filter>
+  <filter id="ribbon-shadow" x="-30%" y="-20%" width="170%" height="140%"><feDropShadow dx="16" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.3"/></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBFBFD"/><stop offset="1" stop-color="#ECECF1"/></linearGradient>
+  <clipPath id="win"><rect x="452" y="336" width="368" height="352" rx="44"/></clipPath>
+</defs>
+<g id="background">
+  <rect x="100" y="112" width="824" height="824" rx="185" fill="#000" opacity="0.22" filter="url(#tile-shadow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+</g>
+<g id="window">
+  <g clip-path="url(#win)">
+    <rect x="452" y="336" width="368" height="352" fill="#5A5A60"/>
+    <rect x="452" y="336" width="368" height="84" fill="#1C1C1F"/>
+  </g>
+</g>
+<g id="ribbon">
+  <path d="M290 196h194a28 28 0 0 1 28 28V828l-125.0 -124l-125.0 124V224a28 28 0 0 1 28 -28z" fill="#5DE8BF" filter="url(#ribbon-shadow)"/>
+</g>
+</svg>

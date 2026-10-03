@@ -7,7 +7,7 @@ version = '0.1.0'
 description = 'A workspace-based bookmark manager for macOS'
 license = 'MIT'
 category = 'public.app-category.productivity'
-icon = 'Resources/AppIcon.png'
+icon = 'Resources/AppIcon.icns'
 
 [apps.Stow.plist]
 CFBundleIdentifier = 'com.stow.app'

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22" shape-rendering="crispEdges">
+  <!-- Template image, black on transparent; macOS tints it. Drawn on the 22px grid so 1x has no
+       anti-aliased pixels: the notch is a 4-step staircase and the window has a 1px knocked-out
+       row under its title bar. At 2x every step doubles cleanly. -->
+  <path d="M3 2h8v18h-1v-1h-1v-1h-1v-1h-2v1h-1v1h-1v1h-1z" fill="#000"/>
+  <path d="M12 6h7v1h1v1h-8z M12 9h8v6h-1v1h-7z" fill="#000"/>
+</svg>

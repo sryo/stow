@@ -484,6 +484,7 @@ final class MainViewController: NSViewController {
         } else {
             showWorkspaceContent()
             applyBackgroundColor(for: model.currentWorkspace.colorId)
+            DockIconRenderer.apply(model.currentWorkspace.colorId)
             nodeListViewController.workspaceColor = model.currentWorkspace.colorId
             let workspace = model.currentWorkspace
             let forceExpand = searchCoordinator.isSearchActive
