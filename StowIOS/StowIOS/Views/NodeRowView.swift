@@ -3,6 +3,7 @@ import StowShared
 
 struct NodeRowView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @Environment(\.stowColors) private var colors
     let node: Node
     let parentId: UUID?
     var isArchived: Bool = false
@@ -70,10 +71,11 @@ struct NodeRowView: View {
             }
         } label: {
             nodeLabel(
-                systemImage: "folder.fill",
+                systemImage: folder.isExpanded ? "folder" : "folder.fill",
                 title: folder.name,
-                tintColor: .orange,
-                nodeId: folder.id
+                nodeId: folder.id,
+                meta: folder.children.isEmpty ? nil : "\(folder.children.count)",
+                emphasized: true
             )
         }
         .contextMenu { contextMenuItems(for: node) }
@@ -86,11 +88,10 @@ struct NodeRowView: View {
         let domain: String? = link.displayDomain
 
         nodeLabel(
-            systemImage: "globe",
+            systemImage: "link",
             title: link.title,
-            tintColor: .blue,
             nodeId: link.id,
-            subtitle: domain,
+            meta: domain,
             iconImage: favicon
         )
         .contentShape(Rectangle())
@@ -125,12 +126,13 @@ struct NodeRowView: View {
             nodeLabel(
                 systemImage: task.isCompleted ? "checkmark.circle.fill" : "circle",
                 title: task.title,
-                tintColor: task.isCompleted ? .green : .secondary,
                 nodeId: task.id,
-                strikethrough: task.isCompleted
+                strikethrough: task.isCompleted,
+                meta: task.dueDate.map { Self.dueFormatter.string(from: $0) },
+                metaIsOverdue: !task.isCompleted && (task.dueDate.map { $0 < Calendar.current.startOfDay(for: Date()) } ?? false)
             )
         }
-        .tint(.primary)
+        .tint(colors.ink)
         .contextMenu { contextMenuItems(for: node) }
     }
 
@@ -139,10 +141,10 @@ struct NodeRowView: View {
     @ViewBuilder
     private func snippetRow(_ snippet: Snippet) -> some View {
         nodeLabel(
-            systemImage: "doc.text.fill",
-            title: snippet.language != nil ? "\(snippet.title) (\(snippet.language!))" : snippet.title,
-            tintColor: .purple,
-            nodeId: snippet.id
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            title: snippet.title,
+            nodeId: snippet.id,
+            badge: snippet.language
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -157,7 +159,7 @@ struct NodeRowView: View {
             if showCopiedCheck {
                 Image(systemName: "checkmark")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(colors.ink)
                     .transition(.asymmetric(
                         insertion: .opacity,
                         removal: .opacity.combined(with: .move(edge: .top))
@@ -171,21 +173,29 @@ struct NodeRowView: View {
 
     // MARK: - Shared Label
 
+    private static let dueFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
+
     @ViewBuilder
     private func nodeLabel(
         systemImage: String,
         title: String,
-        tintColor: Color,
         nodeId: UUID,
         strikethrough: Bool = false,
-        subtitle: String? = nil,
+        meta: String? = nil,
+        metaIsOverdue: Bool = false,
+        badge: String? = nil,
+        emphasized: Bool = false,
         iconImage: UIImage? = nil
     ) -> some View {
         if isEditing {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .foregroundStyle(tintColor)
-                    .frame(width: 20)
+                    .foregroundStyle(colors.inkSoft)
+                    .frame(width: 22)
                 TextField("Name", text: $editText)
                 .onSubmit {
                     let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -200,31 +210,48 @@ struct NodeRowView: View {
                 }
             }
         } else {
-            Label {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .strikethrough(strikethrough)
-                        .foregroundStyle(strikethrough ? .secondary : .primary)
-                        .lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+            HStack(spacing: 12) {
+                Group {
+                    if let iconImage {
+                        Image(uiImage: iconImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(colors.inkSoft)
                     }
                 }
-            } icon: {
-                if let iconImage {
-                    Image(uiImage: iconImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(tintColor)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+
+                Text(title)
+                    .fontWeight(emphasized ? .semibold : .regular)
+                    .strikethrough(strikethrough)
+                    .foregroundStyle(strikethrough ? colors.inkSoft : colors.ink)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 4)
+
+                if let badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.caption2.monospaced().weight(.semibold))
+                        .foregroundStyle(colors.inkSoft)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(colors.strokeColor, lineWidth: 1))
+                        .lineLimit(1)
+                } else if let meta {
+                    Text(metaIsOverdue ? "! " + meta : meta)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(metaIsOverdue ? colors.overdueColor : colors.inkSoft)
+                        .lineLimit(1)
                 }
             }
+            .accessibilityElement(children: .combine)
         }
     }
 

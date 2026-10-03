@@ -3,7 +3,9 @@ import StowShared
 
 struct WorkspacePageView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var showingOverview: Bool
+    @State private var isSearchPresented = false
     @State private var scrollOffset: CGFloat = 0
     @State private var showingEmptyClipboard = false
     @State private var showingAddItem = false
@@ -25,6 +27,7 @@ struct WorkspacePageView: View {
             }
         )
         .background(interpolatedBackground(workspaces: workspaces).ignoresSafeArea())
+        .searchable(text: $viewModel.searchQuery, isPresented: $isSearchPresented, prompt: "Search")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -34,6 +37,16 @@ struct WorkspacePageView: View {
                     Image(systemName: "square.stack")
                 }
                 .disabled(viewModel.isSelecting)
+                .accessibilityLabel("Workspaces")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isSearchPresented = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .disabled(viewModel.isSelecting)
+                .accessibilityLabel("Search")
             }
             ToolbarItem(placement: .primaryAction) {
                 if viewModel.isSelecting {
@@ -60,6 +73,7 @@ struct WorkspacePageView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
+                            .accessibilityLabel("Add")
                     } primaryAction: {
                         showingAddItem = true
                     }
@@ -127,10 +141,12 @@ struct WorkspacePageView: View {
         let fromIndex = max(0, min(workspaces.count - 1, Int(floor(rawPage))))
         let toIndex = max(0, min(workspaces.count, Int(floor(rawPage)) + 1))
 
+        // Resolve the dynamic colors for the current scheme before blending component-wise.
+        let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
         if toIndex < workspaces.count {
             let fraction = rawPage - floor(rawPage)
-            let fromColor = workspaces[fromIndex].colorId.adaptiveBackgroundColor
-            let toColor = workspaces[toIndex].colorId.adaptiveBackgroundColor
+            let fromColor = workspaces[fromIndex].colorId.adaptiveBackgroundColor.resolvedColor(with: traits)
+            let toColor = workspaces[toIndex].colorId.adaptiveBackgroundColor.resolvedColor(with: traits)
             if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
                 return Color(uiColor: blended)
             }
@@ -138,7 +154,7 @@ struct WorkspacePageView: View {
         }
 
         if let last = workspaces.last {
-            return Color(uiColor: last.colorId.adaptiveBackgroundColor)
+            return Color(uiColor: last.colorId.adaptiveBackgroundColor.resolvedColor(with: traits))
         }
         return .clear
     }

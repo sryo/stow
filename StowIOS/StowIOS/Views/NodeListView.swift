@@ -43,34 +43,40 @@ struct NodeListView: View {
 
     var body: some View {
         if let workspace {
+            let colors = StowTheme.colors(for: workspace.colorId, tint: StowTheme.preferredTint)
             List {
                 if showHeader {
                     Text(workspace.name)
                         .font(.largeTitle.bold())
+                        .foregroundStyle(colors.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
 
-                if displayedItems.isEmpty && archivedItems.isEmpty {
-                    ContentUnavailableView(
-                        searchQuery.isEmpty ? "No Items" : "No Results",
-                        systemImage: searchQuery.isEmpty ? "bookmark" : "magnifyingglass",
-                        description: Text(
-                            searchQuery.isEmpty
-                                ? "Add links, folders, tasks, or snippets to get started."
-                                : "No items match your search."
-                        )
-                    )
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                } else if displayedItems.isEmpty && !searchQuery.isEmpty {
-                    ContentUnavailableView(
-                        "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text("No items match your search.")
-                    )
+                if displayedItems.isEmpty {
+                    let copy = searchQuery.isEmpty
+                        ? EmptyStateCopy.emptyWorkspace(name: workspace.name, isTouch: true)
+                        : EmptyStateCopy.noResults(query: searchQuery, isTouch: true)
+                    VStack(spacing: 8) {
+                        Image(systemName: copy.symbolName)
+                            .font(.system(size: 34, weight: .light))
+                            .foregroundStyle(colors.inkSoft)
+                            .padding(.bottom, 4)
+                        Text(copy.title)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(colors.ink)
+                            .multilineTextAlignment(.center)
+                        Text(copy.message)
+                            .font(.subheadline)
+                            .foregroundStyle(colors.inkSoft)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
+                    .padding(.horizontal, 24)
+                    .accessibilityElement(children: .combine)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 } else {
@@ -82,7 +88,7 @@ struct NodeListView: View {
                                 } label: {
                                     Label("Archive", systemImage: "archivebox")
                                 }
-                                .tint(.orange)
+                                .tint(StowTheme.Colors.actionArchiveColor)
                             }
                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                 leadingSwipeAction(for: node)
@@ -119,17 +125,20 @@ struct NodeListView: View {
                                     } label: {
                                         Label("Unarchive", systemImage: "arrow.uturn.backward")
                                     }
-                                    .tint(.blue)
+                                    .tint(StowTheme.Colors.actionPrimaryColor)
                                 }
                                 .listRowBackground(Color.clear)
                         }
                     } header: {
-                        Text("Archive (\(archivedItems.count))")
+                        Text("Archive · \(archivedItems.count)")
+                            .foregroundStyle(colors.inkSoft)
                     }
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .environment(\.stowColors, colors)
+            .tint(colors.accentColor)
         } else {
             ContentUnavailableView("Workspace Not Found", systemImage: "exclamationmark.triangle")
         }
@@ -143,7 +152,9 @@ struct NodeListView: View {
             HStack(spacing: 12) {
                 Image(systemName: viewModel.selectedNodeIds.contains(node.id) ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(viewModel.selectedNodeIds.contains(node.id) ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(viewModel.selectedNodeIds.contains(node.id)
+                        ? StowTheme.colors(for: workspace?.colorId ?? .defaultColor()).accentColor
+                        : StowTheme.colors(for: workspace?.colorId ?? .defaultColor()).inkSoft)
                 NodeRowView(node: node, parentId: nil)
                     .allowsHitTesting(false)
             }
@@ -174,7 +185,7 @@ struct NodeListView: View {
             } label: {
                 Label("Open", systemImage: "safari")
             }
-            .tint(.blue)
+            .tint(StowTheme.Colors.actionPrimaryColor)
 
         case .task(let task):
             Button {
@@ -185,7 +196,7 @@ struct NodeListView: View {
                     systemImage: task.isCompleted ? "arrow.uturn.backward" : "checkmark"
                 )
             }
-            .tint(.green)
+            .tint(StowTheme.Colors.actionPrimaryColor)
 
         default:
             EmptyView()

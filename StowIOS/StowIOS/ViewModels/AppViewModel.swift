@@ -37,6 +37,7 @@ final class AppViewModel: ObservableObject {
         ) ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Stow")
         let store = DataStore(baseDirectory: baseDir)
+        var isSeededRun = false
 
         #if DEBUG
         // Seed the App Group container from a JSON fixture before AppModel loads.
@@ -46,6 +47,7 @@ final class AppViewModel: ObservableObject {
            let data = try? Data(contentsOf: URL(fileURLWithPath: fixturePath)) {
             try? FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
             try? data.write(to: baseDir.appendingPathComponent("data.json"))
+            isSeededRun = true
         }
         #endif
 
@@ -62,8 +64,11 @@ final class AppViewModel: ObservableObject {
                 CloudSyncManager.shared.scheduleLocalChanges()
             }
 
-        // Initialize iCloud sync
-        CloudSyncManager.shared.configure(model: model)
+        // Initialize iCloud sync. Fixture runs stay local so seed data never
+        // reaches the signed-in iCloud account.
+        if !isSeededRun {
+            CloudSyncManager.shared.configure(model: model)
+        }
         model.deletionScheduler = { ids in
             for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
         }
