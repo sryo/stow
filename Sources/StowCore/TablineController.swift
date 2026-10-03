@@ -1,23 +1,116 @@
 import AppKit
 
-/// Tabline: the current workspace as a row of tabs riding the top edge of whichever
-/// browser window is in front (below it when there's no room above). It never takes
-/// focus, so clicking a tab opens the site in the browser you're using.
+/// What the Tabline shows: the current workspace's top-level nodes plus the workspace list
+/// for the chip's menu. Archived nodes are filtered out by the controller.
+struct TablineContent {
+    struct WorkspaceEntry {
+        let id: UUID
+        let name: String
+        let colorId: WorkspaceColorId
+        init(id: UUID, name: String, colorId: WorkspaceColorId) {
+            self.id = id
+            self.name = name
+            self.colorId = colorId
+        }
+    }
+
+    var workspaceId: UUID?
+    var name: String
+    var colorId: WorkspaceColorId
+    var nodes: [Node]
+    var workspaces: [WorkspaceEntry]
+}
+
+/// Tabline: the current workspace as a row of tabs riding whichever browser window is in
+/// front. It never takes focus, so clicking a tab opens the site in the browser you're using.
+///
+/// Docking follows the window: 3pt above a floating window (below it when there's no room
+/// above); a band under the menu bar for a window that fills the screen's height, nudging
+/// the window down to make room; a thin lip at the top of a full-screen window that expands
+/// while the pointer is over it.
+///
+/// The tab for the page in front is raised; tabs whose host is open in any browser carry a
+/// live dot; a page not saved in the workspace gets a dashed ghost tab. Both are read via
+/// AppleScript off the main thread (front page every 1.5s, open tabs every 4.5s).
+///
+/// MainViewController must wire:
+/// ```
+/// let tabline = TablineController.shared
+/// tabline.provider = { [weak self] in
+///     guard let self else { return nil }
+///     let ws = self.model.currentWorkspace
+///     return TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
+///                           workspaces: self.model.state.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
+/// }
+/// tabline.onOpenLink = { [weak self] link in self?.openLink(link) }                  // already wired
+/// tabline.onSelectWorkspace = { [weak self] id in self?.model.selectWorkspace(id: id) }
+/// tabline.onStowURL = { [weak self] url, title in
+///     guard let self else { return }
+///     let id = self.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
+///     self.fetchTitleForNewLink(id: id, url: url)
+/// }
+/// tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
+/// tabline.onCopySnippet = { snippet in /* optional; defaults to copying `content` */ }
+/// tabline.onSearch = { ... }   // optional; shows the ⌕ tool when set
+/// ```
+/// and keep calling `reload()` after model changes (already done). Once `provider` is set,
+/// the legacy `contentProvider` is ignored and can be removed.
 @MainActor
 final class TablineController {
     static let shared = TablineController()
 
     static let defaultsKey = "tablineEnabled"
-    private static let height: CGFloat = 30
+    private static let height: CGFloat = 32
+    private static let gap: CGFloat = 3
+    private static let lipHeight: CGFloat = 5
+    /// Room made under the menu bar for a window that fills the screen's height.
+    private static let band: CGFloat = gap + height + gap
 
-    /// Supplies the current workspace's name, color and links.
+    /// Supplies the current workspace and the workspace list.
+    var provider: (() -> TablineContent?)?
+    /// Legacy provider (links only). Used only while `provider` is nil.
     var contentProvider: (() -> (name: String, colorId: WorkspaceColorId, links: [Link]))?
     var onOpenLink: ((Link) -> Void)?
+    var onSelectWorkspace: ((UUID) -> Void)?
+    var onStowURL: ((URL, String) -> Void)?
+    var onToggleTask: ((UUID) -> Void)?
+    /// When nil, clicking a snippet copies its content to the general pasteboard.
+    var onCopySnippet: ((Snippet) -> Void)?
+    var onSearch: (() -> Void)? { didSet { refreshStrip() } }
+    /// Nudge a screen-height browser window down to make the band under the menu bar.
+    var makesRoomForBand = true
 
     private var panel: NSPanel?
     private let strip = TablineStripView()
-    private var timer: Timer?
+    private var trackTimer: Timer?
+    private var hoverTimer: Timer?
+    private var stateTimer: Timer?
     private var lastFrame: NSRect = .zero
+
+    private var content = TablineContent(workspaceId: nil, name: "", colorId: .defaultColor(), nodes: [], workspaces: [])
+    private var entries: [TablineEntry] = []
+    private var pocketTasks: [TaskItem] = []
+    private var pocketSnippets: [Snippet] = []
+
+    private var frontPage: TablineFrontPage.Page?
+    private var liveHosts: Set<String> = []
+    private var isFetchingFront = false
+    private var isFetchingLive = false
+    private var lastFrontBundleId: String?
+    private var stateTicks = 0
+
+    private enum Dock: Equatable { case above, below, inside, band, lip, peek }
+    private var dock: Dock = .above
+    private var lipFrame: NSRect = .zero
+    private var peekFrame: NSRect = .zero
+    private var isMenuOpen = false
+
+    private struct Nudge {
+        let window: AXUIElement
+        let original: CGRect
+        let nudged: CGRect
+    }
+    private var nudges: [Nudge] = []
 
     var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: Self.defaultsKey) }
@@ -27,7 +120,11 @@ final class TablineController {
         }
     }
 
-    private init() {}
+    private init() {
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { TablineController.shared.restoreNudgedWindows() }
+        }
+    }
 
     func startIfEnabled() {
         if isEnabled { start() }
@@ -40,17 +137,27 @@ final class TablineController {
         }
         if panel == nil { makePanel() }
         reload()
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.track() }
+        trackTimer?.invalidate()
+        trackTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+            MainActor.assumeIsolated { TablineController.shared.track() }
+        }
+        stateTimer?.invalidate()
+        stateTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
+            MainActor.assumeIsolated { TablineController.shared.pollBrowserState() }
         }
         track()
+        pollBrowserState(forceLive: true)
     }
 
     private func stop() {
-        timer?.invalidate()
-        timer = nil
+        trackTimer?.invalidate()
+        trackTimer = nil
+        stateTimer?.invalidate()
+        stateTimer = nil
+        hoverTimer?.invalidate()
+        hoverTimer = nil
         panel?.orderOut(nil)
+        restoreNudgedWindows()
     }
 
     private func makePanel() {
@@ -64,15 +171,291 @@ final class TablineController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        strip.onOpen = { [weak self] link in self?.onOpenLink?(link) }
+        strip.onActivate = { kind, rect in TablineController.shared.activate(kind, rect: rect) }
         panel.contentView = strip
         self.panel = panel
     }
 
+    // MARK: - Content
+
     /// Refreshes the tabs from the current workspace.
     func reload() {
-        guard let content = contentProvider?() else { return }
-        strip.configure(name: content.name, colors: StowTheme.colors(for: content.colorId), links: content.links)
+        if let provider {
+            guard let fresh = provider() else { return }
+            content = fresh
+        } else if let legacy = contentProvider?() {
+            content = TablineContent(workspaceId: nil, name: legacy.name, colorId: legacy.colorId,
+                                     nodes: legacy.links.map { .link($0) }, workspaces: [])
+        } else {
+            return
+        }
+        let nodes = Self.unarchived(content.nodes)
+        entries = nodes.compactMap { node in
+            switch node {
+            case .link(let link): return .link(link)
+            case .folder(let folder): return .group(folder, links: Self.links(in: folder.children))
+            case .task, .snippet: return nil
+            }
+        }
+        pocketTasks = []
+        pocketSnippets = []
+        Self.collectPocket(nodes, tasks: &pocketTasks, snippets: &pocketSnippets)
+        refreshStrip()
+    }
+
+    private static func unarchived(_ nodes: [Node]) -> [Node] {
+        nodes.compactMap { node in
+            guard !node.isArchived else { return nil }
+            if case .folder(var folder) = node {
+                folder.children = unarchived(folder.children)
+                return .folder(folder)
+            }
+            return node
+        }
+    }
+
+    private static func links(in nodes: [Node]) -> [Link] {
+        nodes.flatMap { node -> [Link] in
+            switch node {
+            case .link(let link): return [link]
+            case .folder(let folder): return links(in: folder.children)
+            case .task, .snippet: return []
+            }
+        }
+    }
+
+    private static func collectPocket(_ nodes: [Node], tasks: inout [TaskItem], snippets: inout [Snippet]) {
+        for node in nodes {
+            switch node {
+            case .task(let task): tasks.append(task)
+            case .snippet(let snippet): snippets.append(snippet)
+            case .folder(let folder): collectPocket(folder.children, tasks: &tasks, snippets: &snippets)
+            case .link: break
+            }
+        }
+    }
+
+    /// Recomputes raised, live and ghost from the latest browser state and redraws.
+    private func refreshStrip() {
+        var model = TablineStripModel()
+        model.name = content.name
+        model.colorId = content.colorId
+        model.entries = entries
+        model.pocketCount = pocketTasks.count + pocketSnippets.count
+        model.showsSearch = onSearch != nil
+
+        for (i, entry) in entries.enumerated() where entry.links.contains(where: { liveHosts.contains(TablineGlyph.host(of: $0.url)) }) {
+            if case .link = entry { model.liveIndices.insert(i) }
+        }
+        if let page = frontPage, page.bundleId == lastFrontBundleId {
+            if let raised = bestEntry(for: page.url) {
+                model.raisedIndex = raised
+            } else if let scheme = page.url.scheme, scheme == "http" || scheme == "https" {
+                let host = TablineGlyph.host(of: page.url.absoluteString)
+                if !host.isEmpty { model.ghost = TablineGhost(url: page.url, title: page.title, host: host) }
+            }
+        }
+        strip.update(model)
+        panel?.invalidateShadow()
+    }
+
+    /// The entry whose site is the page in front: an exact URL wins, then the longest
+    /// saved path that prefixes the page's path, then any link on the same host.
+    private func bestEntry(for url: URL) -> Int? {
+        let host = TablineGlyph.host(of: url.absoluteString)
+        guard !host.isEmpty else { return nil }
+        let canonical = BrowserTabService.canonicalize(url)
+        let path = url.path
+        var best: (index: Int, score: Int)?
+        for (i, entry) in entries.enumerated() {
+            for link in entry.links {
+                guard let linkURL = URL(string: link.url), TablineGlyph.host(of: link.url) == host else { continue }
+                var score = 1
+                if BrowserTabService.canonicalize(linkURL) == canonical {
+                    score = 10_000
+                } else if !linkURL.path.isEmpty, linkURL.path != "/", path.hasPrefix(linkURL.path) {
+                    score = 10 + linkURL.path.count
+                }
+                if score > (best?.score ?? 0) { best = (i, score) }
+            }
+        }
+        return best?.index
+    }
+
+    // MARK: - Browser state (front page and open tabs), off the main thread
+
+    private func pollBrowserState(forceLive: Bool = false) {
+        guard panel?.isVisible == true || forceLive else { return }
+        stateTicks += 1
+        if let bundleId = lastFrontBundleId, !isFetchingFront {
+            isFetchingFront = true
+            Task.detached(priority: .utility) {
+                let page = TablineFrontPage.read(bundleId: bundleId)
+                await MainActor.run {
+                    let controller = TablineController.shared
+                    controller.isFetchingFront = false
+                    if page != controller.frontPage {
+                        controller.frontPage = page
+                        controller.refreshStrip()
+                    }
+                }
+            }
+        }
+        if (forceLive || stateTicks % 3 == 0), !isFetchingLive {
+            isFetchingLive = true
+            Task.detached(priority: .utility) {
+                let hosts = TablineFrontPage.openHosts()
+                await MainActor.run {
+                    let controller = TablineController.shared
+                    controller.isFetchingLive = false
+                    if hosts != controller.liveHosts {
+                        controller.liveHosts = hosts
+                        controller.refreshStrip()
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Clicks and menus
+
+    private func activate(_ kind: TablineStripView.Kind, rect: NSRect) {
+        switch kind {
+        case .chip: popUp(workspaceMenu(), under: rect)
+        case .tab(let i):
+            if case .link(let link) = entries[i] { onOpenLink?(link) }
+        case .group(let i):
+            if case .group(let folder, _) = entries[i] { popUp(folderMenu(folder), under: rect) }
+        case .ghost:
+            guard let ghost = strip.model.ghost else { return }
+            onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title)
+        case .overflow: popUp(overflowMenu(), under: rect)
+        case .search: onSearch?()
+        case .pocket: popUp(pocketMenu(), under: rect, alignRight: true)
+        }
+    }
+
+    private func popUp(_ menu: NSMenu, under rect: NSRect, alignRight: Bool = false) {
+        menu.appearance = strip.effectiveAppearance
+        isMenuOpen = true
+        let x = alignRight ? rect.maxX - menu.size.width : rect.minX
+        menu.popUp(positioning: nil, at: NSPoint(x: x, y: rect.maxY + 6), in: strip)
+        isMenuOpen = false
+    }
+
+    private func item(_ title: String, image: NSImage? = nil, key: String = "", action: @escaping () -> Void) -> NSMenuItem {
+        let item = TablineMenuItem(title: title, action: #selector(TablineMenuItem.fire), keyEquivalent: key)
+        item.target = item
+        item.handler = action
+        item.image = image
+        return item
+    }
+
+    private func workspaceMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(.sectionHeader(title: "Workspaces"))
+        let list = content.workspaces.isEmpty
+            ? [TablineContent.WorkspaceEntry(id: content.workspaceId ?? UUID(), name: content.name, colorId: content.colorId)]
+            : content.workspaces
+        for (i, ws) in list.enumerated() {
+            let id = ws.id
+            let entry = item(ws.name, image: Self.dot(ws.colorId), key: i < 9 ? "\(i + 1)" : "") {
+                TablineController.shared.onSelectWorkspace?(id)
+            }
+            entry.keyEquivalentModifierMask = .command
+            entry.state = ws.id == content.workspaceId || (content.workspaceId == nil && i == 0) ? .on : .off
+            menu.addItem(entry)
+        }
+        return menu
+    }
+
+    private static func dot(_ colorId: WorkspaceColorId) -> NSImage {
+        NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            colorId.color.setFill()
+            circle.fill()
+            NSColor.black.withAlphaComponent(0.25).setStroke()
+            circle.lineWidth = 0.5
+            circle.stroke()
+            return true
+        }
+    }
+
+    private func linkItem(_ link: Link) -> NSMenuItem {
+        item(link.title, image: TablineGlyph.menuImage(title: link.title, url: link.url, faviconPath: link.faviconPath)) {
+            TablineController.shared.onOpenLink?(link)
+        }
+    }
+
+    private func folderMenu(_ folder: Folder) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(.sectionHeader(title: folder.name))
+        addNodes(folder.children, to: menu)
+        return menu
+    }
+
+    private func addNodes(_ nodes: [Node], to menu: NSMenu) {
+        for node in nodes {
+            switch node {
+            case .link(let link): menu.addItem(linkItem(link))
+            case .folder(let sub):
+                let parent = NSMenuItem(title: sub.name, action: nil, keyEquivalent: "")
+                parent.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+                let submenu = NSMenu()
+                submenu.autoenablesItems = false
+                addNodes(sub.children, to: submenu)
+                parent.submenu = submenu
+                menu.addItem(parent)
+            case .task, .snippet: break
+            }
+        }
+    }
+
+    private func overflowMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for i in strip.hiddenEntryIndices where entries.indices.contains(i) {
+            switch entries[i] {
+            case .link(let link): menu.addItem(linkItem(link))
+            case .group(let folder, _):
+                let parent = NSMenuItem(title: folder.name, action: nil, keyEquivalent: "")
+                parent.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+                let submenu = NSMenu()
+                addNodes(folder.children, to: submenu)
+                parent.submenu = submenu
+                menu.addItem(parent)
+            }
+        }
+        return menu
+    }
+
+    private func pocketMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(.sectionHeader(title: "Pocket · \(content.name)"))
+        for task in pocketTasks {
+            let id = task.id
+            let entry = item(task.title) { TablineController.shared.onToggleTask?(id) }
+            entry.state = task.isCompleted ? .on : .off
+            menu.addItem(entry)
+        }
+        if !pocketTasks.isEmpty && !pocketSnippets.isEmpty { menu.addItem(.separator()) }
+        for snippet in pocketSnippets {
+            let image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: nil)
+            let entry = item(snippet.title, image: image) {
+                if let copy = TablineController.shared.onCopySnippet {
+                    copy(snippet)
+                } else {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(snippet.content, forType: .string)
+                }
+            }
+            entry.toolTip = "Copy"
+            menu.addItem(entry)
+        }
+        return menu
     }
 
     // MARK: - Tracking the front browser window
@@ -82,36 +465,135 @@ final class TablineController {
         guard let front = NSWorkspace.shared.frontmostApplication,
               let bundleId = front.bundleIdentifier,
               bundleId == ActiveBrowserTracker.shared.lastActiveBundleId,
-              let frame = frontWindowFrame(of: front) else {
+              let window = frontWindow(of: front) else {
             if panel.isVisible { panel.orderOut(nil) }
+            lastFrontBundleId = nil
             return
         }
-        let target = placement(for: frame)
+        if bundleId != lastFrontBundleId {
+            lastFrontBundleId = bundleId
+            frontPage = nil
+            refreshStrip()
+            pollBrowserState()
+        }
+        let target = placement(for: window)
+        setPanelFrame(target)
+        updateHoverTimer()
+    }
+
+    private func setPanelFrame(_ target: NSRect) {
+        guard let panel else { return }
+        strip.isLip = dock == .lip
         if target != lastFrame || !panel.isVisible {
             lastFrame = target
             panel.setFrame(target, display: true)
+            panel.invalidateShadow()
             panel.orderFrontRegardless()
         }
     }
 
-    /// Above the window when there's room, otherwise below it, otherwise just inside its bottom edge.
-    private func placement(for window: NSRect) -> NSRect {
-        let screen = NSScreen.screens.first { $0.frame.intersects(window) } ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? window
-        let width = max(200, window.width - 16)
-        let x = window.minX + 8
-        let h = Self.height
-        if window.maxY + h + 2 <= visible.maxY { return NSRect(x: x, y: window.maxY + 2, width: width, height: h) }
-        if window.minY - h - 2 >= visible.minY { return NSRect(x: x, y: window.minY - h - 2, width: width, height: h) }
-        return NSRect(x: x, y: window.minY + 6, width: width, height: h)
+    private struct FrontWindow {
+        let element: AXUIElement
+        let frame: NSRect
+        let isFullScreen: Bool
     }
 
-    private func frontWindowFrame(of app: NSRunningApplication) -> NSRect? {
+    private func placement(for window: FrontWindow) -> NSRect {
+        let frame = window.frame
+        let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? frame
+        let h = Self.height, gap = Self.gap
+
+        if window.isFullScreen {
+            // The screen's top below the notch. Not the window's: Chrome's focused window in full
+            // screen starts under its toolbar, which is a separate window.
+            let full = screen?.frame ?? frame
+            let top = full.maxY - (screen?.safeAreaInsets.top ?? 0)
+            let inset = (full.width * 0.143).rounded()
+            lipFrame = NSRect(x: full.minX + inset, y: top - 2 - Self.lipHeight, width: full.width - inset * 2, height: Self.lipHeight)
+            peekFrame = NSRect(x: lipFrame.minX, y: top - 6 - h, width: lipFrame.width, height: h)
+            if dock != .peek { dock = .lip }
+            return dock == .peek ? peekFrame : lipFrame
+        }
+        if dock == .lip || dock == .peek { dock = .above }
+
+        if nudges.contains(where: { CFEqual($0.window, window.element) && Self.close($0.nudged, axRect(frame)) }) {
+            dock = .band
+            return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
+        }
+        let fillsHeight = abs(frame.maxY - visible.maxY) <= 2 && abs(frame.minY - visible.minY) <= 2
+        if fillsHeight {
+            if makesRoomForBand, nudge(window, visible: visible) {
+                dock = .band
+                return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
+            }
+            dock = .inside
+            return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
+        }
+        let width = max(200, frame.width)
+        if frame.maxY + gap + h <= visible.maxY {
+            dock = .above
+            return NSRect(x: frame.minX, y: frame.maxY + gap, width: width, height: h)
+        }
+        if frame.minY - gap - h >= visible.minY {
+            dock = .below
+            return NSRect(x: frame.minX, y: frame.minY - gap - h, width: width, height: h)
+        }
+        dock = .inside
+        return NSRect(x: frame.minX + 4, y: frame.minY + 6, width: frame.width - 8, height: h)
+    }
+
+    // MARK: - Full-screen lip
+
+    private func updateHoverTimer() {
+        let needsHover = dock == .lip || dock == .peek
+        if needsHover, hoverTimer == nil {
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { _ in
+                MainActor.assumeIsolated { TablineController.shared.checkLipHover() }
+            }
+        } else if !needsHover {
+            hoverTimer?.invalidate()
+            hoverTimer = nil
+        }
+    }
+
+    private func checkLipHover() {
+        guard !isMenuOpen, lipFrame != .zero else { return }
+        let mouse = NSEvent.mouseLocation
+        switch dock {
+        case .lip:
+            // From just under the lip up through the notch band to the screen's top edge.
+            let hotzone = NSRect(x: lipFrame.minX, y: lipFrame.minY - 8, width: lipFrame.width, height: 120)
+            if hotzone.contains(mouse) {
+                dock = .peek
+                setPanelFrame(peekFrame)
+            }
+        case .peek:
+            if !peekFrame.insetBy(dx: -12, dy: -12).contains(mouse) {
+                dock = .lip
+                setPanelFrame(lipFrame)
+            }
+        default: break
+        }
+    }
+
+    // MARK: - Accessibility
+
+    private func frontWindow(of app: NSRunningApplication) -> FrontWindow? {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
-              let window = windowRef else { return nil }
-        let element = window as! AXUIElement
+              let windowRef, CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
+        let element = windowRef as! AXUIElement
+        guard let rect = axFrame(element) else { return nil }
+        var fullRef: CFTypeRef?
+        let isFullScreen = AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &fullRef) == .success
+            && (fullRef as? Bool) == true
+        return FrontWindow(element: element, frame: cocoaRect(rect), isFullScreen: isFullScreen)
+    }
+
+    /// Frame in Accessibility coordinates (top-left origin on the primary display).
+    private func axFrame(_ element: AXUIElement) -> CGRect? {
         var positionRef: CFTypeRef?, sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
@@ -119,128 +601,128 @@ final class TablineController {
         var point = CGPoint.zero, cgSize = CGSize.zero
         AXValueGetValue(position as! AXValue, .cgPoint, &point)
         AXValueGetValue(size as! AXValue, .cgSize, &cgSize)
-        // Accessibility uses a top-left origin on the primary display.
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        return NSRect(x: point.x, y: primaryHeight - point.y - cgSize.height, width: cgSize.width, height: cgSize.height)
+        return CGRect(origin: point, size: cgSize)
+    }
+
+    private var primaryHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 0 }
+    private func cocoaRect(_ ax: CGRect) -> NSRect { NSRect(x: ax.minX, y: primaryHeight - ax.maxY, width: ax.width, height: ax.height) }
+    private func axRect(_ cocoa: NSRect) -> CGRect { CGRect(x: cocoa.minX, y: primaryHeight - cocoa.maxY, width: cocoa.width, height: cocoa.height) }
+    private static func close(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= 2 && abs(a.minY - b.minY) <= 2 && abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2
+    }
+
+    private func setAXFrame(_ element: AXUIElement, _ rect: CGRect) -> Bool {
+        var origin = rect.origin, size = rect.size
+        guard let position = AXValueCreate(.cgPoint, &origin), let sizeValue = AXValueCreate(.cgSize, &size) else { return false }
+        let moved = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position) == .success
+        let resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue) == .success
+        return moved && resized
+    }
+
+    /// Moves the window's top edge down by the band height. Remembered so it can be undone.
+    private func nudge(_ window: FrontWindow, visible: NSRect) -> Bool {
+        let original = axRect(window.frame)
+        var target = original
+        target.origin.y += Self.band
+        target.size.height -= Self.band
+        guard target.height > 200, setAXFrame(window.element, target) else { return false }
+        let actual = axFrame(window.element) ?? target
+        nudges.removeAll { CFEqual($0.window, window.element) }
+        nudges.append(Nudge(window: window.element, original: original, nudged: actual))
+        return true
+    }
+
+    /// Gives nudged windows their room back, unless they've since been moved or resized.
+    func restoreNudgedWindows() {
+        for nudge in nudges {
+            guard let current = axFrame(nudge.window), Self.close(current, nudge.nudged) else { continue }
+            _ = setAXFrame(nudge.window, nudge.original)
+        }
+        nudges.removeAll()
     }
 }
 
-/// The tab row: a workspace chip, then one tab per link (favicon and title), with the
-/// rest in a "…" menu.
-private final class TablineStripView: NSView {
-    var onOpen: ((Link) -> Void)?
-    private var links: [Link] = []
-    private var colors = StowTheme.colors(for: .defaultColor())
-    private var name = ""
-    private var tabButtons: [NSButton] = []
-    private let chip = NSButton()
-    private let moreButton = NSButton()
+/// An NSMenuItem that runs a closure.
+private final class TablineMenuItem: NSMenuItem {
+    var handler: (() -> Void)?
+    @objc func fire() { handler?() }
+}
 
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.borderWidth = 1
-        chip.isBordered = false
-        chip.wantsLayer = true
-        chip.layer?.cornerRadius = 6
-        addSubview(chip)
-        moreButton.isBordered = false
-        moreButton.title = "…"
-        moreButton.target = self
-        moreButton.action = #selector(showMore)
-        addSubview(moreButton)
+/// Reads the URL and title of the front tab of the front window, per browser, via AppleScript.
+enum TablineFrontPage {
+    struct Page: Equatable, Sendable {
+        let bundleId: String
+        let url: URL
+        let title: String
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    private static let chromiumApps: [String: String] = [
+        "com.google.Chrome": "Google Chrome",
+        "com.google.Chrome.canary": "Google Chrome Canary",
+        "com.brave.Browser": "Brave Browser",
+        "com.microsoft.edgemac": "Microsoft Edge",
+        "com.vivaldi.Vivaldi": "Vivaldi",
+        "company.thebrowser.Browser": "Arc",
+    ]
 
-    func configure(name: String, colors: StowTheme.Colors, links: [Link]) {
-        self.name = name
-        self.colors = colors
-        self.links = links
-        tabButtons.forEach { $0.removeFromSuperview() }
-        tabButtons = links.enumerated().map { i, link in
-            let b = NSButton(title: link.title, target: self, action: #selector(tabTapped(_:)))
-            b.tag = i
-            b.isBordered = false
-            b.imagePosition = .imageLeading
-            b.lineBreakMode = .byTruncatingTail
-            b.alignment = .left
-            b.font = StowTheme.Font.control
-            b.toolTip = "\(link.title)\n\(link.url)"
-            if let path = link.faviconPath, let image = NSImage(contentsOfFile: path) {
-                image.size = NSSize(width: 14, height: 14)
-                b.image = image
-            } else {
-                b.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+    // Inside a `tell application` block `tab` names the browser's tab class, not the tab
+    // character, so the separator is bound before the block.
+    static func read(bundleId: String) -> Page? {
+        let source: String
+        if bundleId == "com.apple.Safari" {
+            source = """
+            set sep to character id 9
+            tell application "Safari"
+                if (count of windows) is 0 then return ""
+                set t to current tab of front window
+                return (URL of t) & sep & (name of t)
+            end tell
+            """
+        } else if let app = chromiumApps[bundleId] {
+            source = """
+            set sep to character id 9
+            tell application "\(app)"
+                if (count of windows) is 0 then return ""
+                set t to active tab of front window
+                return (URL of t) & sep & (title of t)
+            end tell
+            """
+        } else {
+            return nil
+        }
+        guard let output = run(source) else { return nil }
+        let parts = output.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = parts.first, let url = URL(string: String(first)), url.host != nil else { return nil }
+        return Page(bundleId: bundleId, url: url, title: parts.count > 1 ? String(parts[1]) : "")
+    }
+
+    /// Hosts of every tab open in every running supported browser.
+    ///
+    /// Not built on `BrowserTabService.tabsByCanonicalURL()`: its scripts join columns with
+    /// `tab` inside the `tell` block (see above), so rows come back as "1tab2tab…" and none
+    /// parse. Listing only URLs needs no column separator.
+    static func openHosts() -> Set<String> {
+        var hosts: Set<String> = []
+        let apps = [("com.apple.Safari", "Safari")] + chromiumApps.map { ($0.key, $0.value) }
+        for (bundleId, app) in apps where !NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).isEmpty {
+            let source = """
+            tell application "\(app)" to set urls to URL of every tab of every window
+            set AppleScript's text item delimiters to linefeed
+            return urls as text
+            """
+            guard let output = run(source) else { continue }
+            for line in output.split(separator: "\n") {
+                let host = TablineGlyph.host(of: String(line))
+                if !host.isEmpty { hosts.insert(host) }
             }
-            addSubview(b)
-            return b
         }
-        applyColors()
-        needsLayout = true
+        return hosts
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        layer?.backgroundColor = resolvedCGColor(colors.surface)
-        layer?.borderColor = resolvedCGColor(colors.stroke)
-        chip.attributedTitle = NSAttributedString(string: name, attributes: [.foregroundColor: colors.surface, .font: StowTheme.Font.title])
-        chip.layer?.backgroundColor = resolvedCGColor(colors.inkPrimary)
-        for b in tabButtons {
-            b.contentTintColor = colors.inkPrimary
-            let style = NSMutableParagraphStyle()
-            style.lineBreakMode = .byTruncatingTail
-            b.attributedTitle = NSAttributedString(string: b.title, attributes: [.foregroundColor: colors.inkPrimary, .font: StowTheme.Font.control, .paragraphStyle: style])
-        }
-        moreButton.contentTintColor = colors.inkPrimary
-    }
-
-    override func layout() {
-        super.layout()
-        let h = bounds.height
-        let chipWidth = min(140, chip.intrinsicContentSize.width + 16)
-        chip.frame = NSRect(x: 4, y: 4, width: chipWidth, height: h - 8)
-        var x = chip.frame.maxX + 6
-        let moreWidth: CGFloat = 24
-        let tabWidth: CGFloat = 132
-        let available = bounds.width - x - moreWidth - 6
-        let fit = max(0, Int(available / tabWidth))
-        for (i, b) in tabButtons.enumerated() {
-            b.isHidden = i >= fit
-            guard i < fit else { continue }
-            b.frame = NSRect(x: x, y: 3, width: tabWidth - 4, height: h - 6)
-            x += tabWidth
-        }
-        moreButton.isHidden = tabButtons.count <= fit
-        moreButton.frame = NSRect(x: bounds.width - moreWidth - 4, y: 3, width: moreWidth, height: h - 6)
-    }
-
-    @objc private func tabTapped(_ sender: NSButton) {
-        guard links.indices.contains(sender.tag) else { return }
-        onOpen?(links[sender.tag])
-    }
-
-    @objc private func showMore() {
-        let menu = NSMenu()
-        for (i, b) in tabButtons.enumerated() where b.isHidden {
-            let item = NSMenuItem(title: links[i].title, action: #selector(menuOpen(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = i
-            item.image = b.image
-            menu.addItem(item)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: moreButton.bounds.height), in: moreButton)
-    }
-
-    @objc private func menuOpen(_ sender: NSMenuItem) {
-        guard links.indices.contains(sender.tag) else { return }
-        onOpen?(links[sender.tag])
+    private static func run(_ source: String) -> String? {
+        guard let script = NSAppleScript(source: source) else { return nil }
+        var error: NSDictionary?
+        let result = script.executeAndReturnError(&error)
+        return error == nil ? result.stringValue : nil
     }
 }
