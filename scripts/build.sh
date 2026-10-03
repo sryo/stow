@@ -56,7 +56,12 @@ if grep -q "^version = " Bundler.toml; then
 fi
 
 # Build the app bundle using swift-bundler
-mint run swift-bundler bundle -c release
+# Swift 6.4's default build system writes products to .build/out/Products, not the
+# .build/<triple>/release that swift-bundler assumes, so build with SwiftPM and point
+# swift-bundler at wherever the products landed.
+swift build -c release --product Stow
+PRODUCTS_DIR=$(swift build -c release --show-bin-path)
+mint run swift-bundler bundle -c release --skip-build --products-directory "$PRODUCTS_DIR"
 
 # Post-build: Patch Info.plist with CFBundleIdentifier
 # Swift Bundler v2.0.7 has an issue where [apps.*.plist] values don't always merge
