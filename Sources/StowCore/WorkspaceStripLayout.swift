@@ -87,8 +87,9 @@ struct WorkspaceStripLayout {
         let chip: CGFloat
     }
 
+    /// Width of a label showing `text`, including the text field's own 2pt insets.
     static func textWidth(_ text: String, weight: NSFont.Weight) -> CGFloat {
-        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: weight)]).width
+        ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: weight)]).width) + 4
     }
 
     static func metrics(for items: [Item], measure: (String, NSFont.Weight) -> CGFloat = textWidth) -> [Metrics] {

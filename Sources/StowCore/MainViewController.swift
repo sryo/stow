@@ -14,7 +14,9 @@ final class MainViewController: NSViewController {
     private let settingsViewController = SettingsContentViewController()
 
     // UI Components
-    private let workspaceSwitcher = WorkspaceBarView()
+    private let workspaceSwitcher = WorkspaceStripView()
+    private let titleSettingsButton = NSButton()
+    private let titleAddButton = NSButton()
     private let searchField = SearchBarView(style: .defaultSearch)
     private let newButton = IconTitleButton(title: "New", symbolName: "plus", style: .toolbar)
     private let pasteButton = IconTitleButton(title: "Paste", symbolName: "doc.on.clipboard", style: .toolbar)
@@ -176,17 +178,30 @@ final class MainViewController: NSViewController {
         workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
             self?.showWorkspaceContextMenu(for: workspaceId, at: point)
         }
-        workspaceSwitcher.onAddWorkspace = { [weak self] in
-            self?.promptCreateWorkspace()
+        workspaceSwitcher.onWorkspaceReorder = { [weak self] workspaceId, index in
+            self?.model.reorderWorkspace(id: workspaceId, toIndex: index)
         }
+        for (button, symbol, label, action) in [
+            (titleSettingsButton, "gearshape", "Settings", #selector(titleSettingsTapped)),
+            (titleAddButton, "plus", "New Workspace", #selector(titleAddTapped)),
+        ] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.isBordered = false
+            button.imagePosition = .imageOnly
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+            button.target = self
+            button.action = action
+            button.setAccessibilityLabel(label)
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 6
+        }
+        titleSettingsButton.toolTip = "Settings (⌘,)"
+        titleAddButton.toolTip = "New Workspace (⌘N)"
         workspaceSwitcher.onWorkspaceRename = { [weak self] workspaceId, newName in
             self?.model.renameWorkspace(id: workspaceId, newName: newName)
         }
-        workspaceSwitcher.onSettingsSelected = { [weak self] in
-            guard let self else { return }
-            self.model.selectSettings()
-            self.pageController.jumpToPage(0)
-        }
+
 
         // Search field
         searchField.translatesAutoresizingMaskIntoConstraints = false
@@ -239,6 +254,8 @@ final class MainViewController: NSViewController {
 
         // Main layout: top bar + content area
         view.addSubview(topBar)
+        view.addSubview(titleSettingsButton)
+        view.addSubview(titleAddButton)
         view.addSubview(contentStack)
         view.addSubview(settingsViewController.view)
 
@@ -267,8 +284,18 @@ final class MainViewController: NSViewController {
 
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
-            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: pad),
-            topBar.heightAnchor.constraint(equalToConstant: 30),
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 2),
+            topBar.heightAnchor.constraint(equalToConstant: 28),
+
+            // Settings and New Workspace sit in the traffic-light row, in page order.
+            titleAddButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            titleAddButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
+            titleAddButton.widthAnchor.constraint(equalToConstant: 24),
+            titleAddButton.heightAnchor.constraint(equalToConstant: 22),
+            titleSettingsButton.trailingAnchor.constraint(equalTo: titleAddButton.leadingAnchor, constant: -2),
+            titleSettingsButton.centerYAnchor.constraint(equalTo: titleAddButton.centerYAnchor),
+            titleSettingsButton.widthAnchor.constraint(equalToConstant: 24),
+            titleSettingsButton.heightAnchor.constraint(equalToConstant: 22),
 
             // Content stack fills area below topBar
             contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
@@ -448,7 +475,7 @@ final class MainViewController: NSViewController {
 
         nodeListViewController.onMoveToNewWorkspace = { [weak self] nodeIds in
             guard let self else { return }
-            let workspaceId = self.model.createWorkspace(name: "Untitled", colorId: .randomColor())
+            let workspaceId = self.model.createWorkspace(name: "Untitled")
             for nodeId in nodeIds {
                 self.model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
             }
@@ -598,7 +625,7 @@ final class MainViewController: NSViewController {
         let workspaces = model.workspaces
 
         workspaceSwitcher.workspaces = workspaces.map { workspace in
-            WorkspaceBarView.WorkspaceItem(
+            WorkspaceStripView.WorkspaceItem(
                 id: workspace.id,
                 name: workspace.name,
                 colorId: workspace.colorId
@@ -626,6 +653,7 @@ final class MainViewController: NSViewController {
         displayedColorId = colorId
         let colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
         searchField.colors = colors
+        updateTitleButtons(colors: colors)
         pasteButton.colors = colors
         newButton.colors = colors
     }
@@ -950,7 +978,7 @@ final class MainViewController: NSViewController {
     }
 
     func promptCreateWorkspace() {
-        let workspaceId = model.createWorkspace(name: "Untitled", colorId: .randomColor())
+        let workspaceId = model.createWorkspace(name: "Untitled")
         if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
             pageController.jumpToPage(idx + 1)
         }
@@ -1068,6 +1096,23 @@ final class MainViewController: NSViewController {
         }
         noMatchesAnnouncement = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    @objc private func titleSettingsTapped() {
+        model.selectSettings()
+        pageController.jumpToPage(0)
+    }
+
+    @objc private func titleAddTapped() {
+        promptCreateWorkspace()
+    }
+
+    /// Ink for the title-row buttons; Settings wears the selected pill on its page.
+    private func updateTitleButtons(colors: StowTheme.Colors) {
+        let onSettings = model.state.isSettingsSelected
+        titleSettingsButton.layer?.backgroundColor = view.resolvedCGColor(onSettings ? colors.inkPrimary : .clear)
+        titleSettingsButton.contentTintColor = onSettings ? colors.surface : colors.inkPrimary
+        titleAddButton.contentTintColor = colors.inkPrimary
     }
 
     @objc private func showNewItemMenu() {
