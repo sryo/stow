@@ -23,10 +23,14 @@
 		A1000019 /* WorkspaceOverviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000019 /* WorkspaceOverviewSheet.swift */; };
 		A1000020 /* BulkActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* BulkActionBar.swift */; };
 		A1000021 /* AboutSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000021 /* AboutSheet.swift */; };
+		A1000022 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* LiveActivityController.swift */; };
+		A1000023 /* StowActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4000001 /* StowActivityAttributes.swift */; };
 		A2000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* ShareViewController.swift */; };
 		A2000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D2000001 /* StowShared */; };
 		A2000003 /* StowShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C2000001 /* StowShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A3000001 /* StowWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000001 /* StowWidget.swift */; };
+		A3000004 /* StowLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000003 /* StowLiveActivity.swift */; };
+		A3000005 /* StowActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4000001 /* StowActivityAttributes.swift */; };
 		A3000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D3000001 /* StowShared */; };
 		A3000003 /* StowWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C3000001 /* StowWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -79,11 +83,15 @@
 		B1000019 /* WorkspaceOverviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceOverviewSheet.swift; sourceTree = "<group>"; };
 		B1000020 /* BulkActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulkActionBar.swift; sourceTree = "<group>"; };
 		B1000021 /* AboutSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutSheet.swift; sourceTree = "<group>"; };
+		B1000022 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
+		B1000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		B2000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000003 /* StowShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StowShareExtension.entitlements; sourceTree = "<group>"; };
 		B3000001 /* StowWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowWidget.swift; sourceTree = "<group>"; };
 		B3000002 /* StowWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StowWidget.entitlements; sourceTree = "<group>"; };
+		B3000003 /* StowLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowLiveActivity.swift; sourceTree = "<group>"; };
+		B4000001 /* StowActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowActivityAttributes.swift; sourceTree = "<group>"; };
 		C1000001 /* StowIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2000001 /* StowShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C3000001 /* StowWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -123,6 +131,7 @@
 				F1000002 /* StowIOS */,
 				F2000001 /* StowShareExtension */,
 				F3000001 /* StowWidget */,
+				F4000001 /* Shared */,
 				F1000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -131,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				B1000001 /* StowApp.swift */,
+				B1000023 /* Info.plist */,
 				F1000003 /* ViewModels */,
 				F1000004 /* Views */,
 			);
@@ -141,6 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				B1000002 /* AppViewModel.swift */,
+				B1000022 /* LiveActivityController.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -197,9 +208,18 @@
 			isa = PBXGroup;
 			children = (
 				B3000001 /* StowWidget.swift */,
+				B3000003 /* StowLiveActivity.swift */,
 				B3000002 /* StowWidget.entitlements */,
 			);
 			path = StowWidget;
+			sourceTree = "<group>";
+		};
+		F4000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B4000001 /* StowActivityAttributes.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -356,6 +376,8 @@
 				A1000019 /* WorkspaceOverviewSheet.swift in Sources */,
 				A1000020 /* BulkActionBar.swift in Sources */,
 				A1000021 /* AboutSheet.swift in Sources */,
+				A1000022 /* LiveActivityController.swift in Sources */,
+				A1000023 /* StowActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -372,6 +394,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A3000001 /* StowWidget.swift in Sources */,
+				A3000004 /* StowLiveActivity.swift in Sources */,
+				A3000005 /* StowActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -520,6 +544,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CL6XWJCS9R;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowIOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Stow;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -554,6 +579,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CL6XWJCS9R;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StowIOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Stow;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

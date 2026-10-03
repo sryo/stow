@@ -62,6 +62,7 @@ final class AppViewModel: ObservableObject {
             .sink { [weak self] in
                 self?.objectWillChange.send()
                 CloudSyncManager.shared.scheduleLocalChanges()
+                self?.refreshLiveActivity()
             }
 
         // Initialize iCloud sync. Fixture runs stay local so seed data never
@@ -92,6 +93,12 @@ final class AppViewModel: ObservableObject {
         let syncDir = appSupport.appendingPathComponent("Stow/SyncEngine")
         try? FileManager.default.removeItem(at: syncDir)
         UserDefaults.standard.set(true, forKey: key)
+    }
+
+    /// Mirrors the current workspace into the Dynamic Island. Unchanged states are
+    /// skipped unless `force` is set, which re-requests an expired or dismissed activity.
+    func refreshLiveActivity(force: Bool = false) {
+        LiveActivityController.shared.sync(workspace: model.currentWorkspace, force: force)
     }
 
     var workspaces: [Workspace] {

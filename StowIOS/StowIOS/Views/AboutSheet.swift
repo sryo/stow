@@ -2,6 +2,8 @@ import SwiftUI
 
 struct AboutSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: AppViewModel
+    @AppStorage(LiveActivityController.enabledKey) private var showInDynamicIsland = true
 
     private var version: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "—"
@@ -34,6 +36,15 @@ struct AboutSheet: View {
                         Spacer(minLength: 0)
                     }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                }
+
+                Section {
+                    Toggle("Show in Dynamic Island", isOn: $showInDynamicIsland)
+                        .onChange(of: showInDynamicIsland) { _, _ in
+                            viewModel.refreshLiveActivity(force: true)
+                        }
+                } footer: {
+                    Text("Keeps the current workspace and its top links in the Dynamic Island and on the Lock Screen.")
                 }
 
                 Section("Source") {

@@ -92,6 +92,13 @@ struct StowWidgetEntryView: View {
 }
 
 @main
+struct StowWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        StowWidget()
+        StowLiveActivity()
+    }
+}
+
 struct StowWidget: Widget {
     let kind = "StowWidget"
 
