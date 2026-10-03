@@ -1,8 +1,8 @@
 import AppKit
 
 /// The title-bar workspace control: a workspace button (dot, name, chevron) that opens a
-/// numbered workspace menu, page dots that track trackpad swiping, and buttons for a new
-/// workspace and Settings.
+/// numbered workspace menu, page dots that track trackpad swiping (Settings is the first
+/// page), and a button for a new workspace.
 ///
 /// Page indices match the pager: 0 is Settings, workspaces start at 1.
 @MainActor
@@ -43,7 +43,6 @@ final class WorkspaceBarView: NSView {
     private let workspaceButton = WorkspaceMenuButton()
     private let dotsView = PageDotsView()
     private let addButton = NSButton()
-    private let settingsButton = NSButton()
     private var renamingWorkspaceId: UUID?
 
     var isInlineRenaming: Bool { renamingWorkspaceId != nil }
@@ -78,22 +77,16 @@ final class WorkspaceBarView: NSView {
             else if page - 1 < self.workspaces.count { self.onWorkspaceSelected?(self.workspaces[page - 1].id) }
         }
 
-        for (button, symbol, label, action) in [
-            (addButton, "plus", "New Workspace", #selector(addTapped)),
-            (settingsButton, "gearshape", "Settings", #selector(settingsTapped)),
-        ] {
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.isBordered = false
-            button.imagePosition = .imageOnly
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-                .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
-            button.target = self
-            button.action = action
-            button.setAccessibilityLabel(label)
-            addSubview(button)
-        }
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.isBordered = false
+        addButton.imagePosition = .imageOnly
+        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Workspace")?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+        addButton.target = self
+        addButton.action = #selector(addTapped)
+        addButton.setAccessibilityLabel("New Workspace")
         addButton.toolTip = "New Workspace (⌘N)"
-        settingsButton.toolTip = "Settings (⌘,)"
+        addSubview(addButton)
 
         addSubview(workspaceButton)
         addSubview(dotsView)
@@ -108,15 +101,10 @@ final class WorkspaceBarView: NSView {
             dotsView.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -6),
             dotsView.heightAnchor.constraint(equalToConstant: 20),
 
-            addButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -2),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor),
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             addButton.widthAnchor.constraint(equalToConstant: 24),
             addButton.heightAnchor.constraint(equalToConstant: 24),
-
-            settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            settingsButton.widthAnchor.constraint(equalToConstant: 24),
-            settingsButton.heightAnchor.constraint(equalToConstant: 24),
         ])
         applyColors()
     }
@@ -130,7 +118,6 @@ final class WorkspaceBarView: NSView {
         workspaceButton.colors = colors
         dotsView.colors = colors
         addButton.contentTintColor = colors.inkPrimary
-        settingsButton.contentTintColor = isSettingsSelected ? colors.accent : colors.inkPrimary
         dotsView.needsDisplay = true
     }
 
