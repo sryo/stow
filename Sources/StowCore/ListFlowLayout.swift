@@ -1,7 +1,23 @@
 import AppKit
 
 final class ListFlowLayout: NSCollectionViewFlowLayout {
-    private let metrics: ListMetrics
+    private var metrics: ListMetrics
+
+    /// Mosaic tiles: minimum width, height and spacing.
+    static let tileMinWidth: CGFloat = 132
+    static let tileHeight: CGFloat = 78
+    static let tileGap: CGFloat = 8
+
+    func update(metrics: ListMetrics) {
+        self.metrics = metrics
+        let mosaic = metrics.mode == .mosaic
+        minimumLineSpacing = mosaic ? Self.tileGap : metrics.verticalGap
+        minimumInteritemSpacing = mosaic ? Self.tileGap : 0
+        sectionInset = mosaic
+            ? NSEdgeInsets(top: Self.tileGap, left: Self.tileGap, bottom: Self.tileGap, right: Self.tileGap)
+            : NSEdgeInsets(top: metrics.verticalGap, left: 0, bottom: metrics.verticalGap, right: 0)
+        invalidateLayout()
+    }
 
     init(metrics: ListMetrics) {
         self.metrics = metrics
@@ -41,6 +57,12 @@ final class ListFlowLayout: NSCollectionViewFlowLayout {
             return
         }
         let width = max(1, availableWidth - 1)
-        itemSize = NSSize(width: width, height: metrics.rowHeight)
+        if metrics.mode == .mosaic {
+            let columns = max(1, floor((width + Self.tileGap) / (Self.tileMinWidth + Self.tileGap)))
+            let tileWidth = floor((width - (columns - 1) * Self.tileGap) / columns)
+            itemSize = NSSize(width: tileWidth, height: Self.tileHeight)
+        } else {
+            itemSize = NSSize(width: width, height: metrics.rowHeight)
+        }
     }
 }

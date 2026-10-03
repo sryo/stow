@@ -7,12 +7,36 @@ public struct LayoutConstants {
     public static let windowPadding: CGFloat = 8
 }
 
+/// How much the window shows, chosen from its width ("Stow Elastic").
+public enum ElasticMode: Equatable {
+    /// Icons only; names appear on hover.
+    case rail
+    /// Titles without trailing metadata.
+    case list
+    /// The full sidebar.
+    case sidebar
+    /// A grid of tiles.
+    case mosaic
+
+    public static func forWidth(_ width: CGFloat) -> ElasticMode {
+        switch width {
+        case ..<120: return .rail
+        case ..<260: return .list
+        case ...560: return .sidebar
+        default: return .mosaic
+        }
+    }
+
+    public static let railWidth: CGFloat = 88
+}
+
 /// Row geometry, type and colors for the node list, all resolved from `StowTheme`.
 public struct ListMetrics {
     public var density: StowTheme.Density = .compact
+    public var mode: ElasticMode = .sidebar
     public var colors: StowTheme.Colors
 
-    public var rowHeight: CGFloat { StowTheme.List.rowHeight(density) }
+    public var rowHeight: CGFloat { mode == .rail ? 36 : StowTheme.List.rowHeight(density) }
     public let verticalGap: CGFloat = StowTheme.List.rowGap
     public let leftPadding: CGFloat = StowTheme.List.horizontalInset
     public let iconSize: CGFloat = StowTheme.List.glyphSize

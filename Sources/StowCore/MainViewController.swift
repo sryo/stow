@@ -16,6 +16,14 @@ final class MainViewController: NSViewController {
     // UI Components
     private let workspaceSwitcher = WorkspaceStripView()
     private let titleSettingsButton = NSButton()
+    /// In rail mode the strip collapses to one chip for the current workspace.
+    private let railWorkspaceChip = NSButton()
+    private var elasticMode: ElasticMode = .sidebar
+    /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
+    /// so its constraints are switched off whenever Settings isn't showing.
+    private var settingsConstraints: [NSLayoutConstraint] {
+        view.constraints.filter { ($0.firstItem as? NSView) === settingsViewController.view || ($0.secondItem as? NSView) === settingsViewController.view }
+    }
     private let titleAddButton = NSButton()
     private let searchField = SearchBarView(style: .defaultSearch)
     private let newButton = IconTitleButton(title: "New", symbolName: "plus", style: .toolbar)
@@ -156,6 +164,7 @@ final class MainViewController: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         updatePageWidth()
+        applyElasticMode(ElasticMode.forWidth(view.bounds.width))
     }
 
     // MARK: - Setup
@@ -654,6 +663,8 @@ final class MainViewController: NSViewController {
         let colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
         searchField.colors = colors
         updateTitleButtons(colors: colors)
+        updateSettingsConstraints()
+        updateRailChip()
         pasteButton.colors = colors
         newButton.colors = colors
     }
@@ -1098,6 +1109,95 @@ final class MainViewController: NSViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
+    /// Adapts the chrome to the window width: rail keeps only icons, list and sidebar
+    /// show everything, mosaic switches the list to tiles.
+    private func applyElasticMode(_ mode: ElasticMode) {
+        guard mode != elasticMode || railWorkspaceChip.superview == nil else { return }
+        elasticMode = mode
+        if railWorkspaceChip.superview == nil {
+            railWorkspaceChip.translatesAutoresizingMaskIntoConstraints = false
+            railWorkspaceChip.isBordered = false
+            railWorkspaceChip.wantsLayer = true
+            railWorkspaceChip.layer?.cornerRadius = 8
+            railWorkspaceChip.target = self
+            railWorkspaceChip.action = #selector(showRailWorkspaceMenu)
+            railWorkspaceChip.setAccessibilityLabel("Workspaces")
+            topBar.addSubview(railWorkspaceChip)
+            NSLayoutConstraint.activate([
+                railWorkspaceChip.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+                railWorkspaceChip.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+                railWorkspaceChip.widthAnchor.constraint(equalToConstant: 34),
+                railWorkspaceChip.heightAnchor.constraint(equalToConstant: 24),
+            ])
+        }
+        let rail = mode == .rail
+        workspaceSwitcher.isHidden = rail
+        railWorkspaceChip.isHidden = !rail
+        searchField.isHidden = rail
+        titleSettingsButton.isHidden = rail
+        titleAddButton.isHidden = rail
+        newButton.titleText = rail ? "" : "New"
+        pasteButton.isHidden = rail
+        nodeListViewController.elasticMode = mode
+        updateSettingsConstraints()
+        updateRailChip()
+    }
+
+    private func updateSettingsConstraints() {
+        // Only while Settings is on screen (or mid-swipe toward it) does its width matter.
+        let needed = model.state.isSettingsSelected || isSwiping
+        if needed {
+            NSLayoutConstraint.activate(parkedSettingsConstraints)
+            parkedSettingsConstraints = []
+        } else if parkedSettingsConstraints.isEmpty {
+            parkedSettingsConstraints = settingsConstraints
+            NSLayoutConstraint.deactivate(parkedSettingsConstraints)
+        }
+    }
+
+    private var parkedSettingsConstraints: [NSLayoutConstraint] = []
+
+    private func updateRailChip() {
+        guard elasticMode == .rail else { return }
+        let ws = model.currentWorkspace
+        let colors = StowTheme.colors(for: model.state.isSettingsSelected ? .settingsBackground : ws.colorId)
+        var items = model.workspaces.map { WorkspaceStripLayout.Item(id: $0.id, name: $0.name) }
+        WorkspaceStripLayout.assignMonograms(&items)
+        let mono = model.state.isSettingsSelected ? "⚙︎" : (items.first { $0.id == ws.id }?.monogram ?? "")
+        railWorkspaceChip.attributedTitle = NSAttributedString(string: mono, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: colors.surface,
+        ])
+        railWorkspaceChip.layer?.backgroundColor = view.resolvedCGColor(colors.inkPrimary)
+        railWorkspaceChip.toolTip = model.state.isSettingsSelected ? "Settings" : ws.name
+    }
+
+    @objc private func showRailWorkspaceMenu() {
+        let menu = NSMenu()
+        let settings = NSMenuItem(title: "Settings", action: #selector(titleSettingsTapped), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        for (i, ws) in model.workspaces.enumerated() {
+            let item = NSMenuItem(title: ws.name, action: #selector(railPickWorkspace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
+            item.target = self
+            item.representedObject = ws.id
+            item.state = (!model.state.isSettingsSelected && ws.id == model.currentWorkspace.id) ? .on : .off
+            item.image = WorkspaceBarView.dotImage(color: StowTheme.colors(for: ws.colorId).light.surface.platformColor)
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let add = NSMenuItem(title: "New Workspace…", action: #selector(titleAddTapped), keyEquivalent: "n")
+        add.target = self
+        menu.addItem(add)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: railWorkspaceChip.bounds.height + 4), in: railWorkspaceChip)
+    }
+
+    @objc private func railPickWorkspace(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID, let idx = model.workspaces.firstIndex(where: { $0.id == id }) else { return }
+        model.selectWorkspace(id: id)
+        pageController.jumpToPage(idx + 1)
+    }
+
     @objc private func titleSettingsTapped() {
         model.selectSettings()
         pageController.jumpToPage(0)
@@ -1524,6 +1624,7 @@ final class MainViewController: NSViewController {
 
     private func beginSwipeTransition() {
         nodeListViewController.emptyStateOverlay.settle()
+        updateSettingsConstraints()
         swipeStartPageIndex = currentPageIndex()
         preloadedPageIndex = nil
         swipeDirection = 0

@@ -52,6 +52,8 @@ final class NodeRowView: BaseView {
     }
 
     private var disclosureLeadingConstraint: NSLayoutConstraint?
+    private var iconLeadingConstraint: NSLayoutConstraint?
+    private var iconCenteredConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
     private var titleTrailingToMeta: NSLayoutConstraint?
     private var titleTrailingToBadge: NSLayoutConstraint?
@@ -177,6 +179,8 @@ final class NodeRowView: BaseView {
         titleTrailingToMeta = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: metaLabel.leadingAnchor, constant: -6)
         titleTrailingToBadge = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6)
         titleTrailingToSlot = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: slotButton.leadingAnchor, constant: -4)
+        iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2)
+        iconCenteredConstraint = iconView.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor)
 
         NSLayoutConstraint.activate([
             guidesView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
@@ -189,7 +193,7 @@ final class NodeRowView: BaseView {
             disclosureButton.widthAnchor.constraint(equalToConstant: metrics.disclosureWidth),
             disclosureButton.heightAnchor.constraint(equalToConstant: metrics.disclosureWidth),
 
-            iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2),
+            iconLeadingConstraint!,
             iconView.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
@@ -313,6 +317,7 @@ final class NodeRowView: BaseView {
             metaLabel.textColor = metaColor
             metaLabel.isHidden = false
         }
+        applyElasticMode(metrics.mode, content: content)
         titleTrailingToMeta?.isActive = !metaLabel.isHidden
         titleTrailingToBadge?.isActive = !badgeLabel.isHidden
 
@@ -323,6 +328,27 @@ final class NodeRowView: BaseView {
         resetSwipe(animated: false)
         updateVisualState()
         refreshHoverState()
+    }
+
+    /// Rail shows only the centered icon (name on hover); list drops the trailing metadata.
+    private func applyElasticMode(_ mode: ElasticMode, content: NodeRowContent) {
+        let rail = mode == .rail
+        editableTitle.isHidden = rail
+        guidesView.isHidden = rail
+        if rail {
+            disclosureButton.isHidden = true
+            metaLabel.isHidden = true
+            badgeLabel.isHidden = true
+            toolTip = content.title
+        } else {
+            toolTip = nil
+        }
+        if mode == .list {
+            metaLabel.isHidden = true
+            badgeLabel.isHidden = true
+        }
+        iconLeadingConstraint?.isActive = !rail
+        iconCenteredConstraint?.isActive = rail
     }
 
     private static let dueFormatter: DateFormatter = {
@@ -443,7 +469,7 @@ final class NodeRowView: BaseView {
             slotButton.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Selected")?
                 .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
             slotButton.contentTintColor = metrics.colors.accent
-        } else if isHovered && showsSlotAction && !isEditing {
+        } else if isHovered && showsSlotAction && !isEditing && metrics.mode != .rail {
             let archived = content?.isArchived ?? false
             let title = content?.title ?? ""
             slotButton.isHidden = false

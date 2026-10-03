@@ -47,11 +47,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window.isOpaque = false
         window.isReleasedWhenClosed = false
         window.backgroundColor = model.currentWorkspace.colorId.backgroundColor
-        window.minSize = NSSize(width: 280, height: 420)
-        window.maxSize = NSSize(width: 520, height: 10000) // Unlimited height for attachment mode
+        window.minSize = NSSize(width: ElasticMode.railWidth, height: 420)
+        window.maxSize = NSSize(width: 1400, height: 10000) // Elastic: rail up to mosaic; unlimited height for attachment mode
         window.collectionBehavior = [.moveToActiveSpace]
         window.contentViewController = mainViewController
-        let restoredFrame = applySavedWindowFrame(to: window)
+        var restoredFrame = applySavedWindowFrame(to: window)
+        #if DEBUG
+        // STOW_WINDOW_WIDTH sizes the window at launch, for checking Elastic modes.
+        if let width = ProcessInfo.processInfo.environment["STOW_WINDOW_WIDTH"].flatMap(Double.init) {
+            restoredFrame = false
+            // Window managers tile resizable windows; a fixed-size floating one is left alone.
+            window.styleMask.remove(.resizable)
+            window.level = .floating
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                window.setFrame(NSRect(x: 200, y: 200, width: width, height: 620), display: true)
+            }
+        }
+        #endif
         if !restoredFrame {
             window.center()
         }
@@ -429,14 +441,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         if isAttachmentMode {
             // In attachment mode: allow unlimited height, disable manual movement
-            window.minSize = NSSize(width: 280, height: 100)
+            window.minSize = NSSize(width: ElasticMode.railWidth, height: 100)
             window.maxSize = NSSize(width: 520, height: 10000)
             window.isMovable = false
             window.isMovableByWindowBackground = false
         } else {
             // Manual mode: restore original constraints, enable movement
-            window.minSize = NSSize(width: 280, height: 420)
-            window.maxSize = NSSize(width: 520, height: 10000)
+            window.minSize = NSSize(width: ElasticMode.railWidth, height: 420)
+            window.maxSize = NSSize(width: 1400, height: 10000)
             window.isMovable = true
             window.isMovableByWindowBackground = true
 

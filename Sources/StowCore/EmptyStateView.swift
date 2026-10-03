@@ -58,15 +58,19 @@ final class EmptyStateView: NSView {
         stack.setVisibilityPriority(.init(rawValue: 600), for: messageLabel)
         addSubview(stack)
 
-        NSLayoutConstraint.activate([
+        // Margins and Notch's size yield in rail-width windows instead of setting a minimum.
+        let yielding: [NSLayoutConstraint] = [
             notch.widthAnchor.constraint(equalToConstant: 96),
             notch.heightAnchor.constraint(equalToConstant: 80),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+        ]
+        yielding.forEach { $0.priority = .defaultHigh }
+        NSLayoutConstraint.activate(yielding + [
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -16),
             stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 16),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -16),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
             titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
             messageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 240),
         ])
@@ -159,7 +163,7 @@ final class EmptyStateView: NSView {
     override func layout() {
         super.layout()
         // Below these heights, Notch and then the sentence step aside so text never clips.
-        notch.isHidden = bounds.height < 300
+        notch.isHidden = bounds.height < 300 || bounds.width < 150
         messageLabel.isHidden = bounds.height < 200
         dropOutline.frame = bounds
         dropOutline.path = CGPath(roundedRect: bounds.insetBy(dx: 8, dy: 8), cornerWidth: 12, cornerHeight: 12, transform: nil)

@@ -177,7 +177,8 @@ final class IconTitleButton: BaseControl {
         if style.fillsWidth {
             titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         } else {
-            titleField.setContentCompressionResistancePriority(.required, for: .horizontal)
+            // Hugs its title, but may truncate so narrow (rail) windows aren't blocked.
+            titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             setContentHuggingPriority(.required, for: .horizontal)
         }
         imageView.setContentCompressionResistancePriority(.required, for: .horizontal)

@@ -110,6 +110,16 @@ final class NodeListViewController: NSViewController {
             reconfigureVisibleItems()
         }
     }
+    /// Elastic density, set from the window width.
+    var elasticMode: ElasticMode = .sidebar {
+        didSet {
+            guard elasticMode != oldValue else { return }
+            listMetrics.mode = elasticMode
+            (collectionView.collectionViewLayout as? ListFlowLayout)?.update(metrics: listMetrics)
+            collectionView.reloadData()
+        }
+    }
+
     var tintMode: StowTheme.TintMode = .full {
         didSet {
             guard tintMode != oldValue else { return }
@@ -199,6 +209,7 @@ final class NodeListViewController: NSViewController {
         collectionView.backgroundColors = [.clear]
         collectionView.collectionViewLayout = ListFlowLayout(metrics: listMetrics)
         collectionView.register(NodeCollectionViewItem.self, forItemWithIdentifier: NodeCollectionViewItem.identifier)
+        collectionView.register(NodeTileItem.self, forItemWithIdentifier: NodeTileItem.identifier)
         collectionView.register(ArchiveHeaderItem.self, forItemWithIdentifier: ArchiveHeaderItem.identifier)
         collectionView.registerForDraggedTypes([nodePasteboardType])
         collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
@@ -745,10 +756,10 @@ final class NodeListViewController: NSViewController {
     private func updateKeyboardCursorVisuals() {
         let showRing = listHasFocus
         for item in collectionView.visibleItems() {
-            guard let nodeItem = item as? NodeCollectionViewItem,
-                  let indexPath = collectionView.indexPath(for: item),
-                  let row = row(at: indexPath) else { continue }
-            nodeItem.setKeyboardFocused(showRing && row.id == keyboardCursorId)
+            guard let indexPath = collectionView.indexPath(for: item), let row = row(at: indexPath) else { continue }
+            let focused = showRing && row.id == keyboardCursorId
+            (item as? NodeCollectionViewItem)?.setKeyboardFocused(focused)
+            (item as? NodeTileItem)?.setKeyboardFocused(focused)
         }
     }
 
@@ -959,7 +970,7 @@ extension NodeListViewController: NSCollectionViewDataSource {
         if case .archiveHeader = row.kind {
             identifier = ArchiveHeaderItem.identifier
         } else {
-            identifier = NodeCollectionViewItem.identifier
+            identifier = listMetrics.mode == .mosaic ? NodeTileItem.identifier : NodeCollectionViewItem.identifier
         }
         let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath)
         return configure(item, at: indexPath)
@@ -994,7 +1005,7 @@ extension NodeListViewController {
             return item
         }
 
-        guard let nodeItem = item as? NodeCollectionViewItem else { return item }
+        guard item is NodeCollectionViewItem || item is NodeTileItem else { return item }
         guard let node = row.node else { return item }
 
         let isSelected = selectedNodeIds.contains(node.id)
@@ -1026,6 +1037,20 @@ extension NodeListViewController {
             title = snippet.title
             kind = .snippet(language: snippet.language)
         }
+
+        if let tileItem = item as? NodeTileItem {
+            tileItem.configure(content: NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived),
+                               metrics: listMetrics, isSelected: isSelected)
+            tileItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
+            if let url = shouldFetchFavicon, case .link(let link) = node {
+                FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
+                    guard let path else { return }
+                    NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
+                }
+            }
+            return tileItem
+        }
+        guard let nodeItem = item as? NodeCollectionViewItem else { return item }
 
         let isFolder: Bool
         if case .folder = node { isFolder = true } else { isFolder = false }
