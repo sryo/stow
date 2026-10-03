@@ -505,6 +505,13 @@ final class SettingsContentViewController: NSViewController {
             browserPopup.menu = NSMenu()
         }
 
+        let active = NSMenuItem(title: "Browser I'm using", action: nil, keyEquivalent: "")
+        active.representedObject = Self.activeBrowserSentinel
+        active.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
+        active.toolTip = "Open links in whichever browser you were last using"
+        browserPopup.menu?.addItem(active)
+        browserPopup.menu?.addItem(.separator())
+
         for browser in browsers {
             let item = NSMenuItem(title: browser.name, action: nil, keyEquivalent: "")
             item.representedObject = browser.bundleId
@@ -516,10 +523,12 @@ final class SettingsContentViewController: NSViewController {
         }
 
         let defaultId = BrowserManager.resolveDefaultBrowserBundleId()
-        if let defaultId, let index = browsers.firstIndex(where: { $0.bundleId == defaultId }) {
-            browserPopup.selectItem(at: index)
-        } else if !browsers.isEmpty {
+        if BrowserManager.opensInActiveBrowser {
             browserPopup.selectItem(at: 0)
+        } else if let defaultId, let index = browsers.firstIndex(where: { $0.bundleId == defaultId }) {
+            browserPopup.selectItem(at: index + 2)
+        } else if !browsers.isEmpty {
+            browserPopup.selectItem(at: 2)
             UserDefaults.standard.set(browsers[0].bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
         }
 
@@ -664,8 +673,16 @@ final class SettingsContentViewController: NSViewController {
         }
     }
 
+    private static let activeBrowserSentinel = "stow.activeBrowser"
+
     @objc private func browserChanged() {
-        if let bundleId = browserPopup.selectedItem?.representedObject as? String {
+        let selected = browserPopup.selectedItem?.representedObject as? String
+        UserDefaults.standard.set(selected == Self.activeBrowserSentinel, forKey: UserDefaultsKeys.openLinksInActiveBrowser)
+        if selected == Self.activeBrowserSentinel {
+            updateBrowserPopupAppearance()
+            return
+        }
+        if let bundleId = selected {
             UserDefaults.standard.set(bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
 
             // Update appearance after change

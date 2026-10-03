@@ -41,8 +41,23 @@ enum BrowserManager {
         return defaultBrowserBundleId()
     }
 
-    static func open(url: URL, profile: String? = nil) {
-        if let bundleId = resolveDefaultBrowserBundleId(),
+    static var opensInActiveBrowser: Bool {
+        UserDefaults.standard.object(forKey: UserDefaultsKeys.openLinksInActiveBrowser) as? Bool ?? true
+    }
+
+    /// The browser a link should open in: the one the user was last working in, or the
+    /// chosen default when that preference is off or no browser has been used yet.
+    @MainActor
+    static func linkTargetBundleId() -> String? {
+        if opensInActiveBrowser, let active = ActiveBrowserTracker.shared.lastActiveBundleId,
+           NSWorkspace.shared.urlForApplication(withBundleIdentifier: active) != nil {
+            return active
+        }
+        return resolveDefaultBrowserBundleId()
+    }
+
+    static func open(url: URL, bundleId targetBundleId: String? = nil, profile: String? = nil) {
+        if let bundleId = targetBundleId ?? resolveDefaultBrowserBundleId(),
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
             let configuration = NSWorkspace.OpenConfiguration()
             if let profile = profile {

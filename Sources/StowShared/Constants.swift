@@ -10,6 +10,9 @@ extension Notification.Name {
 
 public enum UserDefaultsKeys {
     public static let defaultBrowserBundleId = "defaultBrowserBundleId"
+    /// True (the default) opens links in the browser the user was last using;
+    /// false always uses `defaultBrowserBundleId`.
+    public static let openLinksInActiveBrowser = "openLinksInActiveBrowser"
     public static let alwaysOnTopEnabled = "alwaysOnTopEnabled"
     public static let lastSelectedWorkspaceId = "lastSelectedWorkspaceId"
     public static let mainWindowFrame = "mainWindowFrame"

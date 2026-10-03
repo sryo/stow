@@ -21,6 +21,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenus()
         registerURLHandler()
+        ActiveBrowserTracker.shared.start()
         #if DEBUG
         switch ProcessInfo.processInfo.environment["STOW_APPEARANCE"] {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)

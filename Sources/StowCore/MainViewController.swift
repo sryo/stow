@@ -1127,20 +1127,23 @@ final class MainViewController: NSViewController {
         importClipboardContent()
     }
 
+    /// Opens in the browser the user is working in, switching to its existing tab for
+    /// the site if there is one. Holding Option looks for the tab in every browser.
     private func openLink(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
-        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
+        let bundleId = BrowserManager.linkTargetBundleId()
         let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
+        let searchEveryBrowser = NSEvent.modifierFlags.contains(.option) || !BrowserManager.opensInActiveBrowser
         Task.detached(priority: .userInitiated) {
-            if await BrowserTabService.focusIfOpen(url: url) { return }
-            await MainActor.run { BrowserManager.open(url: url, profile: profile) }
+            if await BrowserTabService.focusIfOpen(url: url, onlyIn: searchEveryBrowser ? nil : bundleId) { return }
+            await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
         }
     }
 
     private func openLinksInFolder(_ folder: Folder) {
         let links = collectLinks(in: folder)
         guard !links.isEmpty else { return }
-        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
+        let bundleId = BrowserManager.linkTargetBundleId()
         let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
@@ -1149,8 +1152,8 @@ final class MainViewController: NSViewController {
             for link in links {
                 guard let url = URL(string: link.url) else { continue }
                 let key = BrowserTabService.canonicalize(url)
-                if let tab = tabs[key], BrowserTabService.focus(tab: tab) { continue }
-                await MainActor.run { BrowserManager.open(url: url, profile: profile) }
+                if let tab = tabs[key], tab.bundleId == bundleId || bundleId == nil, BrowserTabService.focus(tab: tab) { continue }
+                await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
             }
         }
     }

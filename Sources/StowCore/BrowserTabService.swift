@@ -57,16 +57,19 @@ public enum BrowserTabService {
     /// `BrowserManager.open` in either case. Queries each running browser
     /// concurrently and returns on the first match; `cancelAll` only suppresses
     /// unstarted tasks (in-flight AppleScripts run to completion).
-    public static func focusIfOpen(url: URL) async -> Bool {
+    /// When `onlyIn` is set, only that browser's tabs are considered, so opening a link
+    /// never pulls the user out of the browser they're working in.
+    public static func focusIfOpen(url: URL, onlyIn onlyBundleId: String? = nil) async -> Bool {
         let target = canonicalize(url)
+        let allowed: (String) -> Bool = { onlyBundleId == nil || $0 == onlyBundleId }
         let match = await withTaskGroup(of: OpenTab?.self) { group -> OpenTab? in
-            for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
+            for entry in chromiumBrowsers where allowed(entry.bundleId) && BrowserManager.isRunning(bundleId: entry.bundleId) {
                 group.addTask { chromiumTabs(appName: entry.appName, bundleId: entry.bundleId).first { canonicalize($0.url) == target } }
             }
-            if BrowserManager.isRunning(bundleId: arcBundleId) {
+            if allowed(arcBundleId) && BrowserManager.isRunning(bundleId: arcBundleId) {
                 group.addTask { arcTabs().first { canonicalize($0.url) == target } }
             }
-            if BrowserManager.isRunning(bundleId: safariBundleId) {
+            if allowed(safariBundleId) && BrowserManager.isRunning(bundleId: safariBundleId) {
                 group.addTask { safariTabs().first { canonicalize($0.url) == target } }
             }
             for await result in group {
