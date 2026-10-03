@@ -149,6 +149,11 @@ public enum StowTheme {
         public let selectionFill: RGB
         public let onSelection: RGB
         public let overdue: RGB
+        /// Illustration paper: the workspace hue pushed toward the surface just far enough
+        /// that primary ink stays >=4.5:1 and secondary ink >=3:1 on it.
+        public let paper: RGB
+        /// Halfway between surface and paper, for soft light like a flashlight beam.
+        public let glow: RGB
         /// True when the ink is dark (light surface).
         public let inkIsDark: Bool
 
@@ -167,14 +172,14 @@ public enum StowTheme {
         case .off:
             start = neutral
         }
-        return solve(surface: start, appearance: appearance)
+        return solve(surface: start, appearance: appearance, hue: base)
     }
 
     public static func settingsPalette(appearance: Appearance) -> Palette {
-        solve(surface: appearance == .light ? Seed.settingsLight : Seed.settingsDark, appearance: appearance)
+        solve(surface: appearance == .light ? Seed.settingsLight : Seed.settingsDark, appearance: appearance, hue: nil)
     }
 
-    private static func solve(surface start: RGB, appearance: Appearance) -> Palette {
+    private static func solve(surface start: RGB, appearance: Appearance, hue: RGB?) -> Palette {
         let inkIsDark: Bool
         if appearance == .dark {
             inkIsDark = Seed.inkDark.contrast(with: start) > Seed.inkLight.contrast(with: start) * 1.5
@@ -214,6 +219,20 @@ public enum StowTheme {
             return ink
         }
 
+        // Paper starts from the hue (lightened when the ink is dark) and backs off toward
+        // the surface until both inks read on it.
+        let paperSource = hue.map { inkIsDark ? RGB.white.mix($0, 0.35) : $0 } ?? (inkIsDark ? RGB.white : RGB.black)
+        var paper = surface
+        var t = 0.6
+        while t > 0 {
+            let candidate = surface.mix(paperSource, t)
+            if ink.contrast(with: candidate) >= 4.5 && faded(Seed.secondaryTarget, against: list).contrast(with: candidate) >= 3 {
+                paper = candidate
+                break
+            }
+            t -= 0.02
+        }
+
         let selectionFill = strengthened(inkIsDark ? Seed.selectionOnLight : Seed.selectionOnDark, Seed.nonTextTarget, against: [surface])
         let onSelection = inkIsDark ? RGB.white : Seed.inkDark
         return Palette(
@@ -229,6 +248,8 @@ public enum StowTheme {
             selectionFill: selectionFill,
             onSelection: onSelection,
             overdue: strengthened(inkIsDark ? Seed.overdueOnLight : Seed.overdueOnDark, Seed.overdueTarget, against: list),
+            paper: paper,
+            glow: surface.mix(paper, 0.5),
             inkIsDark: inkIsDark
         )
     }
@@ -313,6 +334,8 @@ extension StowTheme {
         public var selectionFill: PlatformColor { dynamic(\.selectionFill) }
         public var onSelection: PlatformColor { dynamic(\.onSelection) }
         public var overdue: PlatformColor { dynamic(\.overdue) }
+        public var paper: PlatformColor { dynamic(\.paper) }
+        public var glow: PlatformColor { dynamic(\.glow) }
 
         public static var actionPrimary: PlatformColor { Seed.actionPrimary.platformColor }
         public static var actionArchive: PlatformColor { Seed.actionArchive.platformColor }

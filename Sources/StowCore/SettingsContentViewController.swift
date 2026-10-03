@@ -699,7 +699,7 @@ final class SettingsContentViewController: NSViewController {
         NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
     }
 
-    @objc private func importFromArc() {
+    @objc func importFromArc() {
         // Construct default Arc path
         let arcPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Arc/StorableSidebar.json")

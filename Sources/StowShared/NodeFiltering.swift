@@ -1,15 +1,17 @@
 import Foundation
 
 public enum NodeFiltering {
-    public static func filter(nodes: [Node], query: String) -> [Node] {
+    /// Archived nodes are skipped unless `includeArchived` is set (used to find matches
+    /// that exist only in the Archive).
+    public static func filter(nodes: [Node], query: String, includeArchived: Bool = false) -> [Node] {
         let lower = query.lowercased()
         return nodes.compactMap { node in
-            guard !node.isArchived else { return nil }
+            guard includeArchived || !node.isArchived else { return nil }
             switch node {
             case .link(let link):
                 return link.title.lowercased().contains(lower) ? node : nil
             case .folder(var folder):
-                let children = filter(nodes: folder.children, query: query)
+                let children = filter(nodes: folder.children, query: query, includeArchived: includeArchived)
                 if !children.isEmpty {
                     folder.children = children
                     folder.isExpanded = true

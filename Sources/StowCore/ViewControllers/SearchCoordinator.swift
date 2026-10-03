@@ -36,7 +36,7 @@ final class SearchCoordinator {
     ///   - nodes: The nodes to filter
     ///   - query: Optional query override. If nil, uses currentQuery
     /// - Returns: Filtered nodes matching the query
-    func filter(nodes: [Node], query: String? = nil) -> [Node] {
+    func filter(nodes: [Node], query: String? = nil, includeArchived: Bool = false) -> [Node] {
         let searchQuery = query ?? currentQuery
         let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -44,7 +44,7 @@ final class SearchCoordinator {
             return nodes
         }
 
-        return NodeFiltering.filter(nodes: nodes, query: trimmedQuery)
+        return NodeFiltering.filter(nodes: nodes, query: trimmedQuery, includeArchived: includeArchived)
     }
 
     /// Checks if search is currently active

@@ -55,15 +55,10 @@ struct NodeListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
 
-                if displayedItems.isEmpty {
-                    let copy = searchQuery.isEmpty
-                        ? EmptyStateCopy.emptyWorkspace(name: workspace.name, isTouch: true)
-                        : EmptyStateCopy.noResults(query: searchQuery, isTouch: true)
+                if let copy = emptyStateCopy(for: workspace) {
                     VStack(spacing: 8) {
-                        Image(systemName: copy.symbolName)
-                            .font(.system(size: 34, weight: .light))
-                            .foregroundStyle(colors.inkSoft)
-                            .padding(.bottom, 4)
+                        NotchIllustration(scene: copy.scene.notchScene)
+                            .padding(.bottom, 6)
                         Text(copy.title)
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(colors.ink)
@@ -72,11 +67,34 @@ struct NodeListView: View {
                             .font(.subheadline)
                             .foregroundStyle(colors.inkSoft)
                             .multilineTextAlignment(.center)
+                        if copy.action == .paste || copy.action == .addBookmarksMenu {
+                            // The system paste button reads the clipboard without the "Allow Paste" prompt.
+                            PasteButton(payloadType: String.self) { texts in
+                                Task { @MainActor in importPasted(texts.joined(separator: "\n")) }
+                            }
+                            .buttonBorderShape(.roundedRectangle(radius: StowTheme.List.rowRadius))
+                            .tint(colors.accentColor)
+                            .labelStyle(.titleAndIcon)
+                            .padding(.top, 8)
+                        } else if let label = copy.actionLabel, let action = copy.action {
+                            Button {
+                                perform(action, workspace: workspace)
+                            } label: {
+                                Text(label)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(colors.ink)
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 44)
+                                    .overlay(RoundedRectangle(cornerRadius: StowTheme.List.rowRadius).stroke(colors.inkSoft, lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(copy.actionAccessibilityLabel ?? label)
+                            .padding(.top, 8)
+                        }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 48)
+                    .padding(.vertical, 40)
                     .padding(.horizontal, 24)
-                    .accessibilityElement(children: .combine)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 } else {
@@ -141,6 +159,50 @@ struct NodeListView: View {
             .tint(colors.accentColor)
         } else {
             ContentUnavailableView("Workspace Not Found", systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    // MARK: - Empty State
+
+    private func emptyStateCopy(for workspace: Workspace) -> EmptyStateCopy? {
+        let active = workspace.items.filter { !$0.isArchived }
+        let archivedMatches = searchQuery.isEmpty ? [] : NodeFiltering.filter(nodes: archivedItems, query: searchQuery, includeArchived: true)
+        let kind = EmptyStateKind.resolve(
+            activeCount: active.count,
+            archivedCount: archivedItems.count,
+            query: searchQuery,
+            matchedCount: displayedItems.count,
+            archivedMatchedCount: archivedMatches.count,
+            isArchiveExpanded: workspace.isArchiveExpanded,
+            isFirstLaunch: false,
+            hasArcData: false
+        )
+        return EmptyStateCopy.make(kind, workspaceName: workspace.name, isTouch: true)
+    }
+
+    private func perform(_ action: EmptyStateAction, workspace: Workspace) {
+        switch action {
+        case .clearSearch:
+            viewModel.searchQuery = ""
+        case .showArchive, .showArchivedMatches:
+            viewModel.searchQuery = ""
+            viewModel.model.setArchiveExpanded(workspaceId: workspace.id, isExpanded: true)
+        case .paste, .addBookmarksMenu:
+            break
+        }
+    }
+
+    private func importPasted(_ text: String) {
+        for item in ClipboardImportParser.parse(text) {
+            switch item {
+            case .task(let title, let done):
+                let id = viewModel.model.addTask(title: title, parentId: nil)
+                if done { viewModel.model.toggleTaskCompletion(id: id) }
+            case .link(let url, let title):
+                viewModel.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
+            case .snippet(let title, let content):
+                viewModel.model.addSnippet(title: title, content: content, language: nil, parentId: nil)
+            }
         }
     }
 

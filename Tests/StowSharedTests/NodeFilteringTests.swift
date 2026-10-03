@@ -104,3 +104,13 @@ final class NodeFilteringTests: XCTestCase {
         XCTAssertEqual(result.count, 0)
     }
 }
+
+final class NodeFilteringArchiveTests: XCTestCase {
+    func testArchivedNodesOnlyMatchWhenIncluded() {
+        var link = Link(id: UUID(), title: "Invoice 2024", url: "https://example.com", faviconPath: nil)
+        link.isArchived = true
+        let nodes: [Node] = [.link(link)]
+        XCTAssertTrue(NodeFiltering.filter(nodes: nodes, query: "invoice").isEmpty)
+        XCTAssertEqual(NodeFiltering.filter(nodes: nodes, query: "invoice", includeArchived: true).count, 1)
+    }
+}

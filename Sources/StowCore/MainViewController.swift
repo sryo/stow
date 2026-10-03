@@ -46,6 +46,20 @@ final class MainViewController: NSViewController {
     private var displayedColorId: WorkspaceColorId = .defaultColor()
     private var appearanceObservation: NSKeyValueObservation?
     private var hasClaimedInitialFocus = false
+    private var lastEmptyStateKind: EmptyStateKind = .none
+    private var lastEmptyStateWorkspaceId: UUID?
+    private var revealArchivedMatches = false
+    private var noMatchesAnnouncement: DispatchWorkItem?
+
+    /// Set once any item has ever been added, so first-launch onboarding never returns.
+    private var hasAddedFirstItem: Bool {
+        get { UserDefaults.standard.bool(forKey: "StowHasAddedFirstItem") }
+        set { UserDefaults.standard.set(newValue, forKey: "StowHasAddedFirstItem") }
+    }
+
+    private static let arcSidebarURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Arc/StorableSidebar.json")
+    private static let hasArcData = FileManager.default.fileExists(atPath: arcSidebarURL.path)
 
     init(model: AppModel) {
         self.model = model
@@ -113,6 +127,10 @@ final class MainViewController: NSViewController {
                 self, selector: #selector(windowDidFirstBecomeKey(_:)),
                 name: NSWindow.didBecomeKeyNotification, object: window
             )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowDidBecomeKey(_:)),
+                name: NSWindow.didBecomeKeyNotification, object: window
+            )
         }
     }
 
@@ -160,6 +178,7 @@ final class MainViewController: NSViewController {
             self?.nodeListViewController.focusList()
         }
         searchField.onTextChange = { [weak self] text in
+            self?.revealArchivedMatches = false
             self?.nodeListViewController.clearSelections()
             self?.searchCoordinator.updateQuery(text)
         }
@@ -246,6 +265,8 @@ final class MainViewController: NSViewController {
             settingsViewController.view.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
             settingsViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
         ])
+
+        wireEmptyState()
 
         // Setup page controller
         pageController.delegate = self
@@ -494,24 +515,61 @@ final class MainViewController: NSViewController {
             let activeItems = workspace.items.filter { !$0.isArchived }
             let archivedItems = workspace.items.filter { $0.isArchived }
             let filteredNodes = searchCoordinator.filter(nodes: activeItems)
-            searchField.resultSummary = searchCoordinator.isSearchActive
-                ? "\(Self.leafCount(filteredNodes)) of \(Self.leafCount(activeItems))"
-                : nil
-            if !filteredNodes.isEmpty {
-                nodeListViewController.emptyState = nil
-            } else if searchCoordinator.isSearchActive {
-                nodeListViewController.emptyState = .noResults(query: searchField.text, isTouch: false)
-            } else {
-                nodeListViewController.emptyState = .emptyWorkspace(name: workspace.name, isTouch: false)
+            let isSearching = searchCoordinator.isSearchActive
+            let archivedMatches = isSearching ? searchCoordinator.filter(nodes: archivedItems, includeArchived: true) : []
+            let activeCount = Self.leafCount(activeItems)
+            let archivedMatchCount = Self.leafCount(archivedMatches)
+            var summary = "\(Self.leafCount(filteredNodes)) of \(activeCount)"
+            if archivedMatchCount > 0 { summary += " · \(archivedMatchCount) archived" }
+            searchField.resultSummary = isSearching ? summary : nil
+
+            if model.workspaces.contains(where: { !$0.items.isEmpty }) && !hasAddedFirstItem {
+                hasAddedFirstItem = true
             }
+            // The archive closes itself once the last item is put back or deleted.
+            if archivedItems.isEmpty && workspace.isArchiveExpanded {
+                model.setArchiveExpanded(workspaceId: workspace.id, isExpanded: false)
+            }
+
+            var kind = EmptyStateKind.resolve(
+                activeCount: activeItems.count,
+                archivedCount: Self.leafCount(archivedItems),
+                query: isSearching ? searchField.text : "",
+                matchedCount: filteredNodes.count,
+                archivedMatchedCount: archivedMatchCount,
+                isArchiveExpanded: workspace.isArchiveExpanded,
+                isFirstLaunch: !hasAddedFirstItem && model.workspaces.count == 1,
+                hasArcData: Self.hasArcData
+            )
+            let showArchivedMatches = isSearching && revealArchivedMatches && archivedMatchCount > 0
+            if showArchivedMatches { kind = .none }
+
+            let sameWorkspace = workspace.id == lastEmptyStateWorkspaceId
+            let wasWelcoming = lastEmptyStateKind == .emptyWorkspace || lastEmptyStateKind.isFirstLaunch
+            if kind == .none && wasWelcoming && sameWorkspace && !activeItems.isEmpty {
+                nodeListViewController.dismissEmptyStateWithLanding()
+            } else {
+                nodeListViewController.showEmptyState(
+                    EmptyStateCopy.make(kind, workspaceName: workspace.name, isTouch: false),
+                    workspaceName: workspace.name,
+                    animated: hasLoaded && sameWorkspace
+                )
+            }
+            if case .noMatches = kind, kind != lastEmptyStateKind { announceNoMatches() }
+            lastEmptyStateKind = kind
+            lastEmptyStateWorkspaceId = workspace.id
+            refreshPasteAvailability()
 
             // Skip node list rebuild if mid-rename to preserve text field focus
             if !isNodeRenaming {
+                let archiveRows: [Node]
+                if case .allArchived = kind { archiveRows = [] } else { archiveRows = showArchivedMatches ? archivedMatches : archivedItems }
                 nodeListViewController.reloadData(
                     with: filteredNodes,
                     forceExpand: forceExpand,
-                    archivedNodes: archivedItems,
-                    isArchiveExpanded: workspace.isArchiveExpanded
+                    archivedNodes: archiveRows,
+                    isArchiveExpanded: showArchivedMatches || workspace.isArchiveExpanded,
+                    showArchiveDuringSearch: showArchivedMatches
                 )
             }
         }
@@ -922,6 +980,79 @@ final class MainViewController: NSViewController {
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
+    private func wireEmptyState() {
+        let empty = nodeListViewController.emptyStateOverlay
+        empty.onAction = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .paste, .addBookmarksMenu:
+                self.importClipboardContent()
+            case .clearSearch:
+                self.clearSearch()
+            case .showArchive:
+                self.model.setArchiveExpanded(workspaceId: self.model.currentWorkspace.id, isExpanded: true)
+            case .showArchivedMatches:
+                self.revealArchivedMatches = true
+                self.reloadData()
+            }
+        }
+        empty.menuProvider = { [weak self] in self?.makeAddBookmarksMenu() ?? NSMenu() }
+        empty.onDropText = { [weak self] text in self?.importText(text) }
+    }
+
+    private func clearSearch() {
+        searchField.text = ""
+        revealArchivedMatches = false
+        searchCoordinator.updateQuery("")
+        nodeListViewController.focusList()
+    }
+
+    private func makeAddBookmarksMenu() -> NSMenu {
+        let menu = NSMenu()
+        let paste = NSMenuItem(title: "Paste", action: #selector(importClipboardContent), keyEquivalent: "v")
+        paste.target = self
+        paste.isEnabled = isPasteAvailable
+        menu.addItem(paste)
+        let arc = NSMenuItem(title: "Import from Arc…", action: #selector(importFromArcFromEmptyState), keyEquivalent: "")
+        arc.target = self
+        menu.addItem(arc)
+        menu.addItem(.separator())
+        for (title, action) in [("New Folder", #selector(menuNewFolder)), ("New Task", #selector(menuNewTask)), ("New Snippet", #selector(menuNewSnippet))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.autoenablesItems = false
+        return menu
+    }
+
+    @objc private func importFromArcFromEmptyState() {
+        settingsViewController.importFromArc()
+    }
+
+    private var isPasteAvailable: Bool {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return false }
+        return !ClipboardImportParser.parse(text).isEmpty
+    }
+
+    private func refreshPasteAvailability() {
+        nodeListViewController.emptyStateOverlay.isPasteAvailable = isPasteAvailable
+    }
+
+    /// Tells VoiceOver once per query, after typing pauses, that nothing matched.
+    private func announceNoMatches() {
+        noMatchesAnnouncement?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, case .noMatches = self.lastEmptyStateKind,
+                  let copy = EmptyStateCopy.make(self.lastEmptyStateKind, workspaceName: self.model.currentWorkspace.name, isTouch: false)
+            else { return }
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: copy.title, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        }
+        noMatchesAnnouncement = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
     @objc private func showNewItemMenu() {
         let menu = NSMenu()
         let entries: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
@@ -951,7 +1082,12 @@ final class MainViewController: NSViewController {
 
     @objc private func importClipboardContent() {
         guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
-        for item in ClipboardImportParser.parse(pasted) {
+        importText(pasted)
+    }
+
+    /// Adds every link, task or snippet found in `text` to the current workspace.
+    private func importText(_ text: String) {
+        for item in ClipboardImportParser.parse(text) {
             switch item {
             case .task(let title, let isCompleted):
                 let id = model.addTask(title: title, parentId: nil)
@@ -1105,9 +1241,7 @@ final class MainViewController: NSViewController {
                 return true
             }
             if searchCoordinator.isSearchActive || isEditingText && searchField.isFocused {
-                searchField.text = ""
-                searchCoordinator.updateQuery("")
-                nodeListViewController.focusList()
+                clearSearch()
                 return true
             }
             return false
@@ -1159,8 +1293,15 @@ final class MainViewController: NSViewController {
         applyBackgroundColor(for: displayedColorId)
     }
 
+    @objc private func windowDidBecomeKey(_ note: Notification) {
+        refreshPasteAvailability()
+    }
+
+    private var hasFocusedListOnFirstKey = false
+
     @objc private func windowDidFirstBecomeKey(_ note: Notification) {
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: note.object)
+        guard !hasFocusedListOnFirstKey else { return }
+        hasFocusedListOnFirstKey = true
         view.window?.makeFirstResponder(nodeListViewController.focusTarget)
     }
 
@@ -1172,6 +1313,10 @@ final class MainViewController: NSViewController {
 
     func toggleJumpMode() {
         guard !model.state.isSettingsSelected else { return }
+        guard nodeListViewController.hasNodeRows else {
+            NSSound.beep()
+            return
+        }
         nodeListViewController.isJumpModeActive.toggle()
     }
 
@@ -1234,6 +1379,7 @@ final class MainViewController: NSViewController {
     }
 
     private func beginSwipeTransition() {
+        nodeListViewController.emptyStateOverlay.settle()
         swipeStartPageIndex = currentPageIndex()
         preloadedPageIndex = nil
         swipeDirection = 0

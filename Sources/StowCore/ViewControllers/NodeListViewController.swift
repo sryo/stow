@@ -240,16 +240,37 @@ final class NodeListViewController: NSViewController {
         ])
     }
 
-    /// Shown over the list when there are no active rows. Nil hides it.
-    var emptyState: EmptyStateCopy? {
-        didSet {
-            emptyStateView.isHidden = emptyState == nil
-            if let emptyState {
-                emptyStateView.colors = listMetrics.colors
-                emptyStateView.show(emptyState)
-            }
+    /// The empty-state view, for wiring its actions and drop handling.
+    var emptyStateOverlay: EmptyStateView { emptyStateView }
+
+    private var isDismissingEmptyState = false
+
+    /// Shows the empty state over the list, or hides it when `copy` is nil.
+    func showEmptyState(_ copy: EmptyStateCopy?, workspaceName: String, animated: Bool) {
+        if let copy {
+            isDismissingEmptyState = false
+            emptyStateView.colors = listMetrics.colors
+            emptyStateView.show(copy, workspaceName: workspaceName, animated: animated)
+            emptyStateView.isHidden = false
+        } else if !emptyStateView.isHidden && !isDismissingEmptyState {
+            emptyStateView.isHidden = true
+            emptyStateView.reset()
         }
     }
+
+    /// Plays the first-item moment on the visible empty state, then hides it.
+    func dismissEmptyStateWithLanding() {
+        guard !emptyStateView.isHidden, !isDismissingEmptyState else { return }
+        isDismissingEmptyState = true
+        emptyStateView.playLandingAndDismiss { [weak self] in
+            guard let self, self.isDismissingEmptyState else { return }
+            self.isDismissingEmptyState = false
+            self.emptyStateView.isHidden = true
+            self.emptyStateView.reset()
+        }
+    }
+
+    var hasNodeRows: Bool { visibleRows.contains { $0.node != nil } }
 
     private func setupShadowViews() {
         let shadowHeight = ThemeConstants.Sizing.scrollShadowHeight
@@ -328,11 +349,12 @@ final class NodeListViewController: NSViewController {
     // MARK: - Public Methods
 
     /// Reloads the collection view with new visible rows
-    func reloadData(with nodes: [Node], forceExpand: Bool, animated: Bool = true, archivedNodes: [Node] = [], isArchiveExpanded: Bool = false) {
+    func reloadData(with nodes: [Node], forceExpand: Bool, animated: Bool = true, archivedNodes: [Node] = [],
+                    isArchiveExpanded: Bool = false, showArchiveDuringSearch: Bool = false) {
         var newRows = buildVisibleRows(nodes: nodes, depth: 0, forceExpand: forceExpand)
 
         // Append archive section if there are archived items and not searching
-        if !archivedNodes.isEmpty && !isSearchActive {
+        if !archivedNodes.isEmpty && (!isSearchActive || showArchiveDuringSearch) {
             newRows.append(NodeListRow(archiveHeaderCount: archivedNodes.count, isExpanded: isArchiveExpanded))
             if isArchiveExpanded {
                 newRows.append(contentsOf: buildArchivedRows(nodes: archivedNodes, depth: 0))
@@ -748,6 +770,12 @@ final class NodeListViewController: NSViewController {
     /// Handles a key pressed while the list has focus. Returns true when consumed.
     func handleListKey(_ event: NSEvent) -> Bool {
         guard inlineRenameNodeId == nil else { return false }
+        // With nothing to navigate, Down and Tab move to the empty state's action.
+        if !hasNodeRows, [125, 48].contains(event.keyCode), !emptyStateView.isHidden,
+           emptyStateView.actionView.acceptsFirstResponder {
+            view.window?.makeFirstResponder(emptyStateView.actionView)
+            return true
+        }
         if !isKeyboardNavigating {
             isKeyboardNavigating = true
             if keyboardCursorId == nil || cursorIndex == nil {
