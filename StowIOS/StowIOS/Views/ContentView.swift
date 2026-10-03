@@ -35,7 +35,7 @@ struct ContentView: View {
                         let name = viewModel.newWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
                         viewModel.newWorkspaceName = ""
                         if !name.isEmpty {
-                            let id = viewModel.model.createWorkspace(name: name, colorId: .randomColor())
+                            let id = viewModel.model.createWorkspace(name: name)
                             viewModel.selectedWorkspaceId = id
                         }
                     }

@@ -111,7 +111,7 @@ struct WorkspaceOverviewSheet: View {
 
                         // "New Workspace" card
                         Button {
-                            let id = viewModel.model.createWorkspace(name: "Untitled", colorId: .randomColor())
+                            let id = viewModel.model.createWorkspace(name: "Untitled")
                             viewModel.selectedWorkspaceId = id
                             dismiss()
                         } label: {

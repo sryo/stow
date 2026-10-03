@@ -123,7 +123,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func createWorkspace(name: String) {
-        model.createWorkspace(name: name, colorId: .randomColor())
+        model.createWorkspace(name: name)
     }
 
     func deleteWorkspace(id: UUID) {
