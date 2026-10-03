@@ -19,7 +19,6 @@ final class MainViewController: NSViewController {
     /// In rail mode the strip collapses to one chip for the current workspace.
     private let railWorkspaceChip = NSButton()
     private let railView = RailView()
-    private var railOpenTimer: Timer?
     private var elasticMode: ElasticMode = .sidebar
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
     /// so its constraints are switched off whenever Settings isn't showing.
@@ -28,8 +27,11 @@ final class MainViewController: NSViewController {
     }
     private let titleAddButton = NSButton()
     private let searchField = SearchBarView(style: .defaultSearch)
-    private let newButton = IconTitleButton(title: "New", symbolName: "plus", style: .toolbar)
-    private let pasteButton = IconTitleButton(title: "Paste", symbolName: "doc.on.clipboard", style: .toolbar)
+    private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S")
+    private let pasteButton = FooterButton(title: "Paste")
+    /// Polls open browser tabs for the rail's and the list's open dots while visible.
+    private var openTabsTimer: Timer?
+    private var isPollingOpenTabs = false
 
     // Page navigation
     private let pageController = ScrollWheelPageController()
@@ -142,6 +144,7 @@ final class MainViewController: NSViewController {
         // Plain a-z key monitor for item activation
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            if self.handleStowTabKey(event) { return nil }
             if self.handleCommandHoldKey(event) { return nil }
             if self.handlePlainKeyEvent(event) { return nil }
             return event
@@ -159,6 +162,7 @@ final class MainViewController: NSViewController {
         }
         updatePageWidth()
         pageController.jumpToPage(currentPageIndex())
+        updateOpenTabsPolling()
         // Start with the list focused, not the search field. AppKit picks the first key
         // view when the window first becomes key, so take focus back once that happens.
         if let window = view.window, !hasClaimedInitialFocus {
@@ -183,6 +187,7 @@ final class MainViewController: NSViewController {
         super.viewDidLayout()
         updatePageWidth()
         applyElasticMode(ElasticMode.forWidth(view.bounds.width))
+        updateFooterFit()
     }
 
     // MARK: - Setup
@@ -210,7 +215,7 @@ final class MainViewController: NSViewController {
         }
         for (button, symbol, label, action) in [
             (titleSettingsButton, "gearshape", "Settings", #selector(titleSettingsTapped)),
-            (titleAddButton, "plus", "New Workspace", #selector(titleAddTapped)),
+            (titleAddButton, "plus", "New", #selector(showNewItemMenu)),
         ] {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.isBordered = false
@@ -224,7 +229,8 @@ final class MainViewController: NSViewController {
             button.layer?.cornerRadius = 6
         }
         titleSettingsButton.toolTip = "Settings (⌘,)"
-        titleAddButton.toolTip = "New Workspace (⌘N)"
+        titleAddButton.toolTip = "New folder, task, snippet or workspace"
+        titleAddButton.setAccessibilityLabel("New")
         workspaceSwitcher.onWorkspaceRename = { [weak self] workspaceId, newName in
             self?.model.renameWorkspace(id: workspaceId, newName: newName)
         }
@@ -232,7 +238,7 @@ final class MainViewController: NSViewController {
 
         // Search field
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholder = "Search…"
+        searchField.placeholder = "Search"
         searchField.onMoveDown = { [weak self] in
             self?.nodeListViewController.focusList()
         }
@@ -248,10 +254,10 @@ final class MainViewController: NSViewController {
         pasteButton.action = #selector(importClipboardContent)
         pasteButton.toolTip = "Paste links, tasks or text from the clipboard (⌘V)"
 
-        newButton.translatesAutoresizingMaskIntoConstraints = false
-        newButton.target = self
-        newButton.action = #selector(showNewItemMenu)
-        newButton.toolTip = "New folder, task, snippet or workspace"
+        stowTabButton.translatesAutoresizingMaskIntoConstraints = false
+        stowTabButton.target = self
+        stowTabButton.action = #selector(stowTabTapped)
+        stowTabButton.toolTip = "Save the front tab of the browser you were last in (⌥⌘S)"
 
         // Node list view
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -264,8 +270,9 @@ final class MainViewController: NSViewController {
         // Build content stack (search + nodeList + paste)
         let bottomBar = NSView()
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
-        bottomBar.addSubview(newButton)
+        bottomBar.addSubview(stowTabButton)
         bottomBar.addSubview(pasteButton)
+        self.bottomBar = bottomBar
 
         contentStack.orientation = .vertical
         contentStack.spacing = 6
@@ -274,6 +281,8 @@ final class MainViewController: NSViewController {
         contentStack.addArrangedSubview(searchField)
         contentStack.addArrangedSubview(nodeListViewController.view)
         contentStack.addArrangedSubview(bottomBar)
+        // Search, then 10pt to the list, then 6pt to the footer, as in the mockup.
+        contentStack.setCustomSpacing(10, after: searchField)
 
         // Top bar layout
         topBar.translatesAutoresizingMaskIntoConstraints = false
@@ -293,20 +302,21 @@ final class MainViewController: NSViewController {
         let pad = LayoutConstants.windowPadding
 
         NSLayoutConstraint.activate([
-            newButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
-            newButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
-            newButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+            stowTabButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
+            stowTabButton.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
             pasteButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor),
-            pasteButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
-            pasteButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+            pasteButton.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
+            pasteButton.leadingAnchor.constraint(greaterThanOrEqualTo: stowTabButton.trailingAnchor, constant: 4),
 
             bottomBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
 
-            searchField.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 2),
-            searchField.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -2),
+            searchField.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            searchField.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            // Rows sit 6pt from the panel edge, 2pt outside the search field.
+            nodeListViewController.view.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: 4),
 
-            bottomBar.heightAnchor.constraint(equalToConstant: pasteButton.style.height),
+            bottomBar.heightAnchor.constraint(equalToConstant: 30),
 
             workspaceSwitcher.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
             workspaceSwitcher.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
@@ -332,7 +342,7 @@ final class MainViewController: NSViewController {
             contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
             contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
             contentStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6),
-            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
+            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
 
             // Settings view pinned to same content area
             settingsViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
@@ -503,6 +513,10 @@ final class MainViewController: NSViewController {
 
         nodeListViewController.onNewTaskRequested = { [weak self] parentId in
             self?.createTaskAndBeginRename(parentId: parentId)
+        }
+
+        nodeListViewController.onNewWorkspaceRequested = { [weak self] in
+            self?.promptCreateWorkspace()
         }
 
         nodeListViewController.onNewSnippetRequested = { [weak self] parentId in
@@ -695,7 +709,7 @@ final class MainViewController: NSViewController {
         updateSettingsConstraints()
         updateRailChip()
         pasteButton.colors = colors
-        newButton.colors = colors
+        stowTabButton.colors = colors
     }
 
     private func observeAppearanceChanges() {
@@ -1167,8 +1181,8 @@ final class MainViewController: NSViewController {
         searchField.isHidden = rail
         titleSettingsButton.isHidden = rail
         titleAddButton.isHidden = rail
-        newButton.titleText = rail ? "" : "New"
         pasteButton.isHidden = rail
+        updateFooterFit()
         nodeListViewController.elasticMode = mode
         updateSettingsConstraints()
         updateRailChip()
@@ -1192,14 +1206,21 @@ final class MainViewController: NSViewController {
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             view.window?.standardWindowButton(kind)?.isHidden = showRail
         }
-        if showRail, railOpenTimer == nil {
-            railOpenTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshRailOpenTabs() }
+        updateOpenTabsPolling()
+    }
+
+    /// Open dots need the browsers' tab lists. They're read every 5s off the main thread,
+    /// only while a workspace (rail, list, sidebar or mosaic) is showing.
+    private func updateOpenTabsPolling() {
+        let wanted = !model.state.isSettingsSelected && view.window != nil
+        if wanted, openTabsTimer == nil {
+            openTabsTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshOpenTabs() }
             }
-            refreshRailOpenTabs()
-        } else if !showRail {
-            railOpenTimer?.invalidate()
-            railOpenTimer = nil
+            refreshOpenTabs()
+        } else if !wanted {
+            openTabsTimer?.invalidate()
+            openTabsTimer = nil
         }
     }
 
@@ -1221,10 +1242,27 @@ final class MainViewController: NSViewController {
         }
     }
 
-    private func refreshRailOpenTabs() {
+    private func refreshOpenTabs() {
+        guard !isPollingOpenTabs, let window = view.window, window.occlusionState.contains(.visible),
+              model.currentWorkspace.items.contains(where: { !$0.isArchived }) else { return }
+        #if DEBUG
+        // STOW_OPEN_TABS (comma-separated URLs) stands in for the browsers, for screenshots.
+        if let seeded = ProcessInfo.processInfo.environment["STOW_OPEN_TABS"] {
+            let keys = Set(seeded.split(separator: ",").compactMap { URL(string: String($0)) }.map(BrowserTabService.canonicalize))
+            railView.setOpenKeys(keys)
+            nodeListViewController.openKeys = keys
+            return
+        }
+        #endif
+        isPollingOpenTabs = true
         Task.detached(priority: .utility) { [weak self] in
             let keys = Set(await BrowserTabService.tabsByCanonicalURL().keys)
-            await MainActor.run { self?.railView.setOpenKeys(keys) }
+            await MainActor.run {
+                guard let self else { return }
+                self.isPollingOpenTabs = false
+                self.railView.setOpenKeys(keys)
+                self.nodeListViewController.openKeys = keys
+            }
         }
     }
 
@@ -1247,6 +1285,21 @@ final class MainViewController: NSViewController {
         }
         railView.onStowTab = { [weak self] in self?.stowFrontTab() }
     }
+
+    @objc private func stowTabTapped() {
+        stowFrontTab()
+    }
+
+    /// Drops the keycap from "+ Stow this tab" when the footer is too narrow for it and
+    /// Paste, rather than clipping Paste.
+    private func updateFooterFit() {
+        guard let bottomBar else { return }
+        stowTabButton.showsKeycap = true
+        let needed = stowTabButton.fittingSize.width + 4 + pasteButton.fittingSize.width
+        stowTabButton.showsKeycap = needed <= bottomBar.bounds.width || bottomBar.bounds.width == 0
+    }
+
+    private var bottomBar: NSView?
 
     /// Saves the front tab of the browser the user was last in to the current workspace.
     private func stowFrontTab() {
@@ -1355,7 +1408,7 @@ final class MainViewController: NSViewController {
         workspace.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
         workspace.target = self
         menu.addItem(workspace)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: newButton.bounds.height + 4), in: newButton)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: titleAddButton.bounds.height + 4), in: titleAddButton)
     }
 
     @objc private func menuNewFolder() { createFolderAndBeginRename(parentId: nil) }
@@ -1557,8 +1610,7 @@ final class MainViewController: NSViewController {
 
     /// Shows keycaps on every control that has a shortcut while ⌘ is held.
     private func setShortcutHintsVisible(_ visible: Bool) {
-        pasteButton.shortcutHint = visible ? "⌘V" : nil
-        newButton.shortcutHint = visible ? "⇧⌘N" : nil
+        pasteButton.keycapText = visible ? "⌘V" : nil
         workspaceSwitcher.showsShortcutHints = visible
         searchField.showsShortcutHint = visible
     }
@@ -1581,6 +1633,15 @@ final class MainViewController: NSViewController {
         }
         endCommandHold()
         activateRow(at: index)
+        return true
+    }
+
+    /// ⌥⌘S stows the front browser tab, matching the footer button's keycap.
+    private func handleStowTabKey(_ event: NSEvent) -> Bool {
+        guard event.window === view.window, !model.state.isSettingsSelected,
+              event.modifierFlags.intersection([.command, .option, .shift, .control]) == [.command, .option],
+              event.keyCode == 1 else { return false }
+        stowFrontTab()
         return true
     }
 
@@ -1656,6 +1717,7 @@ final class MainViewController: NSViewController {
 
     @objc private func windowDidBecomeKey(_ note: Notification) {
         refreshPasteAvailability()
+        refreshOpenTabs()
     }
 
     @objc private func windowDidResignKey(_ note: Notification) {

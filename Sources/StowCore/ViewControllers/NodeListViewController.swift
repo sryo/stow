@@ -6,6 +6,9 @@
 import AppKit
 
 private let archiveHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!
+private let linksHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFF1")!
+private let tasksHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFF2")!
+private let snippetsHeaderUUID = UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFF3")!
 private let archivedNamespaceUUID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
 
 /// Creates a deterministic UUID for an archived row by XOR-ing the node UUID with a fixed namespace.
@@ -39,7 +42,14 @@ final class NodeListViewController: NSViewController {
     private let topShadowView = NSView()
     private let bottomShadowView = NSView()
 
-    private var visibleRows: [NodeListRow] = []
+    private var visibleRows: [NodeListRow] = [] {
+        didSet { elasticLayout?.shapes = visibleRows.map(shape(for:)) }
+    }
+    private var elasticLayout: ElasticLayout? { collectionView.collectionViewLayout as? ElasticLayout }
+    /// The last data handed to `reloadData`, so a width change can rebuild the rows.
+    private var lastInput: ReloadInput?
+    /// At list width, tasks and snippets fold into counted rows that expand in place.
+    private var expandedListSections: Set<NodeSection> = []
     private var contextIndexPath: IndexPath?
     private var isDraggingItems = false
     private var pendingInsertedIds: Set<UUID> = []
@@ -86,6 +96,7 @@ final class NodeListViewController: NSViewController {
     var onNodeUnarchived: ((UUID) -> Void)?
     var onNodePermanentlyDeleted: ((UUID) -> Void)?
     var onArchiveToggled: ((Bool) -> Void)?
+    var onNewWorkspaceRequested: (() -> Void)?
 
     // Current workspace provider (for filtering "Move to" menu)
     var currentWorkspaceIdProvider: (() -> UUID?)?
@@ -115,8 +126,22 @@ final class NodeListViewController: NSViewController {
         didSet {
             guard elasticMode != oldValue else { return }
             listMetrics.mode = elasticMode
-            (collectionView.collectionViewLayout as? ListFlowLayout)?.update(metrics: listMetrics)
+            elasticLayout?.mode = elasticMode
+            elasticLayout?.rowHeight = listMetrics.rowHeight
+            if let lastInput {
+                visibleRows = buildRows(lastInput)
+            } else {
+                elasticLayout?.shapes = visibleRows.map(shape(for:))
+            }
             collectionView.reloadData()
+        }
+    }
+
+    /// Canonical URLs of tabs open in any browser, for the open dot beside links.
+    var openKeys: Set<String> = [] {
+        didSet {
+            guard openKeys != oldValue else { return }
+            reconfigureVisibleItems()
         }
     }
 
@@ -134,13 +159,26 @@ final class NodeListViewController: NSViewController {
     /// Letters assigned to rows in order while jump mode is on.
     var jumpLetters: [Character] = Array("abcdefghijklmnopqrstuvwxyz")
 
+    /// Rows that get jump letters: items, not section labels or mosaic group labels.
+    private var jumpableIndices: [Int] {
+        visibleRows.indices.filter { i in
+            let row = visibleRows[i]
+            guard case .regular = row.kind, let node = row.node else { return false }
+            if elasticMode == .mosaic, case .folder = node { return false }
+            return true
+        }
+    }
+
     private func jumpLetter(at item: Int) -> String? {
-        item < jumpLetters.count ? String(jumpLetters[item]) : nil
+        guard let ordinal = jumpableIndices.firstIndex(of: item), ordinal < jumpLetters.count else { return nil }
+        return String(jumpLetters[ordinal])
     }
 
     /// The row index a jump letter points at, if any.
     func rowIndex(forJumpLetter letter: Character) -> Int? {
-        jumpLetters.firstIndex(of: letter)
+        guard let ordinal = jumpLetters.firstIndex(of: letter) else { return nil }
+        let indices = jumpableIndices
+        return ordinal < indices.count ? indices[ordinal] : nil
     }
 
     /// While true, rows show a–z jump letters and plain letter keys activate rows.
@@ -207,7 +245,11 @@ final class NodeListViewController: NSViewController {
         collectionView.isSelectable = true
         collectionView.wantsLayer = true
         collectionView.backgroundColors = [.clear]
-        collectionView.collectionViewLayout = ListFlowLayout(metrics: listMetrics)
+        let layout = ElasticLayout()
+        layout.mode = listMetrics.mode
+        layout.rowHeight = listMetrics.rowHeight
+        collectionView.collectionViewLayout = layout
+        collectionView.register(SectionHeaderItem.self, forItemWithIdentifier: SectionHeaderItem.identifier)
         collectionView.register(NodeCollectionViewItem.self, forItemWithIdentifier: NodeCollectionViewItem.identifier)
         collectionView.register(NodeTileItem.self, forItemWithIdentifier: NodeTileItem.identifier)
         collectionView.register(ArchiveHeaderItem.self, forItemWithIdentifier: ArchiveHeaderItem.identifier)
@@ -373,15 +415,15 @@ final class NodeListViewController: NSViewController {
     /// Reloads the collection view with new visible rows
     func reloadData(with nodes: [Node], forceExpand: Bool, animated: Bool = true, archivedNodes: [Node] = [],
                     isArchiveExpanded: Bool = false, showArchiveDuringSearch: Bool = false) {
-        var newRows = buildVisibleRows(nodes: nodes, depth: 0, forceExpand: forceExpand)
-
-        // Append archive section if there are archived items and not searching
-        if !archivedNodes.isEmpty && (!isSearchActive || showArchiveDuringSearch) {
-            newRows.append(NodeListRow(archiveHeaderCount: archivedNodes.count, isExpanded: isArchiveExpanded))
-            if isArchiveExpanded {
-                newRows.append(contentsOf: buildArchivedRows(nodes: archivedNodes, depth: 0))
-            }
+        let input = ReloadInput(nodes: nodes, forceExpand: forceExpand, archivedNodes: archivedNodes,
+                                isArchiveExpanded: isArchiveExpanded, showArchiveDuringSearch: showArchiveDuringSearch)
+        lastInput = input
+        // A new task or snippet about to be renamed opens its folded section at list width.
+        if let pending = pendingInlineRenameId, let node = nodes.first(where: { $0.id == pending }) {
+            if case .task = node { expandedListSections.insert(.tasks) }
+            if case .snippet = node { expandedListSections.insert(.snippets) }
         }
+        let newRows = buildRows(input)
 
         if !animated {
             visibleRows = newRows
@@ -391,6 +433,112 @@ final class NodeListViewController: NSViewController {
 
         applyVisibleRows(newRows)
         handlePendingInlineRename()
+    }
+
+    /// Links and folders first, then a Tasks section, then Snippets, then the archive.
+    /// In the mosaic each folder becomes a labeled group of tiles and loose links get
+    /// their own group. At list width tasks and snippets fold into counted rows.
+    private func buildRows(_ input: ReloadInput) -> [NodeListRow] {
+        let tree = input.nodes.filter { node in
+            switch node { case .task, .snippet: return false; default: return true }
+        }
+        let tasks = input.nodes.filter { if case .task = $0 { return true }; return false }
+        let snippets = input.nodes.filter { if case .snippet = $0 { return true }; return false }
+        var rows: [NodeListRow] = []
+
+        if elasticMode == .mosaic {
+            let looseLinks = tree.filter { if case .link = $0 { return true }; return false }
+            if !looseLinks.isEmpty {
+                rows.append(NodeListRow(section: .links, meta: "\(looseLinks.count)", isExpanded: true))
+                rows.append(contentsOf: looseLinks.map { NodeListRow(node: $0, depth: 0) })
+            }
+            for node in tree {
+                if case .folder(let folder) = node { appendMosaicGroup(folder, path: [], into: &rows) }
+            }
+        } else {
+            rows = buildVisibleRows(nodes: tree, depth: 0, forceExpand: input.forceExpand)
+        }
+
+        func appendSection(_ section: NodeSection, _ nodes: [Node], meta: String) {
+            guard !nodes.isEmpty else { return }
+            let expanded = elasticMode != .list || isSearchActive || expandedListSections.contains(section)
+            rows.append(NodeListRow(section: section, meta: meta, isExpanded: expanded))
+            if expanded {
+                rows.append(contentsOf: nodes.map { NodeListRow(node: $0, depth: 0, section: section) })
+            }
+        }
+        let openTasks = tasks.filter { if case .task(let t) = $0 { return !t.isCompleted }; return false }.count
+        appendSection(.tasks, tasks, meta: "\(openTasks) open")
+        appendSection(.snippets, snippets, meta: "\(snippets.count)")
+
+        if !input.archivedNodes.isEmpty && (!isSearchActive || input.showArchiveDuringSearch) {
+            rows.append(NodeListRow(archiveHeaderCount: input.archivedNodes.count, isExpanded: input.isArchiveExpanded))
+            if input.isArchiveExpanded {
+                rows.append(contentsOf: buildArchivedRows(nodes: input.archivedNodes, depth: 0))
+            }
+        }
+        return rows
+    }
+
+    /// A folder's label, its items as tiles, then each subfolder as its own group.
+    private func appendMosaicGroup(_ folder: Folder, path: [String], into rows: inout [NodeListRow]) {
+        let fullPath = path + [folder.name]
+        rows.append(NodeListRow(node: .folder(folder), depth: 0, groupTitle: fullPath.joined(separator: " › ")))
+        for child in folder.children {
+            if case .folder = child { continue }
+            rows.append(NodeListRow(node: child, depth: 1))
+        }
+        for child in folder.children {
+            if case .folder(let sub) = child { appendMosaicGroup(sub, path: fullPath, into: &rows) }
+        }
+    }
+
+    private func shape(for row: NodeListRow) -> ElasticLayout.Shape {
+        switch row.kind {
+        case .sectionHeader: return .sectionHeader
+        case .archiveHeader: return .row
+        case .regular, .archived:
+            guard elasticMode == .mosaic, let node = row.node else { return .row }
+            switch node {
+            case .folder:
+                if case .regular = row.kind { return .groupHeader }
+                return .linkTile
+            case .link: return .linkTile
+            case .task: return .taskTile
+            case .snippet: return .snippetTile
+            }
+        }
+    }
+
+    /// Which cell class draws a row.
+    private func itemIdentifier(for row: NodeListRow) -> NSUserInterfaceItemIdentifier {
+        switch row.kind {
+        case .archiveHeader: return ArchiveHeaderItem.identifier
+        case .sectionHeader: return SectionHeaderItem.identifier
+        case .regular, .archived:
+            guard elasticMode == .mosaic else { return NodeCollectionViewItem.identifier }
+            return shape(for: row) == .groupHeader ? SectionHeaderItem.identifier : NodeTileItem.identifier
+        }
+    }
+
+    /// Section labels and mosaic group labels are passed over by the keyboard; the
+    /// counted rows at list width can be focused and opened.
+    private func isFocusable(_ row: NodeListRow) -> Bool {
+        switch row.kind {
+        case .sectionHeader: return elasticMode == .list
+        case .archiveHeader, .archived: return true
+        case .regular: return shape(for: row) != .groupHeader
+        }
+    }
+
+    private func toggleListSection(_ section: NodeSection) {
+        if expandedListSections.contains(section) {
+            expandedListSections.remove(section)
+        } else {
+            expandedListSections.insert(section)
+        }
+        guard let lastInput else { return }
+        applyVisibleRows(buildRows(lastInput))
     }
 
     /// Recursively builds rows for archived nodes, expanding folders that are marked expanded
@@ -733,7 +881,7 @@ final class NodeListViewController: NSViewController {
         view.window?.makeFirstResponder(collectionView)
         isKeyboardNavigating = true
         if keyboardCursorId == nil || cursorIndex == nil {
-            keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+            keyboardCursorId = visibleRows.first(where: { $0.node != nil && isFocusable($0) })?.id
         }
         updateKeyboardCursorVisuals()
     }
@@ -748,7 +896,7 @@ final class NodeListViewController: NSViewController {
 
     func listFocusChanged() {
         if listHasFocus && keyboardCursorId == nil {
-            keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+            keyboardCursorId = visibleRows.first(where: { $0.node != nil && isFocusable($0) })?.id
         }
         updateKeyboardCursorVisuals()
     }
@@ -770,7 +918,15 @@ final class NodeListViewController: NSViewController {
 
     private func moveCursor(to index: Int) {
         guard !visibleRows.isEmpty else { return }
-        let clamped = min(max(index, 0), visibleRows.count - 1)
+        var clamped = min(max(index, 0), visibleRows.count - 1)
+        // Step past labels in the direction of travel, or back if there's nothing beyond.
+        let forward = index >= (cursorIndex ?? -1)
+        if !isFocusable(visibleRows[clamped]) {
+            let ahead = forward ? Array(clamped..<visibleRows.count) : Array((0...clamped).reversed())
+            let behind = forward ? Array((0...clamped).reversed()) : Array(clamped..<visibleRows.count)
+            guard let target = (ahead + behind).first(where: { isFocusable(visibleRows[$0]) }) else { return }
+            clamped = target
+        }
         keyboardCursorId = visibleRows[clamped].id
         let indexPath = IndexPath(item: clamped, section: 0)
         collectionView.scrollToItems(at: [indexPath], scrollPosition: .nearestHorizontalEdge)
@@ -801,7 +957,7 @@ final class NodeListViewController: NSViewController {
         if !isKeyboardNavigating {
             isKeyboardNavigating = true
             if keyboardCursorId == nil || cursorIndex == nil {
-                keyboardCursorId = visibleRows.first(where: { $0.node != nil })?.id
+                keyboardCursorId = visibleRows.first(where: { $0.node != nil && isFocusable($0) })?.id
             }
             updateKeyboardCursorVisuals()
             // The first arrow press only reveals where the cursor is.
@@ -832,6 +988,8 @@ final class NodeListViewController: NSViewController {
                 moveCursor(to: parent)
             } else if case .archiveHeader(_, true) = row.kind {
                 onArchiveToggled?(false)
+            } else if case .sectionHeader(let section, _, true) = row.kind, elasticMode == .list {
+                toggleListSection(section)
             }
         case (124, []): // right: expand, or go to first child
             guard let index, let row else { return true }
@@ -843,12 +1001,16 @@ final class NodeListViewController: NSViewController {
                 }
             } else if case .archiveHeader(_, false) = row.kind {
                 onArchiveToggled?(true)
+            } else if case .sectionHeader(let section, _, false) = row.kind, elasticMode == .list {
+                toggleListSection(section)
             }
 
         case (36, []), (76, []): // return, enter
             guard let row else { return true }
             if case .archiveHeader(_, let isExpanded) = row.kind {
                 onArchiveToggled?(!isExpanded)
+            } else if case .sectionHeader(let section, _, _) = row.kind {
+                if elasticMode == .list { toggleListSection(section) }
             } else if case .archived = row.kind {
                 return true
             } else if let node = row.node {
@@ -925,6 +1087,10 @@ final class NodeListViewController: NSViewController {
         var depth = 0
         var y: CGFloat = listMetrics.verticalGap / 2
 
+        if elasticMode == .mosaic, indexPath.item < visibleRows.count,
+           let frame = frameForItem(at: indexPath), frame.width < collectionView.bounds.width * 0.9 {
+            return NSRect(x: frame.minX - 5, y: frame.minY, width: lineHeight, height: frame.height)
+        }
         if indexPath.item < visibleRows.count,
            let frame = frameForItem(at: indexPath) {
             depth = visibleRows[indexPath.item].depth
@@ -966,13 +1132,7 @@ extension NodeListViewController: NSCollectionViewDataSource {
         guard let row = row(at: indexPath) else {
             return collectionView.makeItem(withIdentifier: NodeCollectionViewItem.identifier, for: indexPath)
         }
-        let identifier: NSUserInterfaceItemIdentifier
-        if case .archiveHeader = row.kind {
-            identifier = ArchiveHeaderItem.identifier
-        } else {
-            identifier = listMetrics.mode == .mosaic ? NodeTileItem.identifier : NodeCollectionViewItem.identifier
-        }
-        let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath)
+        let item = collectionView.makeItem(withIdentifier: itemIdentifier(for: row), for: indexPath)
         return configure(item, at: indexPath)
     }
 }
@@ -984,9 +1144,19 @@ extension NodeListViewController {
         for item in collectionView.visibleItems() {
             guard let indexPath = collectionView.indexPath(for: item),
                   let row = row(at: indexPath) else { continue }
-            let isHeader: Bool
-            if case .archiveHeader = row.kind { isHeader = true } else { isHeader = false }
-            guard isHeader == (item is ArchiveHeaderItem) else { continue }
+            let expected = itemIdentifier(for: row)
+            let matches: Bool
+            switch expected {
+            case ArchiveHeaderItem.identifier: matches = item is ArchiveHeaderItem
+            case SectionHeaderItem.identifier: matches = item is SectionHeaderItem
+            case NodeTileItem.identifier: matches = item is NodeTileItem
+            default: matches = item is NodeCollectionViewItem
+            }
+            guard matches else {
+                // The row changed shape (e.g. a width change); redraw it with the right cell.
+                collectionView.reloadItems(at: [indexPath])
+                continue
+            }
             _ = configure(item, at: indexPath)
         }
     }
@@ -1005,6 +1175,30 @@ extension NodeListViewController {
             return item
         }
 
+        if case .sectionHeader(let section, let meta, let isExpanded) = row.kind {
+            if let header = item as? SectionHeaderItem {
+                let title: String
+                let symbol: String
+                switch section {
+                case .links: title = "Links"; symbol = "link"
+                case .tasks: title = "Tasks"; symbol = "checkmark.square"
+                case .snippets: title = "Snippets"; symbol = "chevron.left.forwardslash.chevron.right"
+                }
+                let style: SectionHeaderItem.Style = elasticMode == .list ? .countedRow : .label
+                header.configure(style: style, title: title, meta: meta, symbol: style == .countedRow ? symbol : nil,
+                                 isExpanded: isExpanded, metrics: listMetrics,
+                                 horizontalInset: elasticMode == .mosaic ? 0 : 8)
+                header.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
+            }
+            return item
+        }
+
+        if let header = item as? SectionHeaderItem, case .folder(let folder)? = row.node {
+            header.configure(style: .folderGroup, title: row.groupTitle ?? folder.name, meta: "\(folder.children.count)",
+                             symbol: "folder", isExpanded: true, metrics: listMetrics, horizontalInset: 0)
+            return item
+        }
+
         guard item is NodeCollectionViewItem || item is NodeTileItem else { return item }
         guard let node = row.node else { return item }
 
@@ -1014,6 +1208,8 @@ extension NodeListViewController {
 
         let kind: NodeRowContent.Kind
         let title: String
+        var isOpen = false
+        var codePreview: String?
         var shouldFetchFavicon: URL?
         switch node {
         case .folder(let folder):
@@ -1030,17 +1226,22 @@ extension NodeListViewController {
             }
             title = link.title
             kind = .link(favicon: favicon, domain: link.displayDomain)
+            if !openKeys.isEmpty, let url = URL(string: link.url) {
+                isOpen = openKeys.contains(BrowserTabService.canonicalize(url))
+            }
         case .task(let task):
             title = task.title
             kind = .task(isCompleted: task.isCompleted, dueDate: task.dueDate)
         case .snippet(let snippet):
             title = snippet.title
             kind = .snippet(language: snippet.language)
+            codePreview = snippet.content
         }
+        let content = NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived,
+                                     isOpen: isOpen, codePreview: codePreview)
 
         if let tileItem = item as? NodeTileItem {
-            tileItem.configure(content: NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived),
-                               metrics: listMetrics, isSelected: isSelected)
+            tileItem.configure(content: content, metrics: listMetrics, isSelected: isSelected)
             tileItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
             if let url = shouldFetchFavicon, case .link(let link) = node {
                 FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
@@ -1067,7 +1268,7 @@ extension NodeListViewController {
         }
 
         nodeItem.configure(
-            content: NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived),
+            content: content,
             metrics: listMetrics,
             isSelected: isSelected,
             showSlotAction: slotAction != nil,
@@ -1176,10 +1377,10 @@ extension NodeListViewController: NSCollectionViewDelegate {
         for indexPath in indexPaths {
             if let row = row(at: indexPath) {
                 switch row.kind {
-                case .archiveHeader, .archived:
+                case .archiveHeader, .archived, .sectionHeader:
                     return false
                 case .regular:
-                    break
+                    if shape(for: row) == .groupHeader { return false }
                 }
             }
         }
@@ -1194,6 +1395,18 @@ extension NodeListViewController: NSCollectionViewDelegate {
         if case .archiveHeader(_, let isExpanded) = row.kind {
             collectionView.deselectItems(at: indexPaths)
             onArchiveToggled?(!isExpanded)
+            return
+        }
+        if case .sectionHeader(let section, _, _) = row.kind {
+            collectionView.deselectItems(at: indexPaths)
+            if elasticMode == .list {
+                keyboardCursorId = row.id
+                toggleListSection(section)
+            }
+            return
+        }
+        if shape(for: row) == .groupHeader {
+            collectionView.deselectItems(at: indexPaths)
             return
         }
 
@@ -1240,6 +1453,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
         // Don't allow dragging archive header or archived items
         if case .archived = row.kind { return nil }
         if case .archiveHeader = row.kind { return nil }
+        if shape(for: row) == .groupHeader { return nil }
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString(node.id.uuidString, forType: nodePasteboardType)
         return pasteboardItem
@@ -1270,7 +1484,13 @@ extension NodeListViewController: NSCollectionViewDelegate {
         }
 
         let indexPath = proposedDropIndexPath.pointee as IndexPath
-        if indexPath.item < visibleRows.count,
+        guard dropStaysInSection(indexPath, draggingInfo: draggingInfo) else {
+            hideDropIndicator()
+            return []
+        }
+        let draggedSection = draggedRow(draggingInfo)?.section ?? .links
+        if draggedSection == .links,
+           indexPath.item < visibleRows.count,
            let row = row(at: indexPath),
            let node = row.node,
            case .folder = node,
@@ -1283,6 +1503,36 @@ extension NodeListViewController: NSCollectionViewDelegate {
         showDropIndicator(at: indexPath, operation: proposedDropOperation.pointee)
 
         return .move
+    }
+
+    private func draggedRow(_ draggingInfo: NSDraggingInfo) -> NodeListRow? {
+        guard let idString = draggingInfo.draggingPasteboard.string(forType: nodePasteboardType),
+              let nodeId = UUID(uuidString: idString) else { return nil }
+        return visibleRows.first { $0.id == nodeId }
+    }
+
+    /// Tasks and snippets reorder within their own section; links and folders stay above
+    /// the sections. A drop at a section's end lands after its last item.
+    private func dropStaysInSection(_ indexPath: IndexPath, draggingInfo: NSDraggingInfo) -> Bool {
+        guard let dragged = draggedRow(draggingInfo) else { return true }
+        let rows = visibleRows
+        let item = indexPath.item
+        let members = rows.indices.filter { rows[$0].section == dragged.section && rows[$0].node != nil }
+        switch dragged.section {
+        case .tasks, .snippets:
+            guard let first = members.first, let last = members.last else { return false }
+            return item >= first && item <= last + 1
+        case .links:
+            let boundary = rows.firstIndex { row in
+                switch row.kind {
+                case .sectionHeader(let section, _, _): return section != .links
+                case .archiveHeader: return true
+                default: return false
+                }
+            } ?? rows.count
+            if item < rows.count, case .sectionHeader(.links, _, _) = rows[item].kind { return false }
+            return item <= boundary
+        }
     }
 
     func collectionView(_ collectionView: NSCollectionView,
@@ -1300,7 +1550,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
         if indexPath.item < visibleRows.count, let row = row(at: indexPath), let dropNode = row.node {
             switch dropNode {
             case .folder(let folder):
-                if dropOperation == .on {
+                if dropOperation == .on, draggedRow(draggingInfo)?.section ?? .links == .links {
                     targetParentId = folder.id
                     targetIndex = folder.children.count
                 } else if let location = findNodeLocation?(folder.id) {
@@ -1361,6 +1611,11 @@ extension NodeListViewController: NSMenuDelegate {
             let newSnippet = NSMenuItem(title: "New snippet…", action: #selector(contextNewSnippet), keyEquivalent: "")
             newSnippet.target = self
             menu.addItem(newSnippet)
+
+            menu.addItem(.separator())
+            let newWorkspace = NSMenuItem(title: "New workspace…", action: #selector(contextNewWorkspace), keyEquivalent: "")
+            newWorkspace.target = self
+            menu.addItem(newWorkspace)
             return
         }
 
@@ -1523,6 +1778,10 @@ extension NodeListViewController: NSMenuDelegate {
 
     @objc private func contextNewSnippet() {
         onNewSnippetRequested?(nil)
+    }
+
+    @objc private func contextNewWorkspace() {
+        onNewWorkspaceRequested?()
     }
 
     @objc private func contextNewNestedFolder(_ sender: NSMenuItem) {
@@ -1744,10 +2003,25 @@ extension NodeListViewController: NSMenuDelegate {
 
 // MARK: - Supporting Types
 
+/// Where a row lives: the link-and-folder tree, or one of the sections below it.
+enum NodeSection: Hashable {
+    case links, tasks, snippets
+}
+
+private struct ReloadInput {
+    let nodes: [Node]
+    let forceExpand: Bool
+    let archivedNodes: [Node]
+    let isArchiveExpanded: Bool
+    let showArchiveDuringSearch: Bool
+}
+
 private enum NodeListRowKind {
     case regular
     case archiveHeader(count: Int, isExpanded: Bool)
     case archived
+    /// "TASKS · 2 open". At list width it's the counted row that expands in place.
+    case sectionHeader(section: NodeSection, meta: String, isExpanded: Bool)
 }
 
 private struct NodeListRow {
@@ -1755,11 +2029,16 @@ private struct NodeListRow {
     let depth: Int
     let kind: NodeListRowKind
     let rowId: UUID
+    let section: NodeSection
+    /// A mosaic folder group's label, with its parents ("Design refs › Type").
+    var groupTitle: String?
 
-    init(node: Node, depth: Int, kind: NodeListRowKind = .regular) {
+    init(node: Node, depth: Int, kind: NodeListRowKind = .regular, section: NodeSection = .links, groupTitle: String? = nil) {
         self.node = node
         self.depth = depth
         self.kind = kind
+        self.section = section
+        self.groupTitle = groupTitle
         if case .archived = kind {
             self.rowId = archivedRowId(for: node.id)
         } else {
@@ -1772,6 +2051,19 @@ private struct NodeListRow {
         self.depth = 0
         self.kind = .archiveHeader(count: archiveHeaderCount, isExpanded: isExpanded)
         self.rowId = archiveHeaderUUID
+        self.section = .links
+    }
+
+    init(section: NodeSection, meta: String, isExpanded: Bool) {
+        self.node = nil
+        self.depth = 0
+        self.kind = .sectionHeader(section: section, meta: meta, isExpanded: isExpanded)
+        self.section = section
+        switch section {
+        case .links: self.rowId = linksHeaderUUID
+        case .tasks: self.rowId = tasksHeaderUUID
+        case .snippets: self.rowId = snippetsHeaderUUID
+        }
     }
 
     var id: UUID {

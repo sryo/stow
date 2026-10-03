@@ -13,6 +13,10 @@ struct NodeRowContent {
     var title: String
     var depth: Int
     var isArchived: Bool
+    /// The link's site is open in a browser tab.
+    var isOpen: Bool = false
+    /// First lines of a snippet, for mosaic tiles.
+    var codePreview: String? = nil
 
     var typeName: String {
         switch kind {
@@ -24,9 +28,9 @@ struct NodeRowContent {
     }
 }
 
-/// One list row: guide lines, disclosure, type glyph, title, metadata and a trailing
-/// action slot. Hover actions, multi-select checks and jump letters all render in the
-/// slot, so they never cover the metadata.
+/// One list row: open-tab dot, type glyph, title, metadata and a trailing action slot.
+/// Metadata sits at the trailing edge; hover actions, multi-select checks and jump
+/// letters appear in the slot, and the metadata steps left to make room for them.
 final class NodeRowView: BaseView {
     private let contentContainer = NSView()
     private let guidesView = GuideLinesView()
@@ -35,6 +39,7 @@ final class NodeRowView: BaseView {
     private let editableTitle = InlineEditableTextField()
     private let metaLabel = NSTextField(labelWithString: "")
     private let badgeLabel = BadgeLabel()
+    private let openDot = NSView()
     private let slotButton = NSButton()
     private let slotKeycap = NSTextField(labelWithString: "")
     private let swipeLeftActionView = NSImageView()
@@ -57,9 +62,13 @@ final class NodeRowView: BaseView {
     private var iconWidthConstraint: NSLayoutConstraint?
     private var iconHeightConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
-    private var titleTrailingToMeta: NSLayoutConstraint?
-    private var titleTrailingToBadge: NSLayoutConstraint?
-    private var titleTrailingToSlot: NSLayoutConstraint?
+    /// Keeps the title clear of the metadata column (`rowS`: min(130, 36%) wide).
+    private var titleTrailingReserve: NSLayoutConstraint?
+    private var metaMaxWidth: NSLayoutConstraint?
+    private var metaToEdge: NSLayoutConstraint?
+    private var metaToSlot: NSLayoutConstraint?
+    private var badgeToEdge: NSLayoutConstraint?
+    private var badgeToSlot: NSLayoutConstraint?
 
     // Swipe state
     private var panGesture: NSPanGestureRecognizer?
@@ -147,7 +156,7 @@ final class NodeRowView: BaseView {
         editableTitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
-        metaLabel.font = StowTheme.Font.meta
+        metaLabel.font = .systemFont(ofSize: 11.5, weight: .regular)
         metaLabel.lineBreakMode = .byTruncatingTail
         metaLabel.alignment = .right
         metaLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -173,15 +182,23 @@ final class NodeRowView: BaseView {
         slotKeycap.layer?.borderWidth = 1
         slotKeycap.isHidden = true
 
-        for v in [guidesView, disclosureButton, iconView, editableTitle, metaLabel, badgeLabel, slotButton, slotKeycap] as [NSView] {
+        openDot.translatesAutoresizingMaskIntoConstraints = false
+        openDot.wantsLayer = true
+        openDot.layer?.cornerRadius = 2
+        openDot.isHidden = true
+
+        for v in [guidesView, disclosureButton, openDot, iconView, editableTitle, metaLabel, badgeLabel, slotButton, slotKeycap] as [NSView] {
             contentContainer.addSubview(v)
         }
 
         disclosureLeadingConstraint = disclosureButton.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: metrics.leftPadding)
-        titleTrailingToMeta = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: metaLabel.leadingAnchor, constant: -6)
-        titleTrailingToBadge = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6)
-        titleTrailingToSlot = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: slotButton.leadingAnchor, constant: -4)
-        iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2)
+        titleTrailingReserve = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: contentContainer.trailingAnchor, constant: -8)
+        metaMaxWidth = metaLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 130)
+        metaToEdge = metaLabel.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
+        metaToSlot = metaLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4)
+        badgeToEdge = badgeLabel.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
+        badgeToSlot = badgeLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4)
+        iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: metrics.leftPadding)
         iconCenteredConstraint = iconView.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor)
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize)
         iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize)
@@ -202,15 +219,21 @@ final class NodeRowView: BaseView {
             iconWidthConstraint!,
             iconHeightConstraint!,
 
-            editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
+            editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle - 2), // less the text cell's 2pt inset
             editableTitle.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            titleTrailingToSlot!,
+            titleTrailingReserve!,
 
             metaLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            metaLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4),
+            metaToEdge!,
+            metaMaxWidth!,
 
             badgeLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            badgeLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4),
+            badgeToEdge!,
+
+            openDot.widthAnchor.constraint(equalToConstant: 4),
+            openDot.heightAnchor.constraint(equalToConstant: 4),
+            openDot.trailingAnchor.constraint(equalTo: iconView.leadingAnchor, constant: -1.5),
+            openDot.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
             slotButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6),
             slotButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
@@ -255,6 +278,7 @@ final class NodeRowView: BaseView {
         editableTitle.textColor = metrics.titleColor
 
         disclosureLeadingConstraint?.constant = metrics.leftPadding + CGFloat(content.depth) * metrics.indentWidth
+        iconLeadingConstraint?.constant = metrics.leftPadding + CGFloat(content.depth) * metrics.indentWidth
         guidesView.depth = content.depth
         guidesView.leftPadding = metrics.leftPadding
         guidesView.indent = metrics.indentWidth
@@ -268,7 +292,6 @@ final class NodeRowView: BaseView {
 
         switch content.kind {
         case .folder(let isExpanded, let childCount):
-            disclosureButton.isHidden = false
             disclosureButton.contentTintColor = metrics.secondaryColor
             disclosureButton.frameCenterRotation = 0
             disclosureButton.image = NSImage(
@@ -276,8 +299,8 @@ final class NodeRowView: BaseView {
                 accessibilityDescription: isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)"
             )?.withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
             disclosureButton.setAccessibilityLabel(isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)")
-            setIcon(symbol: isExpanded ? "folder" : "folder.fill", tint: metrics.iconTintColor)
-            if childCount > 0 { metaText = "\(childCount)" }
+            setIcon(symbol: "folder", tint: metrics.iconTintColor)
+            metaText = "\(childCount)"
 
         case .link(let favicon, let domain):
             if let favicon {
@@ -298,7 +321,9 @@ final class NodeRowView: BaseView {
                     .font: titleFont,
                 ])
             }
-            if let dueDate {
+            if isCompleted {
+                metaText = "done"
+            } else if let dueDate {
                 metaText = Self.dueFormatter.string(from: dueDate)
                 if !isCompleted && dueDate < Calendar.current.startOfDay(for: Date()) {
                     metaColor = metrics.colors.overdue
@@ -321,9 +346,10 @@ final class NodeRowView: BaseView {
             metaLabel.textColor = metaColor
             metaLabel.isHidden = false
         }
+        openDot.layer?.backgroundColor = resolvedCGColor(metrics.titleColor.withAlphaComponent(0.9))
+        openDot.isHidden = !content.isOpen
         applyElasticMode(metrics.mode, content: content)
-        titleTrailingToMeta?.isActive = !metaLabel.isHidden
-        titleTrailingToBadge?.isActive = !badgeLabel.isHidden
+        needsLayout = true
 
         layer?.cornerRadius = metrics.rowCornerRadius
         contentContainer.layer?.cornerRadius = metrics.rowCornerRadius
@@ -338,7 +364,8 @@ final class NodeRowView: BaseView {
     private func applyElasticMode(_ mode: ElasticMode, content: NodeRowContent) {
         let rail = mode == .rail
         editableTitle.isHidden = rail
-        guidesView.isHidden = rail
+        guidesView.isHidden = true
+        disclosureButton.isHidden = true
         if rail {
             disclosureButton.isHidden = true
             metaLabel.isHidden = true
@@ -348,7 +375,8 @@ final class NodeRowView: BaseView {
             toolTip = nil
         }
         if mode == .list {
-            metaLabel.isHidden = true
+            // Names only; folders keep their count.
+            if case .folder = content.kind {} else { metaLabel.isHidden = true }
             badgeLabel.isHidden = true
         }
         iconLeadingConstraint?.isActive = !rail
@@ -361,7 +389,35 @@ final class NodeRowView: BaseView {
         iconView.imageScaling = rail ? .scaleProportionallyUpOrDown : .scaleProportionallyDown
     }
 
-    private static let dueFormatter: DateFormatter = {
+    override func layout() {
+        updateMetaColumn()
+        super.layout()
+    }
+
+    /// The trailing column: 24pt for a folder count, else min(130, 36% of the row) when
+    /// the row is wider than 210pt. The title never runs into it, as in the mockup.
+    private func updateMetaColumn() {
+        guard let content else { return }
+        let width = bounds.width - CGFloat(content.depth) * metrics.indentWidth
+        var column: CGFloat = 0
+        if case .folder = content.kind {
+            column = 24
+        } else if metrics.mode != .list, width > 210 {
+            column = min(130, (width * 0.36).rounded())
+        }
+        if !badgeLabel.isHidden {
+            column = max(column, ceil(badgeLabel.fittingSize.width))
+        } else if column == 0 {
+            metaLabel.isHidden = true
+        }
+        let hasTrailing = !metaLabel.isHidden || !badgeLabel.isHidden
+        metaMaxWidth?.constant = column
+        let slotShown = !slotButton.isHidden || !slotKeycap.isHidden
+        let edge: CGFloat = slotShown ? 6 + metrics.actionSlot + 4 : 8
+        titleTrailingReserve?.constant = -(edge + (hasTrailing ? column + 6 : 0))
+    }
+
+    static let dueFormatter: DateFormatter = {
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("MMMd")
         return f
@@ -491,6 +547,12 @@ final class NodeRowView: BaseView {
             slotButton.toolTip = archived ? "Put Back" : "Archive (⌘⌫)"
             slotButton.setAccessibilityLabel(label)
         }
+        let slotShown = !slotButton.isHidden || !slotKeycap.isHidden
+        let off = slotShown ? [metaToEdge, badgeToEdge] : [metaToSlot, badgeToSlot]
+        let on = slotShown ? [metaToSlot, badgeToSlot] : [metaToEdge, badgeToEdge]
+        NSLayoutConstraint.deactivate(off.compactMap { $0 })
+        NSLayoutConstraint.activate(on.compactMap { $0 })
+        updateMetaColumn()
     }
 
     // MARK: - Swipe Gesture Handling

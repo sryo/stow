@@ -38,14 +38,16 @@ public struct ListMetrics {
 
     public var rowHeight: CGFloat { mode == .rail ? 42 : StowTheme.List.rowHeight(density) }
     public let verticalGap: CGFloat = StowTheme.List.rowGap
-    public let leftPadding: CGFloat = StowTheme.List.horizontalInset
+    /// Row inset to the glyph in list and sidebar (the Elastic mockup's 7pt).
+    public let leftPadding: CGFloat = 7
     public let iconSize: CGFloat = StowTheme.List.glyphSize
-    public let indentWidth: CGFloat = StowTheme.List.indent
+    /// Folder children step in by 14pt; there are no disclosure chevrons or guides.
+    public let indentWidth: CGFloat = 14
     public let disclosureWidth: CGFloat = StowTheme.List.disclosureWidth
     public let actionSlot: CGFloat = StowTheme.List.actionSlot
-    public let rowCornerRadius: CGFloat = StowTheme.List.rowRadius
+    public let rowCornerRadius: CGFloat = 7
     public let iconCornerRadius: CGFloat = StowTheme.List.glyphRadius
-    public var linkTitleFont: NSFont { StowTheme.Font.row }
+    public var linkTitleFont: NSFont { .systemFont(ofSize: 13, weight: .semibold) }
     public var folderTitleFont: NSFont { StowTheme.Font.rowEmphasized }
 
     public var titleColor: NSColor { colors.inkPrimary }
