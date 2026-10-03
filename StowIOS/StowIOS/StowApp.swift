@@ -24,9 +24,16 @@ struct StowApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
+                .onAppear { viewModel.refreshLiveActivity() }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         CloudSyncManager.shared.fetchChanges()
+                        viewModel.refreshLiveActivity(force: true)
+                    }
+                }
+                .onOpenURL { url in
+                    if let target = StowActivityAttributes.target(ofDeepLink: url) {
+                        UIApplication.shared.open(target)
                     }
                 }
         }
