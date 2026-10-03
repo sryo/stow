@@ -4,71 +4,130 @@
 //
 
 import AppKit
+import UniformTypeIdentifiers
 
+/// The Settings page: the workspace list first, then Appearance, Window, Shortcut,
+/// Browser and Import.
+///
+/// It adapts to the width the main window gives it:
+/// - rail (under 120pt): a column of section buttons, each opening its section in a
+///   popover, with the workspaces stacked as icons under the Workspaces button;
+/// - list (120–260pt): the page, with rows whose controls wrap below their labels;
+/// - sidebar and wider: the page with every control inline.
+///
+/// Layout is done with frames, top to bottom, so nothing here imposes a minimum width
+/// on the container.
 @MainActor
 final class SettingsContentViewController: NSViewController {
-    // Layout constants
-    private let horizontalPadding: CGFloat = 8
-    private let sectionSpacing: CGFloat = 12        // Distance between sections
-    private let sectionHeaderSpacing: CGFloat = 8   // Distance between section name and content
-    private let itemSpacing: CGFloat = 8           // Distance between items within a section
-    private let controlLabelSpacing: CGFloat = 4    // Distance between label and control
 
-    // Color constants
-    private var sectionHeaderColor: NSColor { SettingsColors.inkSecondary }
-    private var regularTextColor: NSColor { SettingsColors.ink }
+    enum WidthMode: Equatable {
+        case rail, list, sidebar
 
-    // Browser section
-    private let browserPopupContainer = NSView()
-    private let browserPopup = NSPopUpButton()
-    private var browsers: [BrowserInfo] = []
-
-    // Window settings section - custom components
-    private let alwaysOnTopToggle = CustomToggle(title: "Always on Top")
-    private let attachSidebarToggle = CustomToggle(title: "Attach to Window as Sidebar")
-    private let sidebarPositionSelector = SidebarPositionSelector()
-    private let tintLabel = NSTextField(labelWithString: "Workspace color")
-    private let tintControl = NSSegmentedControl(labels: ["Full", "Subtle", "Off"], trackingMode: .selectOne, target: nil, action: nil)
-
-    // Keyboard shortcuts section
-    private let shortcutRecorderView = ShortcutRecorderView()
-
-    // Workspace management section
-    private let workspaceCollectionView = WorkspaceContextMenuCollectionView()
-    private var workspaceCollectionViewHeightConstraint: NSLayoutConstraint?
-    private var contextWorkspaceId: UUID?
-    private var customColorTargetWorkspaceId: UUID?
-    private var inlineRenameWorkspaceId: UUID?
-    private let workspaceDropIndicator = WorkspaceDropIndicatorView()
-
-    // Permissions section
-    private let permissionStatusLabel = NSTextField(labelWithString: "")
-    private let openSettingsButton = SettingsButton(title: "Open System Settings")
-    private let refreshStatusButton = SettingsButton(title: "Refresh Status")
-
-    // Import & Export section
-    private let importButton = SettingsButton(title: "Import from Arc Browser")
-    private let importStatusLabel = NSTextField(labelWithString: "")
-
-    // Reference to AppModel (will be set from MainViewController)
-    weak var appModel: AppModel? {
-        didSet {
-            reloadWorkspaces()
+        static func forWidth(_ width: CGFloat) -> WidthMode {
+            if width < 120 { return .rail }
+            if width < 260 { return .list }
+            return .sidebar
         }
     }
 
-    // Called by MainViewController when workspaces change
+    enum Section: CaseIterable {
+        case workspaces, appearance, window, shortcut, browser, importing
+
+        var title: String {
+            switch self {
+            case .workspaces: return "Workspaces"
+            case .appearance: return "Appearance"
+            case .window: return "Window"
+            case .shortcut: return "Shortcut"
+            case .browser: return "Browser"
+            case .importing: return "Import"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .workspaces: return "rectangle.stack"
+            case .appearance: return "paintpalette"
+            case .window: return "macwindow"
+            case .shortcut: return "command"
+            case .browser: return "globe"
+            case .importing: return "square.and.arrow.down"
+            }
+        }
+    }
+
+    private enum WindowMode: Int {
+        case floating, onTop, attached
+    }
+
+    static let visibleWorkspaceLimit = 6
+    private static let activeBrowserSentinel = "stow.activeBrowser"
+
+    // MARK: Model
+
+    weak var appModel: AppModel? {
+        didSet { reloadWorkspaces() }
+    }
+
+    /// Called by MainViewController when workspaces change.
     func notifyWorkspacesChanged() {
         reloadWorkspaces()
     }
 
-    // Scroll view
-    private let scrollView = NSScrollView()
-    private let contentView = FlippedContentView()
+    // MARK: Views
 
-    // Dynamic constraints
-    private var separator1ToSelectorConstraint: NSLayoutConstraint?
-    private var separator1ToToggleConstraint: NSLayoutConstraint?
+    private let scrollView = NSScrollView()
+    private let pageView = FlippedView()
+    private let railView = FlippedView()
+    private var groups: [Section: SettingsGroupView] = [:]
+    private(set) var widthMode: WidthMode = .sidebar
+
+    // Workspaces
+    private let workspaceCollectionView = WorkspaceListCollectionView()
+    private let workspaceDropIndicator = WorkspaceDropIndicatorView()
+    private let showMoreRow = SettingsActionRow(title: "Show more", symbolName: "chevron.down")
+    private let newWorkspaceRow = SettingsActionRow(title: "New workspace", symbolName: "plus")
+    private var showsAllWorkspaces = false
+    private var pendingRenameId: UUID?
+    private var renamingWorkspaceId: UUID?
+    private var needsReloadAfterRename = false
+
+    // Appearance
+    private var pageThumbnails: [PageThumbnailView] = []
+    private var tintControl: SettingsSegmentedControl!
+    private let tintHelp = SettingsStatusLine()
+
+    // Window
+    private var windowModeControl: SettingsSegmentedControl!
+    private let windowHelp = SettingsStatusLine()
+    private var permissionRow: SettingsRow!
+    private var browserSideControl: SettingsSegmentedControl!
+    private var browserSideRow: SettingsRow!
+    private var attachRequested = false
+
+    // Shortcut
+    private let shortcutRecorderView = ShortcutRecorderView()
+    private let shortcutStatus = SettingsStatusLine()
+
+    // Browser
+    private let browserPopUp = SettingsPopUp()
+    private var browsers: [BrowserInfo] = []
+
+    // Import
+    private let arcImportButton = SettingsButton(title: "Import…", accessibilityLabel: "Import from Arc…")
+    private let fileImportButton = SettingsButton(title: "Import…", accessibilityLabel: "Import workspace file…")
+    private let arcImportStatus = SettingsStatusLine()
+    private let fileImportStatus = SettingsStatusLine()
+
+    // Rail
+    private var railButtons: [Section: SettingsIconButton] = [:]
+    private var railWorkspaceChips: [NSView] = []
+    private var popover: NSPopover?
+    private var popoverSection: Section?
+
+    private var keyViewLoopScheduled = false
+
+    // MARK: Lifecycle
 
     override func loadView() {
         let view = NSView()
@@ -79,57 +138,52 @@ final class SettingsContentViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupScrollView()
-        setupWorkspaceCollectionView()
-        setupUI()
-        loadPreferences()
+        setupWorkspaceList()
+        buildGroups()
+        buildRail()
         loadBrowsers()
-        updatePermissionStatus()
         reloadWorkspaces()
+        updateWindowSection()
 
-        // Observe app activation to refresh permission status
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(applicationDidBecomeActive),
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
-
-        // Observe scroll bounds changes to refresh hover states
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleWorkspaceScrollBoundsChanged),
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
-        )
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(applicationDidBecomeActive), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(scrollBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        center.addObserver(self, selector: #selector(tintModeChangedElsewhere), name: .stowTintModeChanged, object: nil)
+        center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .alwaysOnTopSettingChanged, object: nil)
+        center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .attachmentSettingChanged, object: nil)
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        // Re-check permissions when view appears
-        updatePermissionStatus()
+        updateWindowSection()
     }
 
-    @objc private func applicationDidBecomeActive() {
-        // Re-check permissions when app becomes active (user may have granted in System Settings)
-        updatePermissionStatus()
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let mode = WidthMode.forWidth(view.bounds.width)
+        if mode != widthMode {
+            widthMode = mode
+            applyWidthMode()
+        }
+        relayout()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
 
+    // MARK: Setup
+
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.documentView = contentView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
-
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-
+        scrollView.documentView = pageView
+        scrollView.contentView.postsBoundsChangedNotifications = true
         view.addSubview(scrollView)
-
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -138,379 +192,579 @@ final class SettingsContentViewController: NSViewController {
         ])
     }
 
-    private func createSectionHeader(_ title: String) -> NSTextField {
-        let label = NSTextField(labelWithString: title.uppercased())
-        label.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        label.textColor = sectionHeaderColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        // Set letter spacing
-        if let attrString = label.attributedStringValue.mutableCopy() as? NSMutableAttributedString {
-            attrString.addAttribute(.kern, value: 0.5, range: NSRange(location: 0, length: attrString.length))
-            label.attributedStringValue = attrString
-        }
-
-        return label
-    }
-
-    private func createSeparator() -> NSBox {
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        return separator
-    }
-
-    private func setupWorkspaceCollectionView() {
+    private func setupWorkspaceList() {
         let layout = ListFlowLayout(metrics: ListMetrics())
         workspaceCollectionView.collectionViewLayout = layout
-        workspaceCollectionView.translatesAutoresizingMaskIntoConstraints = false
         workspaceCollectionView.dataSource = self
         workspaceCollectionView.delegate = self
-        workspaceCollectionView.isSelectable = true  // Changed to true to enable drag and drop
+        workspaceCollectionView.isSelectable = true // needed for drag and drop
         workspaceCollectionView.allowsMultipleSelection = false
         workspaceCollectionView.backgroundColors = [.clear]
-        workspaceCollectionView.settingsController = self
-
-        // Set up context menu handler
-        workspaceCollectionView.onRightClick = { [weak self] workspaceId, event in
-            self?.showWorkspaceContextMenu(for: workspaceId, at: event)
-        }
-
-        // Register the workspace item
-        workspaceCollectionView.register(
-            WorkspaceCollectionViewItem.self,
-            forItemWithIdentifier: NSUserInterfaceItemIdentifier("WorkspaceItem")
-        )
-
-        // Register for drag types
+        workspaceCollectionView.register(WorkspaceCollectionViewItem.self, forItemWithIdentifier: Self.workspaceItemId)
         workspaceCollectionView.registerForDraggedTypes([workspacePasteboardType])
         workspaceCollectionView.setDraggingSourceOperationMask(.move, forLocal: true)
-
-        // Setup drop indicator
-        workspaceDropIndicator.translatesAutoresizingMaskIntoConstraints = false
+        workspaceDropIndicator.translatesAutoresizingMaskIntoConstraints = true
         workspaceCollectionView.addSubview(workspaceDropIndicator)
+
+        showMoreRow.target = self
+        showMoreRow.action = #selector(toggleShowAllWorkspaces)
+        newWorkspaceRow.target = self
+        newWorkspaceRow.action = #selector(createWorkspace)
     }
 
-    private func setupUI() {
-        // Window Settings Section
-        let windowSettingsHeader = createSectionHeader("Window Settings")
+    private static let workspaceItemId = NSUserInterfaceItemIdentifier("WorkspaceItem")
 
-        alwaysOnTopToggle.target = self
-        alwaysOnTopToggle.action = #selector(alwaysOnTopChanged)
-        alwaysOnTopToggle.translatesAutoresizingMaskIntoConstraints = false
+    private func buildGroups() {
+        // Workspaces
+        let workspaces = SettingsGroupView(section: .workspaces)
+        workspaces.add(workspaceCollectionView) { [weak self] in self?.workspaceListHeight ?? 0 }
+        workspaces.add(showMoreRow)
+        workspaces.add(newWorkspaceRow)
 
-        attachSidebarToggle.target = self
-        attachSidebarToggle.action = #selector(attachSidebarChanged)
-        attachSidebarToggle.translatesAutoresizingMaskIntoConstraints = false
+        // Appearance
+        let tints = StowTheme.TintMode.allCases
+        pageThumbnails = tints.map { PageThumbnailView(tint: $0) }
+        let tintTitles: [StowTheme.TintMode: String] = [.full: "Full", .subtle: "Subtle", .off: "Off"]
+        tintControl = SettingsSegmentedControl(
+            segments: tints.enumerated().map { index, tint in
+                .init(title: tintTitles[tint] ?? tint.rawValue, leadingView: pageThumbnails[index], accessibilityHint: Self.tintHelpText(tint))
+            },
+            selectedIndex: tints.firstIndex(of: StowTheme.preferredTint) ?? 0,
+            accessibilityLabel: "Page color"
+        )
+        tintControl.onChange = { [weak self] index in self?.tintModeChanged(index) }
+        tintHelp.set(Self.tintHelpText(StowTheme.preferredTint))
+        let appearance = SettingsGroupView(section: .appearance)
+        appearance.add(SettingsRow(title: "Page color", control: tintControl))
+        appearance.add(tintHelp)
 
-        // Setup position selector
-        sidebarPositionSelector.translatesAutoresizingMaskIntoConstraints = false
-        sidebarPositionSelector.onPositionChanged = { [weak self] _ in
-            self?.sidebarPositionChanged()
+        // Window
+        windowModeControl = SettingsSegmentedControl(
+            segments: [
+                .init(title: "Floating", leadingView: Self.glyph("macwindow"), accessibilityHint: "A regular window you can place anywhere."),
+                .init(title: "On top", leadingView: Self.glyph("macwindow.on.rectangle"), accessibilityHint: "Stays above every other app."),
+                .init(title: "Attached", leadingView: Self.glyph("sidebar.left"), accessibilityHint: "Sits beside your browser window. Needs Accessibility access."),
+            ],
+            selectedIndex: currentWindowMode.rawValue,
+            accessibilityLabel: "Window"
+        )
+        windowModeControl.fillsWidth = true
+        windowModeControl.onChange = { [weak self] index in
+            self?.windowModeChanged(WindowMode(rawValue: index) ?? .floating)
         }
 
-        let separator1 = createSeparator()
+        let openSettings = SettingsButton(title: "Open Settings", accessibilityLabel: "Open System Settings…")
+        openSettings.target = self
+        openSettings.action = #selector(openAccessibilitySettings)
+        permissionRow = SettingsRow(title: "Needs Accessibility", control: openSettings, symbolName: "exclamationmark.triangle.fill")
+        permissionRow.label.toolTip = "Stow needs Accessibility access to attach to your browser window. Allow it in System Settings › Privacy & Security › Accessibility."
 
-        // Keyboard Shortcuts Section
-        let shortcutsHeader = createSectionHeader("Keyboard shortcuts")
+        let position = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
+        browserSideControl = SettingsSegmentedControl(
+            segments: [.init(title: "Left"), .init(title: "Right")],
+            selectedIndex: position == "left" ? 0 : 1,
+            accessibilityLabel: "Browser side"
+        )
+        browserSideControl.onChange = { [weak self] index in self?.browserSideChanged(index) }
+        browserSideRow = SettingsRow(title: "Browser side", control: browserSideControl)
 
-        let shortcutDescriptionLabel = NSTextField(labelWithString: "Toggle Stow")
-        shortcutDescriptionLabel.font = NSFont.systemFont(ofSize: 13)
-        shortcutDescriptionLabel.textColor = regularTextColor
-        shortcutDescriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        let window = SettingsGroupView(section: .window)
+        window.add(SettingsRow(fullWidthControl: windowModeControl))
+        window.add(windowHelp)
+        window.add(permissionRow)
+        window.add(browserSideRow)
 
-        shortcutRecorderView.translatesAutoresizingMaskIntoConstraints = false
-        shortcutRecorderView.onShortcutChanged = { [weak self] shortcut in
-            self?.handleShortcutChanged(shortcut)
+        // Shortcut
+        shortcutRecorderView.onShortcutChanged = { _ in
+            NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
         }
-
-        let separatorShortcuts = createSeparator()
-
-        // Workspace Management Section
-        let workspaceHeader = createSectionHeader("Manage Workspaces")
-
-        tintLabel.font = NSFont.systemFont(ofSize: 13)
-        tintLabel.textColor = regularTextColor
-        tintLabel.translatesAutoresizingMaskIntoConstraints = false
-        tintControl.translatesAutoresizingMaskIntoConstraints = false
-        tintControl.target = self
-        tintControl.action = #selector(tintModeChanged)
-        tintControl.controlSize = .small
-        tintControl.setAccessibilityLabel("Workspace color")
-        tintControl.toolTip = "Full fills the window with the workspace color. Subtle tints it lightly. Off keeps it neutral."
-        tintControl.selectedSegment = StowTheme.TintMode.allCases.firstIndex(of: StowTheme.preferredTint) ?? 0
-
-        let separator2 = createSeparator()
-
-        // Browser Section
-        let browserHeader = createSectionHeader("Browser")
-
-        // Browser popup container with styled background
-        browserPopupContainer.translatesAutoresizingMaskIntoConstraints = false
-        browserPopupContainer.wantsLayer = true
-        browserPopupContainer.layer?.backgroundColor = view.resolvedCGColor(SettingsColors.fill)
-        browserPopupContainer.layer?.cornerRadius = 8
-
-        browserPopup.translatesAutoresizingMaskIntoConstraints = false
-        browserPopup.target = self
-        browserPopup.action = #selector(browserChanged)
-        browserPopup.font = NSFont.systemFont(ofSize: 13)
-        browserPopup.isBordered = false
-        browserPopup.focusRingType = .none
-
-        // Set content tint color for the chevron arrow
-        if #available(macOS 14.0, *) {
-            browserPopup.contentTintColor = SettingsColors.ink
+        shortcutRecorderView.onStatusChanged = { [weak self] text, kind in
+            self?.shortcutStatus.set(text, kind: kind)
+            self?.relayout()
         }
+        let shortcut = SettingsGroupView(section: .shortcut)
+        shortcut.add(SettingsRow(title: "Toggle Stow", control: shortcutRecorderView))
+        shortcut.add(shortcutStatus)
 
-        let separator3 = createSeparator()
+        // Browser
+        browserPopUp.popup.target = self
+        browserPopUp.popup.action = #selector(browserChanged)
+        browserPopUp.popup.setAccessibilityLabel("Open links in")
+        let browser = SettingsGroupView(section: .browser)
+        browser.add(SettingsRow(title: "Open links in", control: browserPopUp))
 
-        // Permissions Section
-        let permissionsHeader = createSectionHeader("Permissions")
+        // Import
+        arcImportButton.target = self
+        arcImportButton.action = #selector(importFromArc)
+        fileImportButton.target = self
+        fileImportButton.action = #selector(importWorkspaceFile)
+        arcImportStatus.onDismiss = { [weak self] in self?.setImportStatus(self?.arcImportStatus, nil) }
+        fileImportStatus.onDismiss = { [weak self] in self?.setImportStatus(self?.fileImportStatus, nil) }
+        let importing = SettingsGroupView(section: .importing)
+        importing.add(SettingsRow(title: "Arc Browser", control: arcImportButton))
+        importing.add(arcImportStatus)
+        importing.add(SettingsRow(title: "Workspace file", control: fileImportButton))
+        importing.add(fileImportStatus)
 
-        permissionStatusLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        permissionStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        openSettingsButton.target = self
-        openSettingsButton.action = #selector(openAccessibilitySettings)
-        openSettingsButton.translatesAutoresizingMaskIntoConstraints = false
-
-        refreshStatusButton.target = self
-        refreshStatusButton.action = #selector(refreshPermissionStatus)
-        refreshStatusButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let separator4 = createSeparator()
-
-        // Import & Export Section
-        let importHeader = createSectionHeader("Import & Export")
-
-        importButton.target = self
-        importButton.action = #selector(importFromArc)
-        importButton.translatesAutoresizingMaskIntoConstraints = false
-
-        importStatusLabel.font = NSFont.systemFont(ofSize: 11)
-        importStatusLabel.textColor = SettingsColors.inkSecondary
-        importStatusLabel.maximumNumberOfLines = 0
-        importStatusLabel.lineBreakMode = .byWordWrapping
-        importStatusLabel.alignment = .center
-        importStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        importStatusLabel.isHidden = true
-        importStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        // Add all subviews to contentView
-        contentView.addSubview(windowSettingsHeader)
-        contentView.addSubview(alwaysOnTopToggle)
-        contentView.addSubview(attachSidebarToggle)
-        contentView.addSubview(sidebarPositionSelector)
-        contentView.addSubview(separator1)
-        contentView.addSubview(shortcutsHeader)
-        contentView.addSubview(shortcutDescriptionLabel)
-        contentView.addSubview(shortcutRecorderView)
-        contentView.addSubview(separatorShortcuts)
-        contentView.addSubview(workspaceHeader)
-        contentView.addSubview(tintLabel)
-        contentView.addSubview(tintControl)
-        contentView.addSubview(workspaceCollectionView)
-        contentView.addSubview(separator2)
-        contentView.addSubview(browserHeader)
-        contentView.addSubview(browserPopupContainer)
-        browserPopupContainer.addSubview(browserPopup)
-        contentView.addSubview(separator3)
-        contentView.addSubview(permissionsHeader)
-        contentView.addSubview(permissionStatusLabel)
-        contentView.addSubview(openSettingsButton)
-        contentView.addSubview(refreshStatusButton)
-        contentView.addSubview(separator4)
-        contentView.addSubview(importHeader)
-        contentView.addSubview(importButton)
-        contentView.addSubview(importStatusLabel)
-
-        // Layout constraints
-        NSLayoutConstraint.activate([
-            // Content view width should match scroll view width
-            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
-
-            // Window Settings Header
-            windowSettingsHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            windowSettingsHeader.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
-
-            // Always on Top Toggle
-            alwaysOnTopToggle.leadingAnchor.constraint(equalTo: windowSettingsHeader.leadingAnchor),
-            alwaysOnTopToggle.topAnchor.constraint(equalTo: windowSettingsHeader.bottomAnchor, constant: sectionHeaderSpacing),
-            alwaysOnTopToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            alwaysOnTopToggle.heightAnchor.constraint(equalToConstant: 28),
-
-            // Attach Sidebar Toggle
-            attachSidebarToggle.leadingAnchor.constraint(equalTo: alwaysOnTopToggle.leadingAnchor),
-            attachSidebarToggle.topAnchor.constraint(equalTo: alwaysOnTopToggle.bottomAnchor, constant: itemSpacing),
-            attachSidebarToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            attachSidebarToggle.heightAnchor.constraint(equalToConstant: 28),
-
-            // Position selector buttons (directly below toggle)
-            sidebarPositionSelector.leadingAnchor.constraint(equalTo: attachSidebarToggle.leadingAnchor),
-            sidebarPositionSelector.topAnchor.constraint(equalTo: attachSidebarToggle.bottomAnchor, constant: itemSpacing),
-            sidebarPositionSelector.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-
-            // Separator 1
-            separator1.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            separator1.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator1.heightAnchor.constraint(equalToConstant: 1),
-
-            // Keyboard Shortcuts Header
-            shortcutsHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            shortcutsHeader.topAnchor.constraint(equalTo: separator1.bottomAnchor, constant: sectionSpacing),
-
-            // Shortcut description label
-            shortcutDescriptionLabel.leadingAnchor.constraint(equalTo: shortcutsHeader.leadingAnchor),
-            shortcutDescriptionLabel.topAnchor.constraint(equalTo: shortcutsHeader.bottomAnchor, constant: sectionHeaderSpacing),
-
-            // Shortcut recorder view
-            shortcutRecorderView.leadingAnchor.constraint(equalTo: shortcutsHeader.leadingAnchor),
-            shortcutRecorderView.topAnchor.constraint(equalTo: shortcutDescriptionLabel.bottomAnchor, constant: controlLabelSpacing),
-            shortcutRecorderView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-
-            // Separator after shortcuts
-            separatorShortcuts.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            separatorShortcuts.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separatorShortcuts.topAnchor.constraint(equalTo: shortcutRecorderView.bottomAnchor, constant: sectionSpacing),
-            separatorShortcuts.heightAnchor.constraint(equalToConstant: 1),
-
-            // Workspace Management Header
-            workspaceHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            workspaceHeader.topAnchor.constraint(equalTo: separatorShortcuts.bottomAnchor, constant: sectionSpacing),
-
-                // Workspace Collection View - full width without horizontal padding
-            workspaceCollectionView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            tintLabel.leadingAnchor.constraint(equalTo: workspaceHeader.leadingAnchor),
-            tintLabel.centerYAnchor.constraint(equalTo: tintControl.centerYAnchor),
-            tintControl.topAnchor.constraint(equalTo: workspaceHeader.bottomAnchor, constant: sectionHeaderSpacing),
-            tintControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            tintControl.leadingAnchor.constraint(greaterThanOrEqualTo: tintLabel.trailingAnchor, constant: 8),
-
-            workspaceCollectionView.topAnchor.constraint(equalTo: tintControl.bottomAnchor, constant: sectionHeaderSpacing),
-            workspaceCollectionView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-
-            // Separator 2
-            separator2.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            separator2.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator2.topAnchor.constraint(equalTo: workspaceCollectionView.bottomAnchor, constant: sectionSpacing),
-            separator2.heightAnchor.constraint(equalToConstant: 1),
-
-            // Browser Header
-            browserHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            browserHeader.topAnchor.constraint(equalTo: separator2.bottomAnchor, constant: sectionSpacing),
-
-            // Browser Popup Container (directly below header)
-            browserPopupContainer.leadingAnchor.constraint(equalTo: browserHeader.leadingAnchor),
-            browserPopupContainer.topAnchor.constraint(equalTo: browserHeader.bottomAnchor, constant: sectionHeaderSpacing),
-            browserPopupContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            browserPopupContainer.heightAnchor.constraint(equalToConstant: 36),
-
-            // Browser Popup inside container
-            browserPopup.leadingAnchor.constraint(equalTo: browserPopupContainer.leadingAnchor, constant: 12),
-            browserPopup.trailingAnchor.constraint(equalTo: browserPopupContainer.trailingAnchor, constant: -12),
-            browserPopup.centerYAnchor.constraint(equalTo: browserPopupContainer.centerYAnchor),
-
-            // Separator 3
-            separator3.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            separator3.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator3.topAnchor.constraint(equalTo: browserPopupContainer.bottomAnchor, constant: sectionSpacing),
-            separator3.heightAnchor.constraint(equalToConstant: 1),
-
-            // Permissions Header
-            permissionsHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            permissionsHeader.topAnchor.constraint(equalTo: separator3.bottomAnchor, constant: sectionSpacing),
-
-            // Permission Status Label
-            permissionStatusLabel.leadingAnchor.constraint(equalTo: permissionsHeader.leadingAnchor),
-            permissionStatusLabel.topAnchor.constraint(equalTo: permissionsHeader.bottomAnchor, constant: sectionHeaderSpacing),
-
-            // Refresh Status Button (below status label)
-            refreshStatusButton.leadingAnchor.constraint(equalTo: permissionStatusLabel.leadingAnchor),
-            refreshStatusButton.topAnchor.constraint(equalTo: permissionStatusLabel.bottomAnchor, constant: itemSpacing),
-            refreshStatusButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            refreshStatusButton.heightAnchor.constraint(equalToConstant: 36),
-
-            // Open Settings Button (below refresh button)
-            openSettingsButton.leadingAnchor.constraint(equalTo: refreshStatusButton.leadingAnchor),
-            openSettingsButton.topAnchor.constraint(equalTo: refreshStatusButton.bottomAnchor, constant: itemSpacing),
-            openSettingsButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            openSettingsButton.heightAnchor.constraint(equalToConstant: 36),
-
-            // Separator 4
-            separator4.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            separator4.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator4.topAnchor.constraint(equalTo: refreshStatusButton.bottomAnchor, constant: sectionSpacing),
-            separator4.heightAnchor.constraint(equalToConstant: 1),
-
-            // Import & Export Header
-            importHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
-            importHeader.topAnchor.constraint(equalTo: separator4.bottomAnchor, constant: sectionSpacing),
-
-            // Import Button (below header)
-            importButton.leadingAnchor.constraint(equalTo: importHeader.leadingAnchor),
-            importButton.topAnchor.constraint(equalTo: importHeader.bottomAnchor, constant: sectionHeaderSpacing),
-            importButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            importButton.heightAnchor.constraint(equalToConstant: 36),
-
-            // Import Status Label (below import button)
-            importStatusLabel.leadingAnchor.constraint(equalTo: importButton.leadingAnchor),
-            importStatusLabel.topAnchor.constraint(equalTo: importButton.bottomAnchor, constant: itemSpacing),
-            importStatusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-
-            // Bottom constraint to define content height - use greaterThanOrEqualTo to allow content to be anchored at top
-            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: importStatusLabel.bottomAnchor, constant: 24),
-        ])
-
-        // Setup dynamic constraints for separator1
-        separator1ToSelectorConstraint = separator1.topAnchor.constraint(equalTo: sidebarPositionSelector.bottomAnchor, constant: sectionSpacing)
-        separator1ToToggleConstraint = separator1.topAnchor.constraint(equalTo: attachSidebarToggle.bottomAnchor, constant: sectionSpacing)
-
-        // Activate the appropriate constraint based on initial state
-        separator1ToSelectorConstraint?.isActive = true
-
-        // Setup workspace collection view height constraint (will be updated dynamically)
-        workspaceCollectionViewHeightConstraint = workspaceCollectionView.heightAnchor.constraint(equalToConstant: 0)
-        workspaceCollectionViewHeightConstraint?.isActive = true
+        groups = [.workspaces: workspaces, .appearance: appearance, .window: window,
+                  .shortcut: shortcut, .browser: browser, .importing: importing]
+        for section in Section.allCases {
+            if let group = groups[section] { pageView.addSubview(group) }
+        }
     }
 
-    @objc private func tintModeChanged() {
+    private static func glyph(_ name: String) -> NSImageView {
+        let view = NSImageView()
+        view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .medium))
+        view.imageScaling = .scaleNone
+        view.frame = NSRect(x: 0, y: 0, width: 14, height: 12)
+        return view
+    }
+
+    private static func tintHelpText(_ tint: StowTheme.TintMode) -> String {
+        switch tint {
+        case .full: return "Each page is filled with its workspace color"
+        case .subtle: return "Each page gets a light wash of its color"
+        case .off: return "Pages stay neutral; the color shows in the icon"
+        }
+    }
+
+    // MARK: Layout
+
+    /// Lays out the page (or the rail) for the current width and refreshes the popover size.
+    private func relayout() {
+        guard isViewLoaded else { return }
+        let width = scrollView.contentSize.width
+        guard width > 0 else { return }
+
+        if widthMode == .rail {
+            layoutRail(width: width)
+        } else {
+            var y: CGFloat = 0
+            var first = true
+            for section in Section.allCases {
+                guard let group = groups[section], group.superview === pageView else { continue }
+                if !first { y += SettingsMetrics.groupGap }
+                first = false
+                let height = group.height(forWidth: width)
+                group.frame = NSRect(x: 0, y: y, width: width, height: height)
+                y += height
+            }
+            y += 16
+            pageView.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        }
+
+        if let popover, let section = popoverSection, let group = groups[section] {
+            let popoverWidth: CGFloat = 300
+            let inset: CGFloat = 6
+            let height = group.height(forWidth: popoverWidth - inset * 2)
+            group.frame = NSRect(x: inset, y: 8, width: popoverWidth - inset * 2, height: height)
+            popover.contentSize = NSSize(width: popoverWidth, height: height + 16)
+        }
+        scheduleKeyViewLoop()
+    }
+
+    private func scheduleKeyViewLoop() {
+        guard !keyViewLoopScheduled else { return }
+        keyViewLoopScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.keyViewLoopScheduled = false
+            guard let window = self.view.window, !self.view.isHiddenOrHasHiddenAncestor else { return }
+            window.recalculateKeyViewLoop()
+        }
+    }
+
+    private var workspaceListHeight: CGFloat {
+        CGFloat(visibleWorkspaceCount) * SettingsMetrics.rowHeight
+    }
+
+    private var visibleWorkspaceCount: Int {
+        let count = appModel?.workspaces.count ?? 0
+        return showsAllWorkspaces ? count : min(count, Self.visibleWorkspaceLimit)
+    }
+
+    // MARK: Width modes
+
+    private func applyWidthMode() {
+        popover?.close()
+        if widthMode == .rail {
+            scrollView.documentView = railView
+        } else {
+            scrollView.documentView = pageView
+        }
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func buildRail() {
+        for section in Section.allCases {
+            let button = SettingsIconButton(symbolName: section.symbolName, accessibilityLabel: section.title, size: 28, pointSize: 13)
+            button.translatesAutoresizingMaskIntoConstraints = true
+            button.target = self
+            button.action = #selector(railButtonClicked(_:))
+            button.toolTip = section.title
+            railButtons[section] = button
+            railView.addSubview(button)
+        }
+    }
+
+    private func rebuildRailWorkspaceChips() {
+        railWorkspaceChips.forEach { $0.removeFromSuperview() }
+        railWorkspaceChips = []
+        guard let appModel else { return }
+        for workspace in appModel.workspaces {
+            let chip = RailWorkspaceChip(workspace: workspace, iconLinks: WorkspaceIconSites.pick(from: workspace.items))
+            chip.onClick = { [weak self, weak chip] in
+                guard let self, let chip else { return }
+                self.showWorkspaceMenu(for: workspace.id, anchor: chip)
+            }
+            railView.addSubview(chip)
+            railWorkspaceChips.append(chip)
+        }
+        if widthMode == .rail { relayout() }
+    }
+
+    private func layoutRail(width: CGFloat) {
+        var y: CGFloat = 4
+        let buttonSize: CGFloat = 28
+        let chipSize: CGFloat = 22
+        for section in Section.allCases {
+            guard let button = railButtons[section] else { continue }
+            button.frame = NSRect(x: round((width - buttonSize) / 2), y: y, width: buttonSize, height: buttonSize)
+            y += buttonSize + 4
+            if section == .workspaces {
+                for chip in railWorkspaceChips {
+                    chip.frame = NSRect(x: round((width - chipSize) / 2), y: y, width: chipSize, height: chipSize)
+                    y += chipSize + 4
+                }
+                y += 8
+            }
+        }
+        railView.frame = NSRect(x: 0, y: 0, width: width, height: y + 8)
+    }
+
+    @objc private func railButtonClicked(_ sender: SettingsIconButton) {
+        guard let section = railButtons.first(where: { $0.value === sender })?.key else { return }
+        showPopover(for: section, anchor: sender)
+    }
+
+    private func showPopover(for section: Section, anchor: NSView) {
+        if popoverSection == section, popover?.isShown == true {
+            popover?.close()
+            return
+        }
+        popover?.close()
+        guard let group = groups[section] else { return }
+
+        let container = FlippedView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        group.removeFromSuperview()
+        container.addSubview(group)
+        let controller = NSViewController()
+        controller.view = container
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.delegate = self
+        self.popover = popover
+        popoverSection = section
+        relayout()
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxX)
+    }
+
+    private func returnPopoverGroupToPage() {
+        guard let section = popoverSection, let group = groups[section] else { return }
+        group.removeFromSuperview()
+        pageView.addSubview(group)
+        popoverSection = nil
+        popover = nil
+        relayout()
+    }
+
+    // MARK: Workspaces
+
+    private func reloadWorkspaces() {
+        guard isViewLoaded, let appModel else { return }
+
+        if renamingWorkspaceId != nil {
+            needsReloadAfterRename = true
+            return
+        }
+
+        let count = appModel.workspaces.count
+        let hidden = count - Self.visibleWorkspaceLimit
+        if hidden > 0 {
+            showMoreRow.isHidden = false
+            if showsAllWorkspaces {
+                showMoreRow.configure(title: "Show fewer", symbolName: "chevron.up")
+            } else {
+                showMoreRow.configure(title: "Show \(hidden) more", symbolName: "chevron.down")
+            }
+        } else {
+            showMoreRow.isHidden = true
+            showsAllWorkspaces = false
+        }
+        newWorkspaceRow.isHidden = false
+
+        workspaceCollectionView.reloadData()
+        rebuildRailWorkspaceChips()
+        pageThumbnails.forEach { $0.colorId = lastViewedWorkspace?.colorId ?? .defaultColor() }
+        relayout()
+
+        if let id = pendingRenameId {
+            pendingRenameId = nil
+            beginInlineRename(id)
+        }
+    }
+
+    private var lastViewedWorkspace: Workspace? {
+        guard let appModel else { return nil }
+        if let string = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId),
+           let id = UUID(uuidString: string), let workspace = appModel.workspaces.first(id: id) {
+            return workspace
+        }
+        if let id = appModel.state.selectedWorkspaceId, let workspace = appModel.workspaces.first(id: id) {
+            return workspace
+        }
+        return appModel.workspaces.first
+    }
+
+    @objc private func toggleShowAllWorkspaces() {
+        showsAllWorkspaces.toggle()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = StowTheme.Motion.normal
+            reloadWorkspaces()
+        }
+    }
+
+    /// Runs a model change that would select a workspace (create, import) without
+    /// leaving Settings or changing which workspace was last viewed.
+    private func preservingSelection(_ change: () throws -> Void) rethrows {
+        guard let appModel else { return }
+        let wasSettings = appModel.state.isSettingsSelected
+        let previous = appModel.state.selectedWorkspaceId
+        let lastViewed = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
+        defer {
+            if wasSettings {
+                if previous == nil { appModel.selectSettings() }
+                UserDefaults.standard.set(lastViewed, forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
+            } else if let previous {
+                appModel.selectWorkspace(id: previous)
+            }
+        }
+        try change()
+    }
+
+    @objc private func createWorkspace() {
+        guard let appModel else { return }
+        var newId: UUID?
+        preservingSelection {
+            newId = appModel.createWorkspace(name: "Untitled")
+        }
+        guard let newId else { return }
+        if appModel.workspaces.count > Self.visibleWorkspaceLimit {
+            showsAllWorkspaces = true
+        }
+        pendingRenameId = newId
+        reloadWorkspaces()
+    }
+
+    private func beginInlineRename(_ id: UUID) {
+        guard let appModel, let index = appModel.workspaces.firstIndex(id: id) else { return }
+        if widthMode == .rail, popoverSection != .workspaces, let anchor = railButtons[.workspaces] {
+            showPopover(for: .workspaces, anchor: anchor)
+        }
+        if index >= visibleWorkspaceCount {
+            showsAllWorkspaces = true
+            reloadWorkspaces()
+        }
+        groups[.workspaces]?.layoutSubtreeIfNeeded()
+        workspaceCollectionView.layoutSubtreeIfNeeded()
+        let indexPath = IndexPath(item: index, section: 0)
+        if let rowFrame = workspaceCollectionView.layoutAttributesForItem(at: indexPath)?.frame {
+            workspaceCollectionView.scrollToVisible(rowFrame)
+        }
+        guard let item = workspaceCollectionView.item(at: indexPath) as? WorkspaceCollectionViewItem else { return }
+        renamingWorkspaceId = id
+        item.beginInlineRename()
+    }
+
+    private func finishInlineRename() {
+        renamingWorkspaceId = nil
+        if needsReloadAfterRename {
+            needsReloadAfterRename = false
+            DispatchQueue.main.async { [weak self] in self?.reloadWorkspaces() }
+        }
+    }
+
+    private func showWorkspaceMenu(for id: UUID, anchor: NSView) {
+        guard let appModel else { return }
+        let menu = WorkspaceMenu.make(for: id, model: appModel, presentingView: view) { [weak self] id in
+            self?.beginInlineRename(id)
+        }
+        popUp(menu, below: anchor)
+    }
+
+    private func popUp(_ menu: NSMenu, below anchor: NSView) {
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.isFlipped ? anchor.bounds.maxY + 2 : -2), in: anchor)
+    }
+
+    private func deleteWorkspace(_ id: UUID) {
+        guard let appModel, let window = view.window else { return }
+        WorkspaceDeletion.confirm(id, model: appModel, in: window)
+    }
+
+    private func profileName(for workspace: Workspace) -> String? {
+        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
+              let dir = workspace.browserProfiles[bundleId] else { return nil }
+        return BrowserManager.profiles(for: bundleId).first(where: { $0.directoryName == dir })?.displayName ?? dir
+    }
+
+    @objc private func scrollBoundsChanged() {
+        for item in workspaceCollectionView.visibleItems() {
+            (item as? WorkspaceCollectionViewItem)?.refreshHoverState()
+        }
+    }
+
+    // MARK: Appearance
+
+    private func tintModeChanged(_ index: Int) {
         let modes = StowTheme.TintMode.allCases
-        guard modes.indices.contains(tintControl.selectedSegment) else { return }
-        StowTheme.preferredTint = modes[tintControl.selectedSegment]
+        guard modes.indices.contains(index) else { return }
+        StowTheme.preferredTint = modes[index]
+        tintHelp.set(Self.tintHelpText(modes[index]))
         NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
     }
 
-    private func loadPreferences() {
-        // Load Always on Top state
-        let alwaysOnTopEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-        alwaysOnTopToggle.isOn = alwaysOnTopEnabled
-
-        // Load Attach to Sidebar state
-        let attachmentEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
-        attachSidebarToggle.isOn = attachmentEnabled
-
-        // Load sidebar position
-        let positionString = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
-        sidebarPositionSelector.selectedPosition = positionString
-
-        // Apply mutual exclusion and enable states
-        updateControlStates()
+    @objc private func tintModeChangedElsewhere() {
+        let index = StowTheme.TintMode.allCases.firstIndex(of: StowTheme.preferredTint) ?? 0
+        if tintControl.selectedIndex != index {
+            tintControl.selectedIndex = index
+            tintHelp.set(Self.tintHelpText(StowTheme.preferredTint))
+        }
     }
 
-    private func loadBrowsers() {
-        browsers = BrowserManager.installedBrowsers()
-        browserPopup.removeAllItems()
-        if browserPopup.menu == nil {
-            browserPopup.menu = NSMenu()
+    // MARK: Window
+
+    private var currentWindowMode: WindowMode {
+        let defaults = UserDefaults.standard
+        if attachRequested || defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) { return .attached }
+        if defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) { return .onTop }
+        return .floating
+    }
+
+    private var hasAccessibility: Bool {
+        WindowAttachmentService.shared.checkAccessibilityPermissions()
+    }
+
+    private func windowModeChanged(_ mode: WindowMode) {
+        switch mode {
+        case .floating:
+            attachRequested = false
+            setAttachment(false)
+            setAlwaysOnTop(false)
+        case .onTop:
+            attachRequested = false
+            setAttachment(false)
+            setAlwaysOnTop(true)
+        case .attached:
+            setAlwaysOnTop(false)
+            if hasAccessibility {
+                attachRequested = false
+                setAttachment(true)
+            } else {
+                // Held until access is granted; didBecomeActive re-checks.
+                attachRequested = true
+            }
         }
+        updateWindowSection()
+    }
+
+    private func setAlwaysOnTop(_ enabled: Bool) {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) != enabled else { return }
+        defaults.set(enabled, forKey: UserDefaultsKeys.alwaysOnTopEnabled)
+        NotificationCenter.default.post(name: .alwaysOnTopSettingChanged, object: nil, userInfo: ["enabled": enabled])
+    }
+
+    private func setAttachment(_ enabled: Bool) {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) != enabled else { return }
+        defaults.set(enabled, forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
+        let position = defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
+        NotificationCenter.default.post(name: .attachmentSettingChanged, object: nil, userInfo: ["enabled": enabled, "position": position])
+    }
+
+    private func browserSideChanged(_ index: Int) {
+        let position = index == 0 ? "left" : "right"
+        UserDefaults.standard.set(position, forKey: UserDefaultsKeys.sidebarPosition)
+        if UserDefaults.standard.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) {
+            NotificationCenter.default.post(name: .sidebarPositionChanged, object: nil, userInfo: ["position": position])
+        }
+    }
+
+    private func updateWindowSection() {
+        guard isViewLoaded else { return }
+        let mode = currentWindowMode
+        windowModeControl.selectedIndex = mode.rawValue
+        let missingAccess = mode == .attached && !hasAccessibility
+        permissionRow.isHidden = !missingAccess
+        browserSideRow.isHidden = mode != .attached
+        switch mode {
+        case .floating:
+            windowHelp.set("A regular window you can place anywhere")
+        case .onTop:
+            windowHelp.set("Stays above every other app")
+        case .attached:
+            if missingAccess {
+                windowHelp.set(nil)
+            } else {
+                windowHelp.set("Attached beside your browser window", kind: .success)
+            }
+        }
+        relayout()
+    }
+
+    @objc private func windowSettingsChangedElsewhere() {
+        updateWindowSection()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        if attachRequested && hasAccessibility {
+            attachRequested = false
+            setAttachment(true)
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: "Accessibility granted. Stow is attached to your browser.",
+                                            .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+        updateWindowSection()
+    }
+
+    @objc private func openAccessibilitySettings() {
+        WindowAttachmentService.shared.requestAccessibilityPermissions()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: Browser
+
+    private func loadBrowsers() {
+        let popup = browserPopUp.popup
+        browsers = BrowserManager.installedBrowsers()
+        popup.removeAllItems()
+        let menu = NSMenu()
+        popup.menu = menu
 
         let active = NSMenuItem(title: "Browser I'm using", action: nil, keyEquivalent: "")
         active.representedObject = Self.activeBrowserSentinel
         active.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
         active.toolTip = "Open links in whichever browser you were last using"
-        browserPopup.menu?.addItem(active)
-        browserPopup.menu?.addItem(.separator())
+        menu.addItem(active)
+        menu.addItem(.separator())
 
         for browser in browsers {
             let item = NSMenuItem(title: browser.name, action: nil, keyEquivalent: "")
@@ -519,272 +773,74 @@ final class SettingsContentViewController: NSViewController {
                 icon.size = NSSize(width: 16, height: 16)
                 item.image = icon
             }
-            browserPopup.menu?.addItem(item)
+            menu.addItem(item)
         }
 
         let defaultId = BrowserManager.resolveDefaultBrowserBundleId()
         if BrowserManager.opensInActiveBrowser {
-            browserPopup.selectItem(at: 0)
+            popup.selectItem(at: 0)
         } else if let defaultId, let index = browsers.firstIndex(where: { $0.bundleId == defaultId }) {
-            browserPopup.selectItem(at: index + 2)
+            popup.selectItem(at: index + 2)
         } else if !browsers.isEmpty {
-            browserPopup.selectItem(at: 2)
+            popup.selectItem(at: 2)
             UserDefaults.standard.set(browsers[0].bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
         }
-
-        // Update the title color after selection
-        updateBrowserPopupAppearance()
+        browserPopUp.refreshTitle()
     }
-
-    private func updateBrowserPopupAppearance() {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: regularTextColor,
-            .font: NSFont.systemFont(ofSize: 13)
-        ]
-
-        if let title = browserPopup.titleOfSelectedItem {
-            browserPopup.attributedTitle = NSAttributedString(string: title, attributes: attributes)
-        }
-    }
-
-    private func updatePermissionStatus() {
-        let hasPermission = WindowAttachmentService.shared.checkAccessibilityPermissions()
-
-        if hasPermission {
-            permissionStatusLabel.stringValue = "Accessibility: ✓ granted"
-            // Use a darker green for better readability
-            permissionStatusLabel.textColor = SettingsColors.success
-            openSettingsButton.isHidden = true
-        } else {
-            permissionStatusLabel.stringValue = "Accessibility: ✗ not granted"
-            // Use a darker red for better readability
-            permissionStatusLabel.textColor = SettingsColors.danger
-            openSettingsButton.isHidden = false
-        }
-    }
-
-    private func updateControlStates() {
-        let alwaysOnTopEnabled = alwaysOnTopToggle.isOn
-        let attachmentEnabled = attachSidebarToggle.isOn
-
-        // Determine if sidebar position should be visible
-        let shouldShowSidebarPosition = !alwaysOnTopEnabled && attachmentEnabled
-
-        // Mutual exclusion
-        if alwaysOnTopEnabled {
-            attachSidebarToggle.isEnabled = false
-        } else {
-            attachSidebarToggle.isEnabled = true
-        }
-
-        if attachmentEnabled {
-            alwaysOnTopToggle.isEnabled = false
-        } else {
-            alwaysOnTopToggle.isEnabled = true
-        }
-
-        // Update visibility and layout constraints
-        sidebarPositionSelector.isHidden = !shouldShowSidebarPosition
-
-        // Switch constraints based on visibility
-        if shouldShowSidebarPosition {
-            separator1ToToggleConstraint?.isActive = false
-            separator1ToSelectorConstraint?.isActive = true
-        } else {
-            separator1ToSelectorConstraint?.isActive = false
-            separator1ToToggleConstraint?.isActive = true
-        }
-    }
-
-    // MARK: - Actions
-
-    @objc private func alwaysOnTopChanged() {
-        let enabled = alwaysOnTopToggle.isOn
-
-        // If enabling, disable attachment first
-        if enabled && attachSidebarToggle.isOn {
-            attachSidebarToggle.isOn = false
-            UserDefaults.standard.set(false, forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
-
-            // Notify to disable attachment
-            NotificationCenter.default.post(name: .attachmentSettingChanged, object: nil, userInfo: ["enabled": false])
-        }
-
-        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-
-        // Notify to apply always on top
-        NotificationCenter.default.post(name: .alwaysOnTopSettingChanged, object: nil, userInfo: ["enabled": enabled])
-
-        updateControlStates()
-    }
-
-    @objc private func attachSidebarChanged() {
-        let enabled = attachSidebarToggle.isOn
-
-        // Check permissions
-        if enabled && !WindowAttachmentService.shared.checkAccessibilityPermissions() {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility access required"
-            alert.informativeText = "Stow needs Accessibility access to attach to browser windows. You can grant this in System Settings."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-
-            attachSidebarToggle.isOn = false
-            return
-        }
-
-        // If enabling, disable always on top first
-        if enabled && alwaysOnTopToggle.isOn {
-            alwaysOnTopToggle.isOn = false
-            UserDefaults.standard.set(false, forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-
-            // Notify to disable always on top
-            NotificationCenter.default.post(name: .alwaysOnTopSettingChanged, object: nil, userInfo: ["enabled": false])
-        }
-
-        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
-
-        // Get current position
-        let position = sidebarPositionSelector.selectedPosition ?? "right"
-
-        // Notify to enable/disable attachment
-        NotificationCenter.default.post(
-            name: .attachmentSettingChanged,
-            object: nil,
-            userInfo: ["enabled": enabled, "position": position]
-        )
-
-        updateControlStates()
-    }
-
-    @objc private func sidebarPositionChanged() {
-        guard let position = sidebarPositionSelector.selectedPosition else { return }
-
-        UserDefaults.standard.set(position, forKey: UserDefaultsKeys.sidebarPosition)
-
-        // If attachment is currently enabled, notify to update position
-        if attachSidebarToggle.isOn {
-            NotificationCenter.default.post(
-                name: .sidebarPositionChanged,
-                object: nil,
-                userInfo: ["position": position]
-            )
-        }
-    }
-
-    private static let activeBrowserSentinel = "stow.activeBrowser"
 
     @objc private func browserChanged() {
-        let selected = browserPopup.selectedItem?.representedObject as? String
+        let selected = browserPopUp.popup.selectedItem?.representedObject as? String
         UserDefaults.standard.set(selected == Self.activeBrowserSentinel, forKey: UserDefaultsKeys.openLinksInActiveBrowser)
-        if selected == Self.activeBrowserSentinel {
-            updateBrowserPopupAppearance()
-            return
-        }
-        if let bundleId = selected {
+        browserPopUp.refreshTitle()
+        if let bundleId = selected, bundleId != Self.activeBrowserSentinel {
             UserDefaults.standard.set(bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
-
-            // Update appearance after change
-            updateBrowserPopupAppearance()
-
-            // Notify about browser change
-            NotificationCenter.default.post(
-                name: .defaultBrowserChanged,
-                object: nil,
-                userInfo: ["bundleId": bundleId]
-            )
+            NotificationCenter.default.post(name: .defaultBrowserChanged, object: nil, userInfo: ["bundleId": bundleId])
         }
+        // Profiles belong to a browser, so the chips may change.
+        reloadWorkspaces()
     }
 
-    @objc private func openAccessibilitySettings() {
-        WindowAttachmentService.shared.requestAccessibilityPermissions()
-
-        let alert = NSAlert()
-        alert.messageText = "Grant Accessibility Access"
-        alert.informativeText = "Grant Stow access in System Settings > Privacy & Security > Accessibility, then come back here."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    @objc private func refreshPermissionStatus() {
-        updatePermissionStatus()
-    }
-
-    private func handleShortcutChanged(_ shortcut: KeyboardShortcut?) {
-        NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
-    }
+    // MARK: Import
 
     @objc func importFromArc() {
-        // Construct default Arc path
         let arcPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Arc/StorableSidebar.json")
-
-        // Check if file exists
         guard FileManager.default.fileExists(atPath: arcPath.path) else {
-            showImportStatus("Could not find Arc bookmarks. Make sure Arc is installed and has saved bookmarks.", isError: true)
+            setImportStatus(arcImportStatus, "Couldn't find Arc's data on this Mac", kind: .danger)
             return
         }
-
-        // Import directly
         Task { @MainActor [weak self] in
             await self?.handleArcImport(fileURL: arcPath)
         }
     }
 
     private func handleArcImport(fileURL: URL) async {
-        // Show loading state
-        importButton.setLoading(true)
-        showImportStatus("Importing from Arc…", isError: false)
-
-        // Perform import
+        arcImportButton.setLoading(true, title: "Importing")
+        setImportStatus(arcImportStatus, nil)
         let result = await ArcImportService.shared.importFromArc(fileURL: fileURL)
-
-        // Hide loading state
-        importButton.setLoading(false)
+        arcImportButton.setLoading(false)
 
         switch result {
         case .success(let importResult):
-            // Apply to AppModel
             applyImport(importResult)
-
-            // Show success message
-            let message = "Imported \(importResult.workspacesCreated) workspaces, \(importResult.linksImported) links, and \(importResult.foldersImported) folders."
-            showImportStatus(message, isError: false)
-
-            // Hide message after 5 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                self?.hideImportStatus()
-            }
-
+            let count = importResult.workspacesCreated
+            setImportStatus(arcImportStatus, "Imported \(count) \(count == 1 ? "workspace" : "workspaces") from Arc", kind: .success)
         case .failure(let error):
-            showImportStatus(error.localizedDescription, isError: true)
+            setImportStatus(arcImportStatus, error.localizedDescription, kind: .danger)
         }
     }
 
     private func applyImport(_ result: ArcImportResult) {
-        guard let appModel = appModel else { return }
-
-        // Remember the currently selected workspace
-        let previousWorkspaceId = appModel.state.selectedWorkspaceId
-
-        for workspace in result.workspaces {
-            // Create the workspace using AppModel's method
-            _ = appModel.createWorkspace(name: workspace.name, colorId: workspace.colorId)
-
-            // The workspace is now selected, add all nodes to it
-            for node in workspace.nodes {
-                addNodeToWorkspace(node, parentId: nil, appModel: appModel)
+        guard let appModel else { return }
+        preservingSelection {
+            for workspace in result.workspaces {
+                // createWorkspace selects the new workspace, so nodes land in it.
+                _ = appModel.createWorkspace(name: workspace.name, colorId: workspace.colorId)
+                for node in workspace.nodes {
+                    addNodeToWorkspace(node, parentId: nil, appModel: appModel)
+                }
             }
         }
-
-        // Restore the previously selected workspace
-        if let previousWorkspaceId = previousWorkspaceId {
-            appModel.selectWorkspace(id: previousWorkspaceId)
-        }
-
-        // Reload the workspace list to reflect the newly imported workspaces
         reloadWorkspaces()
     }
 
@@ -804,281 +860,51 @@ final class SettingsContentViewController: NSViewController {
         }
     }
 
-    private func showImportStatus(_ message: String, isError: Bool) {
-        importStatusLabel.stringValue = message
-        importStatusLabel.textColor = isError ? SettingsColors.danger : regularTextColor
-        importStatusLabel.isHidden = false
-    }
-
-    private func hideImportStatus() {
-        importStatusLabel.isHidden = true
-    }
-
-    // MARK: - Workspace Management
-
-    private func reloadWorkspaces() {
-        guard let appModel = appModel else { return }
-
-        // Update collection view height based on workspace count
-        let metrics = ListMetrics()
-        let rowCount = appModel.workspaces.count
-        let totalHeight = CGFloat(rowCount) * metrics.rowHeight + CGFloat(rowCount - 1) * metrics.verticalGap
-        workspaceCollectionViewHeightConstraint?.constant = totalHeight
-
-        // Invalidate layout before reloading to ensure proper sizing
-        workspaceCollectionView.collectionViewLayout?.invalidateLayout()
-
-        workspaceCollectionView.reloadData()
-    }
-
-    // Animation constants for workspace deletion
-    private static let deletionAnimationDuration: TimeInterval = 0.2
-    private static let deletionAnimationOffset: CGFloat = 10
-
-    private func handleWorkspaceDelete(id: UUID) {
-        guard let appModel = appModel else { return }
-
-        // Check if only one workspace
-        if appModel.workspaces.count <= 1 {
-            return
-        }
-
-        // Skip confirmation for empty workspaces
-        let workspace = appModel.workspaces.first(where: { $0.id == id })
-        if workspace?.items.isEmpty ?? true {
-            animateWorkspaceDeletion(id: id)
-            return
-        }
-
-        // Show confirmation alert for non-empty workspaces
-        let alert = NSAlert()
-        alert.messageText = "Delete workspace?"
-        alert.informativeText = "This will permanently delete the workspace and all its contents."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
-
-        // Make Delete button destructive
-        if let deleteButton = alert.buttons.last {
-            deleteButton.hasDestructiveAction = true
-        }
-
-        alert.beginSheetModal(for: view.window!) { response in
-            if response == .alertSecondButtonReturn {
-                self.animateWorkspaceDeletion(id: id)
-            }
-        }
-    }
-
-    private func animateWorkspaceDeletion(id: UUID) {
-        guard let appModel = appModel else { return }
-        guard let index = appModel.workspaces.firstIndex(where: { $0.id == id }) else { return }
-
-        let indexPath = IndexPath(item: index, section: 0)
-
-        // Create bitmap snapshot of the item being deleted
-        let snapshot = makeWorkspaceDeletionSnapshot(at: indexPath)
-
-        // Delete from model
-        appModel.deleteWorkspace(id: id)
-
-        // Update collection view height for the new count
-        let metrics = ListMetrics()
-        let rowCount = appModel.workspaces.count
-        let totalHeight = CGFloat(rowCount) * metrics.rowHeight + CGFloat(max(0, rowCount - 1)) * metrics.verticalGap
-        workspaceCollectionViewHeightConstraint?.constant = totalHeight
-
-        // Perform batch update to animate the deletion in the collection view
-        workspaceCollectionView.performBatchUpdates({
-            self.workspaceCollectionView.deleteItems(at: [indexPath])
-        }, completionHandler: { _ in
-            // Reload remaining items to update delete button visibility
-            self.workspaceCollectionView.reloadData()
-        })
-
-        // Animate the snapshot (fade out + slide up)
-        animateWorkspaceDeletionSnapshot(snapshot)
-    }
-
-    private func makeWorkspaceDeletionSnapshot(at indexPath: IndexPath) -> NSImageView? {
-        guard let item = workspaceCollectionView.item(at: indexPath) else { return nil }
-        let itemView = item.view
-        guard let rep = itemView.bitmapImageRepForCachingDisplay(in: itemView.bounds) else { return nil }
-        itemView.cacheDisplay(in: itemView.bounds, to: rep)
-        let image = NSImage(size: itemView.bounds.size)
-        image.addRepresentation(rep)
-        let frame = itemView.convert(itemView.bounds, to: workspaceCollectionView)
-        let imageView = NSImageView(frame: frame)
-        imageView.image = image
-        imageView.imageScaling = .scaleAxesIndependently
-        workspaceCollectionView.addSubview(imageView)
-        itemView.alphaValue = 0
-        return imageView
-    }
-
-    private func animateWorkspaceDeletionSnapshot(_ snapshot: NSImageView?) {
-        guard let snapshot else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.deletionAnimationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            let finalOrigin = NSPoint(x: snapshot.frame.origin.x, y: snapshot.frame.origin.y - Self.deletionAnimationOffset)
-            snapshot.animator().setFrameOrigin(finalOrigin)
-            snapshot.animator().alphaValue = 0
-        } completionHandler: {
-            DispatchQueue.main.async {
-                snapshot.removeFromSuperview()
-            }
-        }
-    }
-
-    private func handleWorkspaceRename(id: UUID, newName: String) {
-        guard let appModel = appModel else { return }
-        appModel.renameWorkspace(id: id, newName: newName)
-        reloadWorkspaces()
-    }
-
-    @objc private func handleWorkspaceRightClick(_ sender: NSMenuItem) {
-        guard let workspaceId = sender.representedObject as? UUID else { return }
-        contextWorkspaceId = workspaceId
-    }
-
-    private func showWorkspaceContextMenu(for workspaceId: UUID, at event: NSEvent) {
-        guard let appModel = appModel else { return }
-        guard let workspace = appModel.workspaces.first(where: { $0.id == workspaceId }) else { return }
-
-        contextWorkspaceId = workspaceId
-
-        let menu = NSMenu()
-
-        // Rename option
-        let renameItem = NSMenuItem(title: "Rename Workspace...", action: #selector(beginInlineRenameForContextWorkspace), keyEquivalent: "")
-        renameItem.target = self
-        menu.addItem(renameItem)
-
-        // Change Color submenu
-        let colorItem = NSMenuItem(title: "Change Color", action: nil, keyEquivalent: "")
-        colorItem.submenu = ContextMenuBuilder.workspaceColorSubmenu(
-            currentColorId: workspace.colorId,
-            target: self,
-            colorAction: #selector(changeWorkspaceColor(_:)),
-            customColorAction: #selector(chooseCustomWorkspaceColor)
-        )
-        menu.addItem(colorItem)
-
-        // Browser Profile submenu
-        if let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-           BrowserManager.supportsProfiles(bundleId) {
-            let profiles = BrowserManager.profiles(for: bundleId)
-            if !profiles.isEmpty {
-                let profileSubmenu = NSMenu()
-                let currentProfile = workspace.browserProfiles[bundleId]
-
-                // "None" option to clear profile
-                let noneItem = NSMenuItem(title: "None (default)", action: #selector(clearWorkspaceBrowserProfile), keyEquivalent: "")
-                noneItem.target = self
-                if currentProfile == nil {
-                    noneItem.state = .on
+    @objc private func importWorkspaceFile() {
+        guard let appModel else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "stow") ?? .json]
+        panel.allowsMultipleSelection = false
+        let handle: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                let data = try Data(contentsOf: url)
+                var importedId: UUID?
+                try self.preservingSelection {
+                    importedId = try appModel.importWorkspace(from: data)
                 }
-                profileSubmenu.addItem(noneItem)
-                profileSubmenu.addItem(.separator())
-
-                for profile in profiles {
-                    let item = NSMenuItem(title: profile.displayName, action: #selector(setWorkspaceBrowserProfile(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.representedObject = profile.directoryName
-                    if currentProfile == profile.directoryName {
-                        item.state = .on
-                    }
-                    profileSubmenu.addItem(item)
-                }
-
-                let profileItem = NSMenuItem(title: "Browser profile", action: nil, keyEquivalent: "")
-                profileItem.submenu = profileSubmenu
-                menu.addItem(profileItem)
+                let name = importedId.flatMap { appModel.workspaces.first(id: $0)?.name } ?? url.deletingPathExtension().lastPathComponent
+                self.setImportStatus(self.fileImportStatus, "Imported “\(name)”", kind: .success)
+            } catch {
+                self.setImportStatus(self.fileImportStatus, "Couldn't import: \(error.localizedDescription)", kind: .danger)
             }
+            self.reloadWorkspaces()
         }
-
-        // Delete option
-        menu.addItem(.separator())
-        let deleteItem = NSMenuItem(title: "Delete Workspace...", action: #selector(deleteContextWorkspace), keyEquivalent: "")
-        deleteItem.target = self
-        deleteItem.isEnabled = appModel.workspaces.count > 1
-        menu.addItem(deleteItem)
-
-        NSMenu.popUpContextMenu(menu, with: event, for: workspaceCollectionView)
-    }
-
-    @objc private func beginInlineRenameForContextWorkspace() {
-        guard let workspaceId = contextWorkspaceId else { return }
-        guard let appModel = appModel else { return }
-        guard let index = appModel.workspaces.firstIndex(where: { $0.id == workspaceId }) else { return }
-
-        inlineRenameWorkspaceId = workspaceId
-
-        DispatchQueue.main.async {
-            let indexPath = IndexPath(item: index, section: 0)
-            if let item = self.workspaceCollectionView.item(at: indexPath) as? WorkspaceCollectionViewItem {
-                item.beginInlineRename()
-            }
+        if let window = view.window {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(panel.runModal())
         }
     }
 
-    @objc private func changeWorkspaceColor(_ sender: NSMenuItem) {
-        guard let workspaceId = contextWorkspaceId else { return }
-        guard let colorId = sender.representedObject as? WorkspaceColorId else { return }
-        guard let appModel = appModel else { return }
-
-        appModel.updateWorkspaceColor(id: workspaceId, colorId: colorId)
-        reloadWorkspaces()
-    }
-
-    @objc private func chooseCustomWorkspaceColor() {
-        guard let workspaceId = contextWorkspaceId else { return }
-        guard let appModel = appModel else { return }
-        guard let workspace = appModel.workspaces.first(where: { $0.id == workspaceId }) else { return }
-
-        customColorTargetWorkspaceId = workspaceId
-        let colorPanel = NSColorPanel.shared
-        colorPanel.color = workspace.colorId.color
-        colorPanel.setTarget(self)
-        colorPanel.setAction(#selector(settingsCustomColorChanged(_:)))
-        colorPanel.isContinuous = true
-        colorPanel.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func settingsCustomColorChanged(_ sender: Any?) {
-        guard let workspaceId = customColorTargetWorkspaceId else { return }
-        guard let appModel = appModel else { return }
-        let hex = NSColorPanel.shared.color.hexString
-        appModel.updateWorkspaceColor(id: workspaceId, colorId: .custom(hex))
-        reloadWorkspaces()
-    }
-
-    @objc private func setWorkspaceBrowserProfile(_ sender: NSMenuItem) {
-        guard let workspaceId = contextWorkspaceId else { return }
-        guard let profileDir = sender.representedObject as? String else { return }
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        appModel?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: profileDir)
-        reloadWorkspaces()
-    }
-
-    @objc private func clearWorkspaceBrowserProfile() {
-        guard let workspaceId = contextWorkspaceId else { return }
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        appModel?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: nil)
-        reloadWorkspaces()
-    }
-
-    @objc private func deleteContextWorkspace() {
-        guard let workspaceId = contextWorkspaceId else { return }
-        handleWorkspaceDelete(id: workspaceId)
-    }
-
-    @objc private func handleWorkspaceScrollBoundsChanged() {
-        for item in workspaceCollectionView.visibleItems() {
-            (item as? WorkspaceCollectionViewItem)?.refreshHoverState()
+    /// Import status lines stay until dismissed or replaced, and are announced.
+    private func setImportStatus(_ line: SettingsStatusLine?, _ text: String?, kind: SettingsStatusLine.Kind = .help) {
+        guard let line else { return }
+        line.set(text, kind: kind)
+        if let text {
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
+        relayout()
+    }
+}
+
+// MARK: - NSPopoverDelegate
+
+extension SettingsContentViewController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        guard (notification.object as? NSPopover) === popover else { return }
+        returnPopoverGroupToPage()
     }
 }
 
@@ -1086,360 +912,235 @@ final class SettingsContentViewController: NSViewController {
 
 extension SettingsContentViewController: NSCollectionViewDataSource {
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        return appModel?.workspaces.count ?? 0
+        visibleWorkspaceCount
     }
 
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
-        guard let appModel = appModel else {
-            return NSCollectionViewItem()
-        }
-
-        let item = collectionView.makeItem(
-            withIdentifier: NSUserInterfaceItemIdentifier("WorkspaceItem"),
-            for: indexPath
-        ) as! WorkspaceCollectionViewItem
+        let item = collectionView.makeItem(withIdentifier: Self.workspaceItemId, for: indexPath)
+        guard let appModel, let workspaceItem = item as? WorkspaceCollectionViewItem,
+              appModel.workspaces.indices.contains(indexPath.item) else { return item }
 
         let workspace = appModel.workspaces[indexPath.item]
-        let canDelete = appModel.workspaces.count > 1
-
-        // Resolve profile display name
-        var profileName: String?
-        if let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-           let profileDir = workspace.browserProfiles[bundleId] {
-            let profiles = BrowserManager.profiles(for: bundleId)
-            profileName = profiles.first(where: { $0.directoryName == profileDir })?.displayName ?? profileDir
-        }
-
-        item.configure(
-            workspace: workspace,
-            canDelete: canDelete,
-            profileName: profileName,
-            onDelete: { [weak self] id in
-                self?.handleWorkspaceDelete(id: id)
-            },
-            onRenameCommit: { [weak self] id, newName in
-                self?.handleWorkspaceRename(id: id, newName: newName)
-            }
+        let content = WorkspaceRowView.Content(
+            name: workspace.name,
+            colorId: workspace.colorId,
+            iconLinks: WorkspaceIconSites.pick(from: workspace.items),
+            profileName: profileName(for: workspace),
+            itemCount: WorkspaceDeletion.itemCount(of: workspace),
+            position: indexPath.item + 1,
+            total: appModel.workspaces.count,
+            canDelete: appModel.workspaces.count > 1
         )
+        workspaceItem.configure(workspace: workspace, content: content, actions: .init(
+            showMenu: { [weak self] id, anchor in self?.showWorkspaceMenu(for: id, anchor: anchor) },
+            showColorMenu: { [weak self] id, anchor in
+                guard let self, let appModel = self.appModel else { return }
+                self.popUp(WorkspaceMenu.makeColorMenu(for: id, model: appModel, presentingView: self.view), below: anchor)
+            },
+            showProfileMenu: { [weak self] id, anchor in
+                guard let self, let appModel = self.appModel,
+                      let menu = WorkspaceMenu.makeProfileMenu(for: id, model: appModel, presentingView: self.view) else { return }
+                self.popUp(menu, below: anchor)
+            },
+            rename: { [weak self] id in self?.beginInlineRename(id) },
+            commitRename: { [weak self] id, name in self?.appModel?.renameWorkspace(id: id, newName: name) },
+            finishRename: { [weak self] _ in self?.finishInlineRename() },
+            delete: { [weak self] id in self?.deleteWorkspace(id) },
+            move: { [weak self] id, direction in
+                self?.appModel?.moveWorkspace(id: id, direction: direction)
+                self?.refocusWorkspace(id)
+            }
+        ))
+        return workspaceItem
+    }
 
-        return item
+    /// Keeps keyboard focus on a workspace row after it moves.
+    private func refocusWorkspace(_ id: UUID) {
+        reloadWorkspaces()
+        guard let appModel, let index = appModel.workspaces.firstIndex(id: id), index < visibleWorkspaceCount else { return }
+        workspaceCollectionView.layoutSubtreeIfNeeded()
+        if let item = workspaceCollectionView.item(at: IndexPath(item: index, section: 0)) as? WorkspaceCollectionViewItem,
+           let row = item.row {
+            view.window?.makeFirstResponder(row)
+        }
     }
 }
-
 
 // MARK: - NSCollectionViewDelegate
 
 extension SettingsContentViewController: NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
-        return true
+        renamingWorkspaceId == nil
     }
 
     func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
-        guard let appModel = appModel else {
-            return nil
-        }
-        let workspace = appModel.workspaces[indexPath.item]
-
-        let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(workspace.id.uuidString, forType: workspacePasteboardType)
-        return pasteboardItem
+        guard let appModel, appModel.workspaces.indices.contains(indexPath.item) else { return nil }
+        let item = NSPasteboardItem()
+        item.setString(appModel.workspaces[indexPath.item].id.uuidString, forType: workspacePasteboardType)
+        return item
     }
 
     func collectionView(_ collectionView: NSCollectionView, validateDrop draggingInfo: NSDraggingInfo, proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>, dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
-        // Only allow drop before items (for reordering)
         proposedDropOperation.pointee = .before
-
-        // Show drop indicator
-        let indexPath = proposedDropIndexPath.pointee as IndexPath
-        let metrics = ListMetrics()
-
-        if indexPath.item == 0 {
-            // Drop at the beginning
-            let indicatorFrame = CGRect(
-                x: 0,
-                y: 0,
-                width: collectionView.bounds.width,
-                height: 2
-            )
-            workspaceDropIndicator.showLine(in: indicatorFrame)
-        } else if indexPath.item < (appModel?.workspaces.count ?? 0) {
-            // Drop between items
-            let y = CGFloat(indexPath.item) * (metrics.rowHeight + metrics.verticalGap) - metrics.verticalGap / 2
-            let indicatorFrame = CGRect(
-                x: 0,
-                y: y,
-                width: collectionView.bounds.width,
-                height: 2
-            )
-            workspaceDropIndicator.showLine(in: indicatorFrame)
-        } else {
-            // Drop at the end
-            let count = appModel?.workspaces.count ?? 0
-            let y = CGFloat(count) * (metrics.rowHeight + metrics.verticalGap) - metrics.verticalGap / 2
-            let indicatorFrame = CGRect(
-                x: 0,
-                y: y,
-                width: collectionView.bounds.width,
-                height: 2
-            )
-            workspaceDropIndicator.showLine(in: indicatorFrame)
-        }
-
+        let index = min((proposedDropIndexPath.pointee as IndexPath).item, visibleWorkspaceCount)
+        let y = max(0, CGFloat(index) * SettingsMetrics.rowHeight - 1)
+        workspaceDropIndicator.showLine(in: CGRect(x: SettingsMetrics.rowPadding, y: y,
+                                                   width: collectionView.bounds.width - SettingsMetrics.rowPadding * 2, height: 2))
         return .move
     }
 
     func collectionView(_ collectionView: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo, indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
-        // Hide drop indicator
         workspaceDropIndicator.hide()
-
-        guard let appModel = appModel else {
-            return false
-        }
-        guard let pasteboardItem = draggingInfo.draggingPasteboard.pasteboardItems?.first else {
-            return false
-        }
-        guard let uuidString = pasteboardItem.string(forType: workspacePasteboardType) else {
-            return false
-        }
-        guard let workspaceId = UUID(uuidString: uuidString) else {
-            return false
-        }
-        guard let currentIndex = appModel.workspaces.firstIndex(where: { $0.id == workspaceId }) else {
-            return false
-        }
-
-        var targetIndex = indexPath.item
-
-        // Adjust target index if dragging within the same list
-        if currentIndex < targetIndex {
-            targetIndex -= 1
-        }
-
-        // Perform the reorder
-        appModel.reorderWorkspace(id: workspaceId, toIndex: targetIndex)
+        guard let appModel,
+              let string = draggingInfo.draggingPasteboard.pasteboardItems?.first?.string(forType: workspacePasteboardType),
+              let id = UUID(uuidString: string),
+              let currentIndex = appModel.workspaces.firstIndex(id: id) else { return false }
+        var target = indexPath.item
+        if currentIndex < target { target -= 1 }
+        appModel.reorderWorkspace(id: id, toIndex: target)
         reloadWorkspaces()
-
         return true
     }
 
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
-        // Hide drop indicator when drag ends
         workspaceDropIndicator.hide()
     }
 }
 
-// MARK: - Workspace Context Menu Collection View
+// MARK: - Group view
 
-private final class WorkspaceContextMenuCollectionView: NSCollectionView {
-    var onRightClick: ((UUID, NSEvent) -> Void)?
-
-    weak var settingsController: SettingsContentViewController?
-
-    override func rightMouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if let indexPath = indexPathForItem(at: point),
-           let appModel = settingsController?.appModel {
-            let workspace = appModel.workspaces[indexPath.item]
-            onRightClick?(workspace.id, event)
-        } else {
-            super.rightMouseDown(with: event)
-        }
+/// One section of the page: its header and its rows, laid out top to bottom with frames.
+/// Hidden items take no space. The same view moves into a popover in rail mode.
+final class SettingsGroupView: NSView {
+    private struct Item {
+        let view: NSView
+        let height: (() -> CGFloat)?
     }
 
-    override func mouseDown(with event: NSEvent) {
-        // Call super to allow drag operations
-        super.mouseDown(with: event)
-    }
-}
+    private var items: [Item] = []
+    let section: SettingsContentViewController.Section
 
-// MARK: - Flipped Content View
-
-/// A custom NSView that uses flipped coordinates so content is anchored to the top
-private final class FlippedContentView: NSView {
-    override var isFlipped: Bool {
-        return true
-    }
-}
-
-// MARK: - Settings Button
-
-/// A custom button with background and hover effect, styled like the dropdown container
-private final class SettingsButton: NSButton {
-    // Style constants
-    private struct Style {
-        static var baseBackgroundColor: NSColor { SettingsColors.fill }
-        static var hoverBackgroundColor: NSColor { SettingsColors.fillStrong }
-        static var textColor: NSColor { SettingsColors.ink }
-        static var disabledBackgroundColor: NSColor { SettingsColors.fill }
-        static var disabledTextColor: NSColor { SettingsColors.inkSecondary }
-
-        static let cornerRadius: CGFloat = 8
-        static let fontSize: CGFloat = 13
-    }
-
-    private var trackingArea: NSTrackingArea?
-    private var spinner: NSProgressIndicator?
-    private let originalTitle: String
-    private var isLoading: Bool = false
-
-    init(title: String) {
-        self.originalTitle = title
+    init(section: SettingsContentViewController.Section) {
+        self.section = section
         super.init(frame: .zero)
-        self.title = title
-        setupButton()
+        add(SettingsSectionHeader(section.title))
     }
 
-    required init?(coder: NSCoder) {
-        self.originalTitle = ""
-        super.init(coder: coder)
-        setupButton()
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    func add(_ view: NSView, height: (() -> CGFloat)? = nil) {
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = []
+        addSubview(view)
+        items.append(Item(view: view, height: height))
     }
 
-    private func setupButton() {
-        wantsLayer = true
-        isBordered = false
-        bezelStyle = .regularSquare
-        font = NSFont.systemFont(ofSize: Style.fontSize)
-
-        // Setup layer
-        layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
-        layer?.cornerRadius = Style.cornerRadius
-
-        // Set text color
-        updateTextColor(Style.textColor)
+    private func height(of item: Item, width: CGFloat) -> CGFloat {
+        if let height = item.height { return height() }
+        if let row = item.view as? SettingsRow { return row.height(forWidth: width) }
+        if item.view is SettingsSectionHeader { return SettingsMetrics.headerHeight }
+        if item.view is SettingsStatusLine { return SettingsMetrics.helpLineHeight }
+        return SettingsMetrics.rowHeight
     }
 
-    private func updateTextColor(_ color: NSColor) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: color,
-            .font: NSFont.systemFont(ofSize: Style.fontSize)
-        ]
-        attributedTitle = NSAttributedString(string: originalTitle, attributes: attributes)
+    func height(forWidth width: CGFloat) -> CGFloat {
+        items.reduce(0) { $0 + ($1.view.isHidden ? 0 : height(of: $1, width: width)) }
     }
 
-    func setLoading(_ loading: Bool) {
-        self.isLoading = loading
-
-        if loading {
-            // Create and add spinner if it doesn't exist
-            if spinner == nil {
-                let progressIndicator = NSProgressIndicator()
-                progressIndicator.style = .spinning
-                progressIndicator.controlSize = .small
-                progressIndicator.translatesAutoresizingMaskIntoConstraints = false
-
-                // Force aqua appearance so the spinner renders as dark/black instead of white
-                // This is necessary because NSProgressIndicator doesn't have a direct color API
-                progressIndicator.appearance = NSAppearance(named: .aqua)
-
-                addSubview(progressIndicator)
-
-                // Position spinner to the right of the text
-                NSLayoutConstraint.activate([
-                    progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-                    progressIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-                    progressIndicator.widthAnchor.constraint(equalToConstant: 16),
-                    progressIndicator.heightAnchor.constraint(equalToConstant: 16)
-                ])
-
-                spinner = progressIndicator
-            }
-
-            // Apply disabled background styling (without actually disabling the button)
-            layer?.backgroundColor = resolvedCGColor(Style.disabledBackgroundColor)
-
-            // Update text color to #141414 with full opacity
-            let attributes: [NSAttributedString.Key: Any] = [
-                .foregroundColor: Style.disabledTextColor,
-                .font: NSFont.systemFont(ofSize: Style.fontSize)
-            ]
-            attributedTitle = NSAttributedString(string: originalTitle, attributes: attributes)
-
-            // Show and start spinner
-            spinner?.startAnimation(nil)
-            spinner?.isHidden = false
-        } else {
-            // Hide and stop spinner
-            spinner?.stopAnimation(nil)
-            spinner?.isHidden = true
-
-            // Restore enabled background styling
-            layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
-
-            // Restore text color
-            updateTextColor(Style.textColor)
+    override func layout() {
+        super.layout()
+        var y: CGFloat = 0
+        for item in items where !item.view.isHidden {
+            let h = height(of: item, width: bounds.width)
+            item.view.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
+            y += h
         }
     }
 
-    override func mouseDown(with event: NSEvent) {
-        // Prevent action if loading
-        if isLoading {
-            return
-        }
-        super.mouseDown(with: event)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-
-        if let existingArea = trackingArea {
-            removeTrackingArea(existingArea)
-        }
-
-        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways]
-        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
-        addTrackingArea(trackingArea!)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        // Only show hover effect if not loading
-        if !isLoading {
-            layer?.backgroundColor = resolvedCGColor(Style.hoverBackgroundColor)
-        }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        // Restore appropriate background based on loading state
-        if isLoading {
-            layer?.backgroundColor = resolvedCGColor(Style.disabledBackgroundColor)
-        } else {
-            layer?.backgroundColor = resolvedCGColor(Style.baseBackgroundColor)
-        }
-    }
-
-    override var intrinsicContentSize: NSSize {
-        return NSSize(width: NSView.noIntrinsicMetric, height: 36)
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
     }
 }
 
-// MARK: - Workspace Drop Indicator View
+// MARK: - Rail workspace chip
+
+/// A workspace in the rail: its favicon icon or colored letter chip. Clicking it opens
+/// the workspace menu.
+private final class RailWorkspaceChip: FocusableControl {
+    private let iconView = WorkspaceIconView()
+    var onClick: (() -> Void)?
+
+    init(workspace: Workspace, iconLinks: [Link]) {
+        super.init(frame: .zero)
+        iconView.configure(name: workspace.name, colorId: workspace.colorId, links: iconLinks)
+        iconView.onClick = { [weak self] in self?.onClick?() }
+        iconView.autoresizingMask = [.width, .height]
+        addSubview(iconView)
+        layer?.cornerRadius = SettingsMetrics.rowRadius
+        toolTip = workspace.name
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(workspace.name), workspace menu")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layout() {
+        super.layout()
+        iconView.frame = bounds.insetBy(dx: 2, dy: 2)
+    }
+
+    override func performAction() { onClick?() }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = (isHovered ? SettingsColors.fill : NSColor.clear).cgColor
+        layer?.borderWidth = isFocused ? SettingsMetrics.focusRingWidth : 0
+        layer?.borderColor = SettingsColors.accent.cgColor
+    }
+
+    override func handleHoverStateChanged() { needsDisplay = true }
+}
+
+// MARK: - Collection view
+
+/// The workspace list. The rows take keyboard focus themselves, so the list doesn't.
+private final class WorkspaceListCollectionView: NSCollectionView {
+    override var canBecomeKeyView: Bool { false }
+}
+
+// MARK: - Flipped view
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+// MARK: - Workspace drop indicator
 
 private final class WorkspaceDropIndicatorView: NSView {
-    private let lineThickness: CGFloat = 2
-    private var accentColor: NSColor { SettingsColors.accent }
-
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.masksToBounds = true
         isHidden = true
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        layer?.masksToBounds = true
-        isHidden = true
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.cornerRadius = 1
+        layer?.backgroundColor = SettingsColors.accent.cgColor
     }
 
     func showLine(in frame: NSRect) {
         isHidden = false
         self.frame = frame
-        layer?.cornerRadius = lineThickness / 2
-        layer?.backgroundColor = resolvedCGColor(accentColor)
-        layer?.borderWidth = 0
+        needsDisplay = true
     }
 
     func hide() {
