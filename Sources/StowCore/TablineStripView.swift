@@ -237,7 +237,7 @@ final class TablineStripView: NSView {
     private func pocketWidth(_ tier: Tier) -> CGFloat {
         guard model.pocketCount > 0 else { return 0 }
         let glyph = 6 + Self.width("◫", Self.font(.regular)) + 6
-        return tier == .full ? glyph + 4 + Self.width("\(model.pocketCount)", Self.font(.semibold, 10)) : glyph
+        return tier == .icon ? glyph : glyph + 4 + Self.width("\(model.pocketCount)", Self.font(.semibold, 10))
     }
 
     private func overflowWidth(_ n: Int) -> CGFloat { 6 + Self.width("+\(n)", Self.font(.bold)) + 6 }
@@ -279,10 +279,29 @@ final class TablineStripView: NSView {
         }
         hiddenEntryIndices = Array(visible..<model.entries.count)
 
+        // Between full and short, hand the spare room back to the tabs that were cut most,
+        // so names only shorten as far as the width demands.
+        var widths = (0..<visible).map { entryWidth($0, tier) }
+        if tier == .short {
+            let full = (0..<visible).map { entryWidth($0, .full) }
+            var spare = w - (tabsStart + entriesWidth(.short, count: visible) + trailing(.short))
+            var open = Set((0..<visible).filter { full[$0] > widths[$0] })
+            while spare > 0.5, !open.isEmpty {
+                let share = spare / CGFloat(open.count)
+                for i in open {
+                    let grow = min(share, full[i] - widths[i])
+                    widths[i] += grow
+                    spare -= grow
+                    if full[i] - widths[i] < 0.5 { open.remove(i) }
+                }
+            }
+            widths = widths.map { $0.rounded(.down) }
+        }
+
         items.append((.chip, rect(M.pad, chipWidth)))
         var x = tabsStart
         for i in 0..<visible {
-            let width = entryWidth(i, tier)
+            let width = widths[i]
             items.append((model.entries[i].isGroup ? .group(i) : .tab(i), rect(x, width)))
             x += width + M.gap
         }
@@ -339,7 +358,7 @@ final class TablineStripView: NSView {
             case .ghost: drawGhost(item.rect, p)
             case .overflow: drawOverflow(item.rect, p)
             case .search: drawTool("⌕", count: nil, item.rect, p, kind: .search)
-            case .pocket: drawTool("◫", count: tier == .full ? model.pocketCount : nil, item.rect, p, kind: .pocket)
+            case .pocket: drawTool("◫", count: tier == .icon ? nil : model.pocketCount, item.rect, p, kind: .pocket)
             }
         }
     }
@@ -456,8 +475,11 @@ final class TablineStripView: NSView {
         }
         x = rect.minX + 6 + stackWidth(stacked.count) + 5
         guard tier != .icon else { return }
-        if tier == .full {
-            x += drawText(folder.name, at: x, midY: rect.midY, font: Self.font(.semibold), color: p.ink) + 5
+        // The name shows whenever the waterfill gave the group room for it next to the count.
+        let countWidth = Self.width("\(links.count)", Self.font(.semibold))
+        let nameRoom = rect.maxX - 8 - countWidth - 5 - x
+        if tier == .full || nameRoom >= 24 {
+            x += drawText(folder.name, at: x, midY: rect.midY, font: Self.font(.semibold), color: p.ink, maxWidth: nameRoom) + 5
         }
         drawText("\(links.count)", at: x, midY: rect.midY, font: Self.font(.semibold), color: p.ink.withAlphaComponent(0.55))
     }
