@@ -49,12 +49,15 @@ final class CustomToggle: BaseControl {
     }
 
     private func setupView() {
+        setAccessibilityElement(true)
         setAccessibilityRole(.checkBox)
+        setAccessibilitySubrole(.switch)
         setAccessibilityLabel(titleLabel.stringValue)
+        titleLabel.setAccessibilityElement(false)
 
         // Title label
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = ThemeConstants.Fonts.bodyRegular
+        titleLabel.font = StowTheme.Font.row
         titleLabel.textColor = SettingsColors.ink
         titleLabel.lineBreakMode = .byTruncatingTail
 
@@ -107,6 +110,27 @@ final class CustomToggle: BaseControl {
         isOn.toggle()
     }
 
+    override var acceptsFirstResponder: Bool {
+        isEnabled && NSApp.currentEvent?.type != .leftMouseDown
+    }
+
+    override var canBecomeKeyView: Bool { isEnabled }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 { performAction() } else { super.keyDown(with: event) }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        performAction()
+        return true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance(animated: false)
+    }
+
     private func updateAppearance(animated: Bool) {
         // Switch background color
         let backgroundColor: NSColor
@@ -117,6 +141,8 @@ final class CustomToggle: BaseControl {
         }
 
         let thumbColor = isOn ? SettingsColors.onSelection : SettingsColors.raised
+        switchThumb.layer?.borderWidth = isOn ? 0 : 1
+        switchThumb.layer?.borderColor = resolvedCGColor(SettingsColors.edge)
 
         // Position thumb
         let thumbLeadingOffset = isOn ? (switchWidth - thumbSize - thumbInset) : thumbInset
@@ -145,7 +171,10 @@ final class CustomToggle: BaseControl {
             thumbLeadingConstraint?.constant = thumbLeadingOffset
         }
 
-        // Update accessibility
-        setAccessibilityValue(isOn ? "on" : "off")
+        // The off track is outlined so it reads against the surface (fill alone is ~1.2:1).
+        switchContainer.layer?.borderWidth = isOn ? 0 : 1
+        switchContainer.layer?.borderColor = resolvedCGColor(SettingsColors.edge)
+
+        setAccessibilityValue(isOn ? 1 : 0)
     }
 }

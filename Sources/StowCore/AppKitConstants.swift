@@ -75,7 +75,8 @@ enum SettingsColors {
     static let palette = StowTheme.colors(for: .settingsBackground)
     static var ink: NSColor { palette.inkPrimary }
     static var inkSecondary: NSColor { palette.inkSecondary }
-    /// Resting fill for fields, buttons and the off toggle track.
+    static var surface: NSColor { palette.surface }
+    /// Resting fill for hovered neutral rows.
     static var fill: NSColor { palette.hover }
     static var fillStrong: NSColor { palette.multiSelected }
     static var stroke: NSColor { palette.stroke }
@@ -83,12 +84,45 @@ enum SettingsColors {
     static var onSelection: NSColor { palette.onSelection }
     static var raised: NSColor { palette.raised }
     static var accent: NSColor { palette.accent }
-    static var success: NSColor { dynamic(light: "#1B7F3B", dark: "#5BD68A") }
-    static var danger: NSColor { dynamic(light: "#B42318", dark: "#FF9B8F") }
+    /// Boundary of controls (segments, buttons, keycaps, dot rings): ink faded toward the
+    /// surface only as far as 3:1 against both the surface and raised fills allows.
+    static var edge: NSColor { solved(\.edge) }
+    static var success: NSColor { solved(\.success) }
+    static var danger: NSColor { palette.overdue }
 
-    private static func dynamic(light: String, dark: String) -> NSColor {
-        let l = StowTheme.RGB(hex: light)!.platformColor
-        let d = StowTheme.RGB(hex: dark)!.platformColor
+    private struct Extra {
+        let edge: StowTheme.RGB
+        let success: StowTheme.RGB
+    }
+
+    private static let extraLight = extra(palette.light, successSeed: StowTheme.RGB(hex: "#1B7F3B")!)
+    private static let extraDark = extra(palette.dark, successSeed: StowTheme.RGB(hex: "#5BD68A")!)
+
+    private static func extra(_ p: StowTheme.Palette, successSeed: StowTheme.RGB) -> Extra {
+        func minContrast(_ c: StowTheme.RGB, _ list: [StowTheme.RGB]) -> Double {
+            list.map { c.contrast(with: $0) }.min() ?? 0
+        }
+        let edgeAgainst = p.textSurfaces + [p.raised]
+        var edge = p.inkPrimary
+        var t = 0.9
+        while t > 0 {
+            let candidate = p.inkPrimary.mix(p.surface, t)
+            if minContrast(candidate, edgeAgainst) >= 3.0 { edge = candidate; break }
+            t -= 0.01
+        }
+        var success = p.inkPrimary
+        var s = 0.0
+        while s <= 1 {
+            let candidate = successSeed.mix(p.inkPrimary, s)
+            if minContrast(candidate, p.textSurfaces) >= 4.6 { success = candidate; break }
+            s += 0.02
+        }
+        return Extra(edge: edge, success: success)
+    }
+
+    private static func solved(_ key: KeyPath<Extra, StowTheme.RGB>) -> NSColor {
+        let l = extraLight[keyPath: key].platformColor
+        let d = extraDark[keyPath: key].platformColor
         return NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? d : l }
     }
 }
