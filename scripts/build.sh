@@ -87,6 +87,24 @@ else
     fi
 fi
 
+# Compile the Icon Composer document into Assets.car (Liquid Glass icon) plus a
+# flattened AppIcon.icns fallback; CFBundleIconName points the system at the .car.
+echo "🎨 Compiling AppIcon.icon..."
+APP_RESOURCES=".build/bundler/Stow.app/Contents/Resources"
+mkdir -p "$APP_RESOURCES"
+xcrun actool Resources/AppIcon.icon \
+    --compile "$APP_RESOURCES" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist .build/bundler/AppIcon-partial.plist \
+    --errors --warnings > /dev/null
+/usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$INFO_PLIST" &>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$INFO_PLIST"
+echo "  ✓ Assets.car + AppIcon.icns"
+
 # Add NSAppleEventsUsageDescription (needed to focus existing browser tabs via AppleScript)
 USAGE_DESC='Stow uses Apple Events to focus the existing browser tab when you click a bookmark whose URL is already open. Without this, every click opens a duplicate tab.'
 if ! /usr/libexec/PlistBuddy -c "Print :NSAppleEventsUsageDescription" "$INFO_PLIST" &>/dev/null; then
