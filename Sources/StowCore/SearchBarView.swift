@@ -49,7 +49,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     private let textField = NSTextField(string: "")
     private let clearButton = NSButton()
     private let countLabel = NSTextField(labelWithString: "")
-    private let shortcutLabel = NSTextField(labelWithString: "⌘F")
+    /// "/" focuses search from the list; while ⌘ is held it reads "⌘F".
+    private let shortcutLabel = Keycap()
     private var iconLeadingConstraint: NSLayoutConstraint?
     private var iconWidthConstraint: NSLayoutConstraint?
     private var iconHeightConstraint: NSLayoutConstraint?
@@ -94,9 +95,12 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// Forces the ⌘F keycap visible, e.g. while ⌘ is held.
+    /// Forces the keycap visible as ⌘F, e.g. while ⌘ is held.
     var showsShortcutHint = false {
-        didSet { updateFocusRing() }
+        didSet {
+            shortcutLabel.text = showsShortcutHint ? "⌘F" : "/"
+            updateFocusRing()
+        }
     }
 
     var isFocused: Bool {
@@ -167,7 +171,9 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
-        shortcutLabel.font = StowTheme.Font.keycap
+        shortcutLabel.text = "/"
+        shortcutLabel.height = 17
+        shortcutLabel.fontSize = 10
         shortcutLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         addSubview(iconView)
@@ -241,7 +247,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
             layer?.backgroundColor = style.baseColor.withAlphaComponent(style.backgroundOpacity).cgColor
         }
         countLabel.textColor = secondaryInk
-        shortcutLabel.textColor = secondaryInk
+        shortcutLabel.color = colors?.inkSecondary ?? secondaryInk
         updateFocusRing()
 
         iconLeadingConstraint?.constant = style.horizontalPadding

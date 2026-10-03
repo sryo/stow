@@ -60,7 +60,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.styleMask.remove(.resizable)
             window.level = .floating
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                window.setFrame(NSRect(x: 200, y: 200, width: width, height: 620), display: true)
+                let height = ProcessInfo.processInfo.environment["STOW_WINDOW_HEIGHT"].flatMap(Double.init) ?? 620
+                window.setFrame(NSRect(x: 200, y: 200, width: width, height: height), display: true)
             }
         }
         #endif
