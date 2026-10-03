@@ -121,6 +121,18 @@ final class NodeListViewController: NSViewController {
         }
     }
 
+    /// Letters assigned to rows in order while jump mode is on.
+    var jumpLetters: [Character] = Array("abcdefghijklmnopqrstuvwxyz")
+
+    private func jumpLetter(at item: Int) -> String? {
+        item < jumpLetters.count ? String(jumpLetters[item]) : nil
+    }
+
+    /// The row index a jump letter points at, if any.
+    func rowIndex(forJumpLetter letter: Character) -> Int? {
+        jumpLetters.firstIndex(of: letter)
+    }
+
     /// While true, rows show a–z jump letters and plain letter keys activate rows.
     var isJumpModeActive = false {
         didSet {
@@ -131,8 +143,7 @@ final class NodeListViewController: NSViewController {
                       let row = row(at: indexPath) else { continue }
                 var isArchived = false
                 if case .archived = row.kind { isArchived = true }
-                let letter: String? = isJumpModeActive && !isArchived && indexPath.item < 26
-                    ? String(UnicodeScalar(UInt8(97 + indexPath.item))) : nil
+                let letter: String? = isJumpModeActive && !isArchived ? jumpLetter(at: indexPath.item) : nil
                 nodeItem.setHintCharacter(letter)
             }
         }
@@ -1059,8 +1070,7 @@ extension NodeListViewController {
         nodeItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
 
         // Jump letters (a–z for the first 26 rows) appear only in jump mode.
-        if isJumpModeActive && !isArchived && indexPath.item < 26 {
-            let letter = String(UnicodeScalar(UInt8(97 + indexPath.item)))
+        if isJumpModeActive && !isArchived, let letter = jumpLetter(at: indexPath.item) {
             nodeItem.setHintCharacter(letter)
         } else {
             nodeItem.setHintCharacter(nil)

@@ -94,6 +94,11 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         }
     }
 
+    /// Forces the ⌘F keycap visible, e.g. while ⌘ is held.
+    var showsShortcutHint = false {
+        didSet { updateFocusRing() }
+    }
+
     var isFocused: Bool {
         guard let editor = textField.currentEditor() else { return false }
         return window?.firstResponder === editor
@@ -225,7 +230,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         let focused = isFocused
         layer?.borderWidth = focused ? 2 : 0
         layer?.borderColor = resolvedCGColor(colors?.accent ?? .controlAccentColor)
-        shortcutLabel.isHidden = focused || !textField.stringValue.isEmpty
+        shortcutLabel.isHidden = !showsShortcutHint && (focused || !textField.stringValue.isEmpty)
     }
 
     private func applyStyle() {

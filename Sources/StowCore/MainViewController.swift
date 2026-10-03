@@ -36,6 +36,11 @@ final class MainViewController: NSViewController {
 
     // Key event monitor
     nonisolated(unsafe) private var keyEventMonitor: Any?
+    nonisolated(unsafe) private var flagsMonitor: Any?
+    /// Pending reveal of jump letters while ⌘ is held on its own.
+    private var commandHoldReveal: DispatchWorkItem?
+    /// True while the letters are showing because ⌘ is held (as opposed to ⌘J mode).
+    private var isCommandHoldJump = false
 
     // State
     private var isReloadScheduled = false
@@ -74,6 +79,9 @@ final class MainViewController: NSViewController {
         if let monitor = keyEventMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -106,7 +114,12 @@ final class MainViewController: NSViewController {
         // Plain a-z key monitor for item activation
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            if self.handleCommandHoldKey(event) { return nil }
             if self.handlePlainKeyEvent(event) { return nil }
+            return event
+        }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handleFlagsChanged(event)
             return event
         }
     }
@@ -130,6 +143,10 @@ final class MainViewController: NSViewController {
             NotificationCenter.default.addObserver(
                 self, selector: #selector(windowDidBecomeKey(_:)),
                 name: NSWindow.didBecomeKeyNotification, object: window
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification, object: window
             )
         }
     }
@@ -1227,6 +1244,93 @@ final class MainViewController: NSViewController {
 
     /// Handles plain a-z key presses for item activation.
     /// Returns true if the event was consumed.
+    /// Holding ⌘ alone reveals the a–z jump letters after a short pause, so quick ⌘
+    /// shortcuts never flash them. Releasing ⌘ hides them again.
+    private func handleFlagsChanged(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        if flags == .command {
+            // Modifier events often arrive without a window, so check key status instead.
+            guard commandHoldReveal == nil, !isCommandHoldJump,
+                  view.window?.isKeyWindow == true,
+                  !model.state.isSettingsSelected, !isSwiping,
+                  !(view.window?.firstResponder is NSTextView),
+                  nodeListViewController.hasNodeRows,
+                  !nodeListViewController.isJumpModeActive else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.commandHoldReveal = nil
+                self.isCommandHoldJump = true
+                self.nodeListViewController.jumpLetters = Self.commandSafeLetters
+                self.nodeListViewController.isJumpModeActive = true
+                self.setShortcutHintsVisible(true)
+            }
+            commandHoldReveal = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        } else {
+            endCommandHold()
+        }
+    }
+
+    private func endCommandHold() {
+        commandHoldReveal?.cancel()
+        commandHoldReveal = nil
+        if isCommandHoldJump {
+            isCommandHoldJump = false
+            nodeListViewController.isJumpModeActive = false
+            nodeListViewController.jumpLetters = Array("abcdefghijklmnopqrstuvwxyz")
+            setShortcutHintsVisible(false)
+        }
+    }
+
+    /// Letters free of ⌘ shortcuts (⌘A C F H J M N Q T V W X Z and system ones are taken),
+    /// so ⌘ + letter can open a row without stealing a command.
+    private static let commandSafeLetters: [Character] = Array("bdegiklopsruy")
+
+    /// Shows keycaps on every control that has a shortcut while ⌘ is held.
+    private func setShortcutHintsVisible(_ visible: Bool) {
+        pasteButton.shortcutHint = visible ? "⌘V" : nil
+        newButton.shortcutHint = visible ? "⇧⌘N" : nil
+        workspaceSwitcher.showsShortcutHints = visible
+        searchField.showsShortcutHint = visible
+    }
+
+    /// ⌘ + letter while the hold hints are showing opens that row. Any key pressed
+    /// before the hints appear is a normal shortcut and cancels the reveal.
+    private func handleCommandHoldKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command) else { return false }
+        guard isCommandHoldJump else {
+            commandHoldReveal?.cancel()
+            commandHoldReveal = nil
+            return false
+        }
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard flags == .command, let chars = event.charactersIgnoringModifiers?.lowercased(), chars.count == 1,
+              let letter = chars.first, let index = nodeListViewController.rowIndex(forJumpLetter: letter) else {
+            // Not a row letter: let the menu shortcut (⌘V, ⌘F, ⌘1…) run as usual.
+            endCommandHold()
+            return false
+        }
+        endCommandHold()
+        activateRow(at: index)
+        return true
+    }
+
+    private func activateRow(at index: Int) {
+        guard let node = nodeListViewController.visibleNode(at: index) else { return }
+        switch node {
+        case .link(let link):
+            openLink(link)
+        case .folder(let folder):
+            if !searchCoordinator.isSearchActive {
+                model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
+            }
+        case .task(let task):
+            model.toggleTaskCompletion(id: task.id)
+        case .snippet(let snippet):
+            copySnippetToClipboard(snippet.id)
+        }
+    }
+
     private func handlePlainKeyEvent(_ event: NSEvent) -> Bool {
         guard event.window === view.window, view.window?.isKeyWindow == true else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -1262,20 +1366,8 @@ final class MainViewController: NSViewController {
               scalar.value >= 97 && scalar.value <= 122 else { return false }
 
         nodeListViewController.isJumpModeActive = false
-        let index = Int(scalar.value - 97)
-        guard let node = nodeListViewController.visibleNode(at: index) else { return true }
-
-        switch node {
-        case .link(let link):
-            openLink(link)
-        case .folder(let folder):
-            if !searchCoordinator.isSearchActive {
-                model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
-            }
-        case .task(let task):
-            model.toggleTaskCompletion(id: task.id)
-        case .snippet(let snippet):
-            copySnippetToClipboard(snippet.id)
+        if let index = nodeListViewController.rowIndex(forJumpLetter: Character(chars)) {
+            activateRow(at: index)
         }
         return true
     }
@@ -1295,6 +1387,10 @@ final class MainViewController: NSViewController {
 
     @objc private func windowDidBecomeKey(_ note: Notification) {
         refreshPasteAvailability()
+    }
+
+    @objc private func windowDidResignKey(_ note: Notification) {
+        endCommandHold()
     }
 
     private var hasFocusedListOnFirstKey = false

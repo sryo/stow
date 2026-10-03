@@ -43,6 +43,15 @@ final class WorkspaceBarView: NSView {
     private let workspaceButton = WorkspaceMenuButton()
     private let dotsView = PageDotsView()
     private let addButton = NSButton()
+    private let addHint = NSTextField(labelWithString: "⌘N")
+
+    /// While true (⌘ held), the dots show their ⌘ numbers and "+" shows ⌘N.
+    var showsShortcutHints = false {
+        didSet {
+            addHint.isHidden = !showsShortcutHints
+            dotsView.showsNumbers = showsShortcutHints
+        }
+    }
     private var renamingWorkspaceId: UUID?
 
     var isInlineRenaming: Bool { renamingWorkspaceId != nil }
@@ -87,6 +96,10 @@ final class WorkspaceBarView: NSView {
         addButton.setAccessibilityLabel("New Workspace")
         addButton.toolTip = "New Workspace (⌘N)"
         addSubview(addButton)
+        addHint.translatesAutoresizingMaskIntoConstraints = false
+        addHint.font = StowTheme.Font.keycap
+        addHint.isHidden = true
+        addSubview(addHint)
 
         addSubview(workspaceButton)
         addSubview(dotsView)
@@ -99,6 +112,8 @@ final class WorkspaceBarView: NSView {
 
             dotsView.centerYAnchor.constraint(equalTo: centerYAnchor),
             dotsView.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -6),
+            addHint.centerXAnchor.constraint(equalTo: addButton.centerXAnchor),
+            addHint.topAnchor.constraint(equalTo: addButton.bottomAnchor, constant: -2),
             dotsView.heightAnchor.constraint(equalToConstant: 20),
 
             addButton.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -118,6 +133,7 @@ final class WorkspaceBarView: NSView {
         workspaceButton.colors = colors
         dotsView.colors = colors
         addButton.contentTintColor = colors.inkPrimary
+        addHint.textColor = colors.inkSecondary
         dotsView.needsDisplay = true
     }
 
@@ -324,6 +340,8 @@ private final class WorkspaceMenuButton: BaseControl {
 /// swipe offset. Clicking a dot jumps to that page.
 private final class PageDotsView: NSView {
     var pageCount = 1 { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
+    /// Draws each workspace's ⌘ number (1–9) instead of its dot.
+    var showsNumbers = false { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
     var position: CGFloat = 1 { didSet { needsDisplay = true } }
     var colors: StowTheme.Colors?
     var onSelectPage: ((Int) -> Void)?
@@ -334,7 +352,10 @@ private final class PageDotsView: NSView {
     private let maxDots = 12
     private var showsCounter: Bool { pageCount > maxDots }
 
+    private let numberSlot: CGFloat = 13
+
     override var intrinsicContentSize: NSSize {
+        if showsNumbers && !showsCounter { return NSSize(width: CGFloat(min(pageCount, 10)) * numberSlot, height: 20) }
         if showsCounter { return NSSize(width: 44, height: 20) }
         return NSSize(width: CGFloat(pageCount) * dot + CGFloat(max(0, pageCount - 1)) * gap + dot, height: 20)
     }
@@ -361,6 +382,22 @@ private final class PageDotsView: NSView {
             let attrs: [NSAttributedString.Key: Any] = [.font: StowTheme.Font.meta, .foregroundColor: colors.inkSecondary]
             let size = text.size(withAttributes: attrs)
             text.draw(at: NSPoint(x: bounds.maxX - size.width, y: midY - size.height / 2), withAttributes: attrs)
+            return
+        }
+        if showsNumbers {
+            // ⌘, for Settings, then ⌘1–⌘9 for the first nine workspaces.
+            let current = Int(position.rounded())
+            for page in 0..<min(pageCount, 10) {
+                let text = page == 0 ? "," : "\(page)"
+                let isCurrent = page == current
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: isCurrent ? StowTheme.Font.title : StowTheme.Font.meta,
+                    .foregroundColor: isCurrent ? colors.inkPrimary : colors.inkSecondary,
+                ]
+                let size = text.size(withAttributes: attrs)
+                let cx = numberSlot / 2 + CGFloat(page) * numberSlot
+                text.draw(at: NSPoint(x: cx - size.width / 2, y: midY - size.height / 2), withAttributes: attrs)
+            }
             return
         }
         colors.guide.setFill()

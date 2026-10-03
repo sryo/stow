@@ -95,6 +95,18 @@ final class IconTitleButton: BaseControl {
         didSet { updateAppearance() }
     }
 
+    private let hintLabel = NSTextField(labelWithString: "")
+
+    /// A keycap shown after the title, e.g. while ⌘ is held. Nil hides it.
+    var shortcutHint: String? {
+        didSet {
+            hintLabel.stringValue = shortcutHint ?? ""
+            hintLabel.isHidden = shortcutHint == nil
+            titleTrailingConstraint?.constant = -style.horizontalPadding - (shortcutHint == nil ? 0 : hintLabel.intrinsicContentSize.width + 6)
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     var titleText: String {
         get { titleField.stringValue }
         set {
@@ -136,6 +148,15 @@ final class IconTitleButton: BaseControl {
 
         addSubview(imageView)
         addSubview(titleField)
+
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        hintLabel.font = StowTheme.Font.keycap
+        hintLabel.isHidden = true
+        addSubview(hintLabel)
+        NSLayoutConstraint.activate([
+            hintLabel.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 6),
+            hintLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
 
         iconLeadingConstraint = imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: style.horizontalPadding)
         iconWidthConstraint = imageView.widthAnchor.constraint(equalToConstant: style.iconPointSize)
@@ -218,6 +239,7 @@ final class IconTitleButton: BaseControl {
             layer?.backgroundColor = resolvedCGColor(fill)
             titleField.textColor = colors.inkPrimary
             imageView.contentTintColor = colors.inkPrimary
+            hintLabel.textColor = colors.inkSecondary
             return
         }
         let backgroundOpacity: CGFloat
