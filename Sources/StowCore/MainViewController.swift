@@ -110,6 +110,13 @@ final class MainViewController: NSViewController {
         bindModel()
         reloadData()
         observeAppearanceChanges()
+        TablineController.shared.contentProvider = { [weak self] in
+            guard let self else { return ("", .defaultColor(), []) }
+            let ws = self.model.currentWorkspace
+            return (ws.name, ws.colorId, ws.items.filter { !$0.isArchived }.flattenLinks())
+        }
+        TablineController.shared.onOpenLink = { [weak self] link in self?.openLink(link) }
+        TablineController.shared.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
         nodeListViewController.tintMode = StowTheme.preferredTint
 
@@ -610,6 +617,7 @@ final class MainViewController: NSViewController {
             }
             if case .noMatches = kind, kind != lastEmptyStateKind { announceNoMatches() }
             lastEmptyStateKind = kind
+            TablineController.shared.reload()
             lastEmptyStateWorkspaceId = workspace.id
             refreshPasteAvailability()
 

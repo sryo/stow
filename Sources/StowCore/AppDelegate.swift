@@ -224,6 +224,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         alwaysOnTopItem.keyEquivalentModifierMask = [.command, .option]
         windowMenu.addItem(alwaysOnTopItem)
         alwaysOnTopMenuItem = alwaysOnTopItem
+        let tablineItem = NSMenuItem(title: "Show Tabline", action: #selector(toggleTabline(_:)), keyEquivalent: "l")
+        tablineItem.keyEquivalentModifierMask = [.command, .option]
+        tablineItem.target = self
+        tablineItem.state = TablineController.shared.isEnabled ? .on : .off
+        windowMenu.addItem(tablineItem)
         windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
@@ -289,6 +294,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc private func newFolder() {
         mainViewController?.createFolderAndBeginRename(parentId: nil)
+    }
+
+    @objc private func toggleTabline(_ sender: NSMenuItem) {
+        TablineController.shared.isEnabled.toggle()
+        sender.state = TablineController.shared.isEnabled ? .on : .off
     }
 
     @objc private func focusSearch() {
