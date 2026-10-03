@@ -18,6 +18,8 @@ final class MainViewController: NSViewController {
     private let titleSettingsButton = NSButton()
     /// In rail mode the strip collapses to one chip for the current workspace.
     private let railWorkspaceChip = NSButton()
+    private let railView = RailView()
+    private var railOpenTimer: Timer?
     private var elasticMode: ElasticMode = .sidebar
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
     /// so its constraints are switched off whenever Settings isn't showing.
@@ -110,13 +112,22 @@ final class MainViewController: NSViewController {
         bindModel()
         reloadData()
         observeAppearanceChanges()
-        TablineController.shared.contentProvider = { [weak self] in
-            guard let self else { return ("", .defaultColor(), []) }
+        let tabline = TablineController.shared
+        tabline.provider = { [weak self] in
+            guard let self else { return nil }
             let ws = self.model.currentWorkspace
-            return (ws.name, ws.colorId, ws.items.filter { !$0.isArchived }.flattenLinks())
+            return TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
+                                  workspaces: self.model.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
         }
-        TablineController.shared.onOpenLink = { [weak self] link in self?.openLink(link) }
-        TablineController.shared.startIfEnabled()
+        tabline.onOpenLink = { [weak self] link in self?.openLink(link) }
+        tabline.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
+        tabline.onStowURL = { [weak self] url, title in
+            guard let self else { return }
+            let id = self.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
+            self.fetchTitleForNewLink(id: id, url: url)
+        }
+        tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
+        tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
         nodeListViewController.tintMode = StowTheme.preferredTint
 
@@ -274,6 +285,10 @@ final class MainViewController: NSViewController {
         view.addSubview(titleAddButton)
         view.addSubview(contentStack)
         view.addSubview(settingsViewController.view)
+        railView.translatesAutoresizingMaskIntoConstraints = false
+        railView.isHidden = true
+        view.addSubview(railView)
+        wireRail()
 
         let pad = LayoutConstants.windowPadding
 
@@ -324,6 +339,11 @@ final class MainViewController: NSViewController {
             settingsViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
             settingsViewController.view.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
             settingsViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
+
+            railView.topAnchor.constraint(equalTo: view.topAnchor),
+            railView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            railView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            railView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
         wireEmptyState()
@@ -618,6 +638,7 @@ final class MainViewController: NSViewController {
             if case .noMatches = kind, kind != lastEmptyStateKind { announceNoMatches() }
             lastEmptyStateKind = kind
             TablineController.shared.reload()
+            reloadRail()
             lastEmptyStateWorkspaceId = workspace.id
             refreshPasteAvailability()
 
@@ -734,11 +755,13 @@ final class MainViewController: NSViewController {
     private func showSettingsContent() {
         contentStack.isHidden = true
         settingsViewController.view.isHidden = false
+        updateRailVisibility()
     }
 
     private func showWorkspaceContent() {
         settingsViewController.view.isHidden = true
         contentStack.isHidden = false
+        updateRailVisibility()
     }
 
     // MARK: - Workspace Management
@@ -1128,7 +1151,7 @@ final class MainViewController: NSViewController {
             railWorkspaceChip.wantsLayer = true
             railWorkspaceChip.layer?.cornerRadius = 8
             railWorkspaceChip.target = self
-            railWorkspaceChip.action = #selector(showRailWorkspaceMenu)
+            railWorkspaceChip.action = #selector(railChipTapped)
             railWorkspaceChip.setAccessibilityLabel("Workspaces")
             topBar.addSubview(railWorkspaceChip)
             NSLayoutConstraint.activate([
@@ -1149,6 +1172,92 @@ final class MainViewController: NSViewController {
         nodeListViewController.elasticMode = mode
         updateSettingsConstraints()
         updateRailChip()
+        updateRailVisibility()
+        reloadRail()
+    }
+
+    // MARK: - Rail
+
+    /// The rail replaces the workspace chrome (header, search, list, bottom bar) and, like
+    /// the mockup, drops the traffic lights. Settings keeps its own header in rail.
+    private func updateRailVisibility() {
+        let showRail = elasticMode == .rail && !model.state.isSettingsSelected
+        railView.isHidden = !showRail
+        topBar.isHidden = showRail
+        if showRail {
+            contentStack.isHidden = true
+        } else if !model.state.isSettingsSelected {
+            contentStack.isHidden = false
+        }
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            view.window?.standardWindowButton(kind)?.isHidden = showRail
+        }
+        if showRail, railOpenTimer == nil {
+            railOpenTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshRailOpenTabs() }
+            }
+            refreshRailOpenTabs()
+        } else if !showRail {
+            railOpenTimer?.invalidate()
+            railOpenTimer = nil
+        }
+    }
+
+    private func reloadRail() {
+        guard elasticMode == .rail, !model.state.isSettingsSelected else { return }
+        let ws = model.currentWorkspace
+        railView.configure(
+            workspaces: model.workspaces.map { RailView.WorkspaceDot(id: $0.id, name: $0.name, color: $0.colorId.color) },
+            selectedId: ws.id,
+            colorId: ws.colorId,
+            items: ws.items
+        )
+        for link in ws.items.flattenLinks() where link.faviconPath == nil {
+            guard let url = URL(string: link.url) else { continue }
+            FaviconService.shared.favicon(for: url, cachedPath: nil) { _, path in
+                guard let path else { return }
+                NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
+            }
+        }
+    }
+
+    private func refreshRailOpenTabs() {
+        Task.detached(priority: .utility) { [weak self] in
+            let keys = Set(await BrowserTabService.tabsByCanonicalURL().keys)
+            await MainActor.run { self?.railView.setOpenKeys(keys) }
+        }
+    }
+
+    private func selectWorkspaceAndPage(_ id: UUID) {
+        guard let idx = model.workspaces.firstIndex(where: { $0.id == id }) else { return }
+        model.selectWorkspace(id: id)
+        pageController.jumpToPage(idx + 1)
+    }
+
+    private func wireRail() {
+        railView.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
+        railView.onWorkspaceMenu = { [weak self] anchor in self?.showRailWorkspaceMenu(from: anchor) }
+        railView.onOpenLink = { [weak self] link in self?.openLink(link) }
+        railView.onOpenFolder = { [weak self] folder in self?.openLinksInFolder(folder) }
+        railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
+        railView.onCopySnippet = { [weak self] id in
+            guard let self, case .snippet(let snippet)? = self.model.nodeById(id) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(snippet.content, forType: .string)
+        }
+        railView.onStowTab = { [weak self] in self?.stowFrontTab() }
+    }
+
+    /// Saves the front tab of the browser the user was last in to the current workspace.
+    private func stowFrontTab() {
+        guard let bundleId = ActiveBrowserTracker.shared.lastActiveBundleId else { NSSound.beep(); return }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let tab = BrowserTabService.frontTab(bundleId: bundleId)
+            await MainActor.run {
+                guard let self, let tab else { NSSound.beep(); return }
+                _ = self.model.addLink(urlString: tab.url.absoluteString, title: tab.title, parentId: nil)
+            }
+        }
     }
 
     private func updateSettingsConstraints() {
@@ -1179,7 +1288,11 @@ final class MainViewController: NSViewController {
         railWorkspaceChip.toolTip = model.state.isSettingsSelected ? "Settings" : ws.name
     }
 
-    @objc private func showRailWorkspaceMenu() {
+    @objc private func railChipTapped() {
+        showRailWorkspaceMenu(from: railWorkspaceChip)
+    }
+
+    private func showRailWorkspaceMenu(from anchor: NSView) {
         let menu = NSMenu()
         let settings = NSMenuItem(title: "Settings", action: #selector(titleSettingsTapped), keyEquivalent: ",")
         settings.target = self
@@ -1197,7 +1310,7 @@ final class MainViewController: NSViewController {
         let add = NSMenuItem(title: "New Workspace…", action: #selector(titleAddTapped), keyEquivalent: "n")
         add.target = self
         menu.addItem(add)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: railWorkspaceChip.bounds.height + 4), in: railWorkspaceChip)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
     }
 
     @objc private func railPickWorkspace(_ sender: NSMenuItem) {

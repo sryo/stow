@@ -109,10 +109,38 @@ public enum BrowserTabService {
         return map
     }
 
+    /// URL and title of the active tab in the front window of `bundleId`'s browser.
+    public static func frontTab(bundleId: String) -> (url: URL, title: String)? {
+        let appName: String
+        let titleKey: String
+        if bundleId == safariBundleId {
+            appName = safariAppName; titleKey = "name"
+        } else if bundleId == arcBundleId {
+            appName = arcAppName; titleKey = "title"
+        } else if let entry = chromiumBrowsers.first(where: { $0.bundleId == bundleId }) {
+            appName = entry.appName; titleKey = "title"
+        } else {
+            return nil
+        }
+        let tabExpr = bundleId == safariBundleId ? "current tab of front window" : "active tab of front window"
+        let script = """
+        set sep to character id 9
+        tell application "\(appName)"
+            set t to \(tabExpr)
+            return (URL of t) & sep & (\(titleKey) of t)
+        end tell
+        """
+        guard let output = runAppleScript(script) else { return nil }
+        let cols = output.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = cols.first, let url = URL(string: String(first)), url.scheme != nil else { return nil }
+        return (url, cols.count > 1 ? String(cols[1]) : url.host ?? url.absoluteString)
+    }
+
     // MARK: - Per-browser tab listing
 
     private static func chromiumTabs(appName: String, bundleId: String) -> [OpenTab] {
         let script = """
+        set sep to character id 9
         tell application "\(appName)"
             set output to ""
             repeat with w in windows
@@ -120,7 +148,7 @@ public enum BrowserTabService {
                 set tabList to tabs of w
                 repeat with i from 1 to (count of tabList)
                     set t to item i of tabList
-                    set output to output & wid & tab & i & tab & (URL of t) & tab & (title of t) & linefeed
+                    set output to output & wid & sep & i & sep & (URL of t) & sep & (title of t) & linefeed
                 end repeat
             end repeat
             return output
@@ -131,13 +159,14 @@ public enum BrowserTabService {
 
     private static func arcTabs() -> [OpenTab] {
         let script = """
+        set sep to character id 9
         tell application "Arc"
             set output to ""
             repeat with w in windows
                 set wid to id of w as string
                 repeat with i from 1 to (count of tabs of w)
                     set t to tab i of w
-                    set output to output & wid & tab & i & tab & (URL of t) & tab & (title of t) & linefeed
+                    set output to output & wid & sep & i & sep & (URL of t) & sep & (title of t) & linefeed
                 end repeat
             end repeat
             return output
@@ -149,13 +178,14 @@ public enum BrowserTabService {
     private static func safariTabs() -> [OpenTab] {
         // Safari tabs expose `name` rather than `title`.
         let script = """
+        set sep to character id 9
         tell application "Safari"
             set output to ""
             repeat with w in windows
                 set wid to id of w as string
                 repeat with i from 1 to (count of tabs of w)
                     set t to tab i of w
-                    set output to output & wid & tab & i & tab & (URL of t) & tab & (name of t) & linefeed
+                    set output to output & wid & sep & i & sep & (URL of t) & sep & (name of t) & linefeed
                 end repeat
             end repeat
             return output

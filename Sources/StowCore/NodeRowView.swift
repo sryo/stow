@@ -54,6 +54,8 @@ final class NodeRowView: BaseView {
     private var disclosureLeadingConstraint: NSLayoutConstraint?
     private var iconLeadingConstraint: NSLayoutConstraint?
     private var iconCenteredConstraint: NSLayoutConstraint?
+    private var iconWidthConstraint: NSLayoutConstraint?
+    private var iconHeightConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
     private var titleTrailingToMeta: NSLayoutConstraint?
     private var titleTrailingToBadge: NSLayoutConstraint?
@@ -181,6 +183,8 @@ final class NodeRowView: BaseView {
         titleTrailingToSlot = editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: slotButton.leadingAnchor, constant: -4)
         iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2)
         iconCenteredConstraint = iconView.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor)
+        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize)
+        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize)
 
         NSLayoutConstraint.activate([
             guidesView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
@@ -195,8 +199,8 @@ final class NodeRowView: BaseView {
 
             iconLeadingConstraint!,
             iconView.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
+            iconWidthConstraint!,
+            iconHeightConstraint!,
 
             editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
             editableTitle.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
@@ -349,6 +353,12 @@ final class NodeRowView: BaseView {
         }
         iconLeadingConstraint?.isActive = !rail
         iconCenteredConstraint?.isActive = rail
+        // The rail is a dock of site tiles, so icons are much larger there.
+        let size: CGFloat = rail ? 28 : metrics.iconSize
+        iconWidthConstraint?.constant = size
+        iconHeightConstraint?.constant = size
+        iconView.layer?.cornerRadius = rail ? 7 : metrics.iconCornerRadius
+        iconView.imageScaling = rail ? .scaleProportionallyUpOrDown : .scaleProportionallyDown
     }
 
     private static let dueFormatter: DateFormatter = {
@@ -359,7 +369,7 @@ final class NodeRowView: BaseView {
 
     private func setIcon(symbol: String, tint: NSColor) {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+            .withSymbolConfiguration(.init(pointSize: metrics.mode == .rail ? 17 : 12, weight: .medium))
         image?.isTemplate = true
         iconView.image = image
         iconView.contentTintColor = tint

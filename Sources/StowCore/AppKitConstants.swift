@@ -27,7 +27,7 @@ public enum ElasticMode: Equatable {
         }
     }
 
-    public static let railWidth: CGFloat = 88
+    public static let railWidth: CGFloat = 52
 }
 
 /// Row geometry, type and colors for the node list, all resolved from `StowTheme`.
@@ -36,7 +36,7 @@ public struct ListMetrics {
     public var mode: ElasticMode = .sidebar
     public var colors: StowTheme.Colors
 
-    public var rowHeight: CGFloat { mode == .rail ? 36 : StowTheme.List.rowHeight(density) }
+    public var rowHeight: CGFloat { mode == .rail ? 42 : StowTheme.List.rowHeight(density) }
     public let verticalGap: CGFloat = StowTheme.List.rowGap
     public let leftPadding: CGFloat = StowTheme.List.horizontalInset
     public let iconSize: CGFloat = StowTheme.List.glyphSize
