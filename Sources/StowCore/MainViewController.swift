@@ -20,6 +20,8 @@ final class MainViewController: NSViewController {
     private let railWorkspaceChip = NSButton()
     private let railView = RailView()
     private var railOpenTimer: Timer?
+    /// Released in rail so the hidden list's minimum width can't hold the window wider than the rail.
+    private var contentStackTrailing: NSLayoutConstraint!
     private var elasticMode: ElasticMode = .sidebar
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
     /// so its constraints are switched off whenever Settings isn't showing.
@@ -291,6 +293,7 @@ final class MainViewController: NSViewController {
         wireRail()
 
         let pad = LayoutConstants.windowPadding
+        contentStackTrailing = contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad)
 
         NSLayoutConstraint.activate([
             newButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
@@ -330,7 +333,7 @@ final class MainViewController: NSViewController {
 
             // Content stack fills area below topBar
             contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
-            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            contentStackTrailing,
             contentStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6),
             contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
 
@@ -1184,6 +1187,7 @@ final class MainViewController: NSViewController {
         let showRail = elasticMode == .rail && !model.state.isSettingsSelected
         railView.isHidden = !showRail
         topBar.isHidden = showRail
+        contentStackTrailing.isActive = !showRail
         if showRail {
             contentStack.isHidden = true
         } else if !model.state.isSettingsSelected {
@@ -1255,7 +1259,15 @@ final class MainViewController: NSViewController {
             let tab = BrowserTabService.frontTab(bundleId: bundleId)
             await MainActor.run {
                 guard let self, let tab else { NSSound.beep(); return }
-                _ = self.model.addLink(urlString: tab.url.absoluteString, title: tab.title, parentId: nil)
+                let key = BrowserTabService.canonicalize(tab.url)
+                let alreadySaved = self.model.currentWorkspace.items.flattenLinks().contains {
+                    URL(string: $0.url).map(BrowserTabService.canonicalize) == key
+                }
+                if alreadySaved { NSSound.beep(); return }
+                // Stowed tabs land at the top, where the rail shows them first.
+                let id = self.model.addLink(urlString: tab.url.absoluteString, title: tab.title, parentId: nil)
+                self.model.moveNode(id: id, toParentId: nil, index: 0)
+                self.fetchTitleForNewLink(id: id, url: tab.url)
             }
         }
     }
