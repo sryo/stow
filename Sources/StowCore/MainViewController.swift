@@ -303,6 +303,11 @@ final class MainViewController: NSViewController {
 
         let pad = LayoutConstants.windowPadding
         contentStackTrailing = contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad)
+        // Just below required: whatever minimum width the list or header has, dragging the
+        // window narrower must still reach the rail, which only then swaps them out.
+        contentStackTrailing.priority = .init(999)
+        let topBarTrailing = topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad)
+        topBarTrailing.priority = .init(999)
 
         NSLayoutConstraint.activate([
             stowTabButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
@@ -327,7 +332,7 @@ final class MainViewController: NSViewController {
             workspaceSwitcher.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
 
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: pad),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad),
+            topBarTrailing,
             topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 2),
             topBar.heightAnchor.constraint(equalToConstant: 28),
 
