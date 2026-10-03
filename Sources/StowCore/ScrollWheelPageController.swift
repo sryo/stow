@@ -16,6 +16,9 @@ final class ScrollWheelPageController {
     /// The width of a single page in points. Must be set before use.
     var pageWidth: CGFloat = 300
 
+    /// At most this many pages per gesture (nil: as far as the swipe goes).
+    var maxPagesPerSwipe: Int?
+
     /// Whether the pager should intercept scroll events.
     var isEnabled: Bool = true
 
@@ -252,6 +255,12 @@ final class ScrollWheelPageController {
         return nil // consume the event
     }
 
+    /// Keeps a gesture's target within `maxStep` pages of where it started.
+    nonisolated static func clampTarget(_ target: Int, start: Int, maxStep: Int?) -> Int {
+        guard let maxStep else { return target }
+        return min(max(target, start - maxStep), start + maxStep)
+    }
+
     // MARK: - Snap Animation
 
     private func snapToNearestPage(delegate: ScrollWheelPageDelegate) {
@@ -278,6 +287,7 @@ final class ScrollWheelPageController {
         }
 
         // Clamp
+        targetPage = Self.clampTarget(targetPage, start: gestureStartPage, maxStep: maxPagesPerSwipe)
         targetPage = max(0, min(targetPage, pageCount - 1))
 
         // Require extra drag to snap to the add-new (last) page

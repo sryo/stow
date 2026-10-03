@@ -189,6 +189,14 @@ struct SettingsRailNavigation {
         return workspaces.indices.contains(index) ? .workspace(workspaces[index]) : nil
     }
 
+    /// How far a swipe travels per page. The rail's content is far narrower than a
+    /// two-finger swipe, so there a page is a typical swipe's length.
+    static let railSwipePageWidth: CGFloat = 160
+
+    static func swipePageWidth(contentWidth: CGFloat, isRail: Bool) -> CGFloat {
+        isRail ? max(contentWidth, railSwipePageWidth) : contentWidth
+    }
+
     /// `direction` +1 is the next page (a swipe left), -1 the previous one.
     static func swipe(from destination: Destination, direction: Int, workspaces: [UUID]) -> Destination? {
         Self.destination(forPage: page(of: destination, workspaces: workspaces) + direction, workspaces: workspaces)
@@ -378,5 +386,15 @@ enum WorkspaceTileIdentity: Equatable {
         WorkspaceStripLayout.assignMonograms(&letterItems)
         for item in letterItems { result[item.id] = .letter(item.monogram) }
         return result
+    }
+}
+
+// MARK: - New workspace
+
+/// The dashed tile's new workspace takes the next palette color nobody uses, and a
+/// distinct allocated hue once all eight are taken.
+enum SettingsRailNewWorkspace {
+    static func color(existing: [WorkspaceColorId]) -> WorkspaceColorId {
+        WorkspaceColorId.allCases.first { !existing.contains($0) } ?? WorkspaceColorAllocator.next(existing: existing)
     }
 }

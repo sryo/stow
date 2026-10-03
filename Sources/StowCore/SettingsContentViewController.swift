@@ -56,12 +56,7 @@ final class SettingsContentViewController: NSViewController {
         }
     }
 
-    private enum WindowMode: Int {
-        case floating, onTop, attached
-    }
-
     static let visibleWorkspaceLimit = 6
-    private static let activeBrowserSentinel = "stow.activeBrowser"
 
     // MARK: Model
 
@@ -103,7 +98,7 @@ final class SettingsContentViewController: NSViewController {
     private var permissionRow: SettingsRow!
     private var browserSideControl: SettingsSegmentedControl!
     private var browserSideRow: SettingsRow!
-    private var attachRequested = false
+    private let preferences = AppPreferences.shared
 
     // Shortcut
     private let shortcutRecorderView = ShortcutRecorderView()
@@ -111,7 +106,7 @@ final class SettingsContentViewController: NSViewController {
 
     // Browser
     private let browserPopUp = SettingsPopUp()
-    private var browsers: [BrowserInfo] = []
+    private var browsers: [AppPreferences.BrowserChoice] = []
 
     // Import
     private let arcImportButton = SettingsButton(title: "Import…", accessibilityLabel: "Import from Arc…")
@@ -151,6 +146,7 @@ final class SettingsContentViewController: NSViewController {
         center.addObserver(self, selector: #selector(tintModeChangedElsewhere), name: .stowTintModeChanged, object: nil)
         center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .alwaysOnTopSettingChanged, object: nil)
         center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .attachmentSettingChanged, object: nil)
+        center.addObserver(self, selector: #selector(preferencesChangedElsewhere), name: .stowAppPreferencesChanged, object: nil)
     }
 
     override func viewDidAppear() {
@@ -250,7 +246,7 @@ final class SettingsContentViewController: NSViewController {
         )
         windowModeControl.fillsWidth = true
         windowModeControl.onChange = { [weak self] index in
-            self?.windowModeChanged(WindowMode(rawValue: index) ?? .floating)
+            self?.windowModeChanged(AppWindowMode(rawValue: index) ?? .floating)
         }
 
         let openSettings = SettingsButton(title: "Open Settings", accessibilityLabel: "Open System Settings…")
@@ -259,10 +255,9 @@ final class SettingsContentViewController: NSViewController {
         permissionRow = SettingsRow(title: "Needs Accessibility", control: openSettings, symbolName: "exclamationmark.triangle.fill")
         permissionRow.label.toolTip = "Stow needs Accessibility access to attach to your browser window. Allow it in System Settings › Privacy & Security › Accessibility."
 
-        let position = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
         browserSideControl = SettingsSegmentedControl(
             segments: [.init(title: "Left"), .init(title: "Right")],
-            selectedIndex: position == "left" ? 0 : 1,
+            selectedIndex: preferences.browserSide,
             accessibilityLabel: "Browser side"
         )
         browserSideControl.onChange = { [weak self] index in self?.browserSideChanged(index) }
@@ -634,9 +629,8 @@ final class SettingsContentViewController: NSViewController {
     private func tintModeChanged(_ index: Int) {
         let modes = StowTheme.TintMode.allCases
         guard modes.indices.contains(index) else { return }
-        StowTheme.preferredTint = modes[index]
         tintHelp.set(Self.tintHelpText(modes[index]))
-        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
+        preferences.setTint(modes[index])
     }
 
     @objc private func tintModeChangedElsewhere() {
@@ -649,61 +643,17 @@ final class SettingsContentViewController: NSViewController {
 
     // MARK: Window
 
-    private var currentWindowMode: WindowMode {
-        let defaults = UserDefaults.standard
-        if attachRequested || defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) { return .attached }
-        if defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) { return .onTop }
-        return .floating
-    }
+    private var currentWindowMode: AppWindowMode { preferences.windowMode }
 
-    private var hasAccessibility: Bool {
-        WindowAttachmentService.shared.checkAccessibilityPermissions()
-    }
+    private var hasAccessibility: Bool { preferences.hasAccessibility }
 
-    private func windowModeChanged(_ mode: WindowMode) {
-        switch mode {
-        case .floating:
-            attachRequested = false
-            setAttachment(false)
-            setAlwaysOnTop(false)
-        case .onTop:
-            attachRequested = false
-            setAttachment(false)
-            setAlwaysOnTop(true)
-        case .attached:
-            setAlwaysOnTop(false)
-            if hasAccessibility {
-                attachRequested = false
-                setAttachment(true)
-            } else {
-                // Held until access is granted; didBecomeActive re-checks.
-                attachRequested = true
-            }
-        }
+    private func windowModeChanged(_ mode: AppWindowMode) {
+        preferences.setWindowMode(mode)
         updateWindowSection()
     }
 
-    private func setAlwaysOnTop(_ enabled: Bool) {
-        let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) != enabled else { return }
-        defaults.set(enabled, forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-        NotificationCenter.default.post(name: .alwaysOnTopSettingChanged, object: nil, userInfo: ["enabled": enabled])
-    }
-
-    private func setAttachment(_ enabled: Bool) {
-        let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) != enabled else { return }
-        defaults.set(enabled, forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
-        let position = defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
-        NotificationCenter.default.post(name: .attachmentSettingChanged, object: nil, userInfo: ["enabled": enabled, "position": position])
-    }
-
     private func browserSideChanged(_ index: Int) {
-        let position = index == 0 ? "left" : "right"
-        UserDefaults.standard.set(position, forKey: UserDefaultsKeys.sidebarPosition)
-        if UserDefaults.standard.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) {
-            NotificationCenter.default.post(name: .sidebarPositionChanged, object: nil, userInfo: ["position": position])
-        }
+        preferences.setBrowserSide(index)
     }
 
     private func updateWindowSection() {
@@ -732,10 +682,19 @@ final class SettingsContentViewController: NSViewController {
         updateWindowSection()
     }
 
+    @objc private func preferencesChangedElsewhere() {
+        tintModeChangedElsewhere()
+        browserSideControl.selectedIndex = preferences.browserSide
+        if !browsers.isEmpty {
+            let index = preferences.selectedBrowserIndex(in: browsers)
+            browserPopUp.popup.selectItem(at: index == 0 ? 0 : index + 1)
+            browserPopUp.refreshTitle()
+        }
+        updateWindowSection()
+    }
+
     @objc private func applicationDidBecomeActive() {
-        if attachRequested && hasAccessibility {
-            attachRequested = false
-            setAttachment(true)
+        if preferences.applyPendingAttachment() {
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                                  userInfo: [.announcement: "Accessibility granted. Stow is attached to your browser.",
                                             .priority: NSAccessibilityPriorityLevel.high.rawValue])
@@ -744,69 +703,52 @@ final class SettingsContentViewController: NSViewController {
     }
 
     @objc private func openAccessibilitySettings() {
-        WindowAttachmentService.shared.requestAccessibilityPermissions()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+        preferences.openAccessibilitySettings()
     }
 
     // MARK: Browser
 
     private func loadBrowsers() {
         let popup = browserPopUp.popup
-        browsers = BrowserManager.installedBrowsers()
+        browsers = preferences.browserChoices()
         popup.removeAllItems()
         let menu = NSMenu()
         popup.menu = menu
-
-        let active = NSMenuItem(title: "Browser I'm using", action: nil, keyEquivalent: "")
-        active.representedObject = Self.activeBrowserSentinel
-        active.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
-        active.toolTip = "Open links in whichever browser you were last using"
-        menu.addItem(active)
-        menu.addItem(.separator())
-
-        for browser in browsers {
-            let item = NSMenuItem(title: browser.name, action: nil, keyEquivalent: "")
-            item.representedObject = browser.bundleId
-            if let icon = browser.icon {
+        for (index, choice) in browsers.enumerated() {
+            let item = NSMenuItem(title: choice.name, action: nil, keyEquivalent: "")
+            item.representedObject = index
+            if let icon = choice.icon {
                 icon.size = NSSize(width: 16, height: 16)
                 item.image = icon
             }
+            if choice.bundleId == nil { item.toolTip = "Open links in whichever browser you were last using" }
             menu.addItem(item)
+            if index == 0 { menu.addItem(.separator()) }
         }
-
-        let defaultId = BrowserManager.resolveDefaultBrowserBundleId()
-        if BrowserManager.opensInActiveBrowser {
-            popup.selectItem(at: 0)
-        } else if let defaultId, let index = browsers.firstIndex(where: { $0.bundleId == defaultId }) {
-            popup.selectItem(at: index + 2)
-        } else if !browsers.isEmpty {
-            popup.selectItem(at: 2)
-            UserDefaults.standard.set(browsers[0].bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
-        }
+        let selected = preferences.selectedBrowserIndex(in: browsers)
+        popup.selectItem(at: selected == 0 ? 0 : selected + 1)
         browserPopUp.refreshTitle()
     }
 
     @objc private func browserChanged() {
-        let selected = browserPopUp.popup.selectedItem?.representedObject as? String
-        UserDefaults.standard.set(selected == Self.activeBrowserSentinel, forKey: UserDefaultsKeys.openLinksInActiveBrowser)
+        guard let index = browserPopUp.popup.selectedItem?.representedObject as? Int, browsers.indices.contains(index) else { return }
         browserPopUp.refreshTitle()
-        if let bundleId = selected, bundleId != Self.activeBrowserSentinel {
-            UserDefaults.standard.set(bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
-            NotificationCenter.default.post(name: .defaultBrowserChanged, object: nil, userInfo: ["bundleId": bundleId])
-        }
+        preferences.setBrowser(browsers[index].bundleId)
         // Profiles belong to a browser, so the chips may change.
         reloadWorkspaces()
     }
 
     // MARK: Import
 
+    /// Reports the outcome of an import started from elsewhere (the rail's app sheet).
+    var onImportFinished: ((String, Bool) -> Void)?
+
     @objc func importFromArc() {
         let arcPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Arc/StorableSidebar.json")
         guard FileManager.default.fileExists(atPath: arcPath.path) else {
             setImportStatus(arcImportStatus, "Couldn't find Arc's data on this Mac", kind: .danger)
+            onImportFinished?("Couldn't find Arc's data on this Mac", false)
             return
         }
         Task { @MainActor [weak self] in
@@ -824,9 +766,12 @@ final class SettingsContentViewController: NSViewController {
         case .success(let importResult):
             applyImport(importResult)
             let count = importResult.workspacesCreated
-            setImportStatus(arcImportStatus, "Imported \(count) \(count == 1 ? "workspace" : "workspaces") from Arc", kind: .success)
+            let text = "Imported \(count) \(count == 1 ? "workspace" : "workspaces") from Arc"
+            setImportStatus(arcImportStatus, text, kind: .success)
+            onImportFinished?(text, true)
         case .failure(let error):
             setImportStatus(arcImportStatus, error.localizedDescription, kind: .danger)
+            onImportFinished?(error.localizedDescription, false)
         }
     }
 
@@ -860,7 +805,7 @@ final class SettingsContentViewController: NSViewController {
         }
     }
 
-    @objc private func importWorkspaceFile() {
+    @objc func importWorkspaceFile() {
         guard let appModel else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "stow") ?? .json]
@@ -875,8 +820,10 @@ final class SettingsContentViewController: NSViewController {
                 }
                 let name = importedId.flatMap { appModel.workspaces.first(id: $0)?.name } ?? url.deletingPathExtension().lastPathComponent
                 self.setImportStatus(self.fileImportStatus, "Imported “\(name)”", kind: .success)
+                self.onImportFinished?("Imported “\(name)”", true)
             } catch {
                 self.setImportStatus(self.fileImportStatus, "Couldn't import: \(error.localizedDescription)", kind: .danger)
+                self.onImportFinished?("Couldn't import: \(error.localizedDescription)", false)
             }
             self.reloadWorkspaces()
         }

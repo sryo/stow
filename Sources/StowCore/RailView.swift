@@ -1,7 +1,7 @@
 import AppKit
 
-/// The Elastic rail: a 52pt column of shapes. Workspace dots stacked at the top (the
-/// current one ringed), then one 38pt cell per top-level link or folder, tasks and
+/// The Elastic rail: a 52pt column of shapes. The Settings gear (page 0) heads the
+/// workspace dots (the current one ringed), then one 38pt cell per top-level link or folder, tasks and
 /// snippets folded into counted cells, and a round "+" that stows the front tab.
 @MainActor
 final class RailView: NSView {
@@ -12,6 +12,7 @@ final class RailView: NSView {
     }
 
     var onSelectWorkspace: ((UUID) -> Void)?
+    var onSettings: (() -> Void)?
     var onWorkspaceMenu: ((NSView) -> Void)?
     var onOpenLink: ((Link) -> Void)?
     var onOpenFolder: ((Folder) -> Void)?
@@ -20,8 +21,9 @@ final class RailView: NSView {
     var onStowTab: (() -> Void)?
     var onNodeMenu: ((Node, NSView) -> Void)?
 
-    private let dotStack = NSStackView()
+    private let gear = RailGlyphButton(glyph: .gear)
     private let separator = NSView()
+    private var scrollTop: NSLayoutConstraint!
     private let scrollView = NSScrollView()
     private let column = FlippedView()
     private let fab = RailFabButton()
@@ -32,14 +34,13 @@ final class RailView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        dotStack.orientation = .vertical
-        dotStack.spacing = 6
-        dotStack.alignment = .centerX
-        dotStack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(dotStack)
+        gear.target = self
+        gear.action = #selector(gearTapped)
+        gear.toolTip = "Settings · ⌘, · or swipe right"
+        gear.setAccessibilityLabel("Settings")
+        addSubview(gear)
 
         separator.wantsLayer = true
-        separator.translatesAutoresizingMaskIntoConstraints = false
         addSubview(separator)
 
         scrollView.drawsBackground = false
@@ -55,14 +56,9 @@ final class RailView: NSView {
         fab.setAccessibilityLabel("Stow this tab")
         addSubview(fab)
 
+        scrollTop = scrollView.topAnchor.constraint(equalTo: topAnchor, constant: SettingsRailLayout.dotsSeparatorY(count: 0) + 4)
         NSLayoutConstraint.activate([
-            dotStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
-            dotStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            separator.topAnchor.constraint(equalTo: dotStack.bottomAnchor, constant: 12),
-            separator.centerXAnchor.constraint(equalTo: centerXAnchor),
-            separator.widthAnchor.constraint(equalToConstant: 20),
-            separator.heightAnchor.constraint(equalToConstant: 1),
-            scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 6),
+            scrollTop,
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: fab.topAnchor, constant: -8),
@@ -92,9 +88,11 @@ final class RailView: NSView {
                 guard let self, let b else { return }
                 self.onWorkspaceMenu?(b)
             }
-            dotStack.addArrangedSubview(b)
+            addSubview(b)
             return b
         }
+        scrollTop.constant = SettingsRailLayout.dotsSeparatorY(count: workspaces.count) + 4
+        needsLayout = true
 
         cells.forEach { $0.removeFromSuperview() }
         cells = []
@@ -148,8 +146,24 @@ final class RailView: NSView {
         applyOpenState()
     }
 
+    /// Each workspace dot's center, from the rail's top: where its Settings tile grows from.
+    func dotCenters() -> [UUID: CGFloat] {
+        var result: [UUID: CGFloat] = [:]
+        for (i, b) in dotButtons.enumerated() { if let id = b.workspaceId { result[id] = SettingsRailLayout.dotCenterY(at: i) } }
+        return result
+    }
+
+    override var isFlipped: Bool { true }
+
     override func layout() {
         super.layout()
+        let midX = round(bounds.midX)
+        gear.frame = SettingsRailLayout.gearFrame.insetBy(dx: -4, dy: -4).offsetBy(dx: midX - 26, dy: 0)
+        for (i, b) in dotButtons.enumerated() {
+            let y = SettingsRailLayout.dotCenterY(at: i)
+            b.frame = NSRect(x: midX - 10, y: y - 10, width: 20, height: 20)
+        }
+        separator.frame = NSRect(x: midX - 10, y: SettingsRailLayout.dotsSeparatorY(count: dotButtons.count), width: 20, height: 1)
         column.frame.size.width = scrollView.contentSize.width
         for cell in cells { cell.frame.origin.x = (column.bounds.width - cell.frame.width) / 2 }
     }
@@ -162,6 +176,7 @@ final class RailView: NSView {
     private func applyColors() {
         separator.layer?.backgroundColor = resolvedCGColor(colors.inkSecondary.withAlphaComponent(0.35))
         for b in dotButtons { b.ink = colors.inkPrimary; b.ring = colors.inkSecondary; b.gap = colors.surface }
+        gear.colors = colors
         for c in cells { c.apply(colors: colors) }
         fab.apply(colors: colors)
     }
@@ -256,6 +271,8 @@ final class RailView: NSView {
 
     @objc private func fabTapped() { onStowTab?() }
 
+    @objc private func gearTapped() { onSettings?() }
+
     @objc private func linkPicked(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID, let link = findLink(id) else { return }
         onOpenLink?(link)
@@ -304,7 +321,7 @@ private final class RailDotButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
 
     // Current dot needs room for its two outer rings (2 + 1.5pt each side).
-    override var intrinsicContentSize: NSSize { NSSize(width: 20, height: isCurrent ? 19 : 12) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 20, height: 20) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

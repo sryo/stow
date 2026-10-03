@@ -19,6 +19,14 @@ final class MainViewController: NSViewController {
     /// In rail mode the strip collapses to one chip for the current workspace.
     private let railWorkspaceChip = NSButton()
     private let railView = RailView()
+    /// Settings in rail mode: workspace tiles, their editor and the app sheet.
+    private lazy var settingsRail = SettingsRailController(model: model)
+    /// What the rail showed last, to grow dots into tiles (and back) when it changes.
+    private enum RailPage { case none, workspace, settings }
+    private var railPage: RailPage = .none
+    private var isRailMorphing = false
+    /// The workspace on screen before Settings, for the 4pt dot and the way back.
+    private var lastShownWorkspaceId: UUID?
     /// Released in rail so the hidden list's minimum width can't hold the window wider than the rail.
     private var contentStackTrailing: NSLayoutConstraint!
     private var elasticMode: ElasticMode = .sidebar
@@ -299,6 +307,10 @@ final class MainViewController: NSViewController {
         railView.translatesAutoresizingMaskIntoConstraints = false
         railView.isHidden = true
         view.addSubview(railView)
+        let settingsRailView = settingsRail.view
+        settingsRailView.translatesAutoresizingMaskIntoConstraints = false
+        settingsRailView.isHidden = true
+        view.addSubview(settingsRailView)
         wireRail()
 
         let pad = LayoutConstants.windowPadding
@@ -362,6 +374,10 @@ final class MainViewController: NSViewController {
             railView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             railView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             railView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            settingsRailView.topAnchor.constraint(equalTo: view.topAnchor),
+            settingsRailView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            settingsRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            settingsRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
         wireEmptyState()
@@ -604,7 +620,9 @@ final class MainViewController: NSViewController {
             nodeListViewController.clearSelections()
             showSettingsContent()
             applyBackgroundColor(for: .settingsBackground)
+            if elasticMode == .rail { settingsRail.reload() }
         } else {
+            lastShownWorkspaceId = currentWorkspaceId
             showWorkspaceContent()
             applyBackgroundColor(for: model.currentWorkspace.colorId)
             DockIconRenderer.apply(model.currentWorkspace.colorId)
@@ -768,7 +786,8 @@ final class MainViewController: NSViewController {
     private func updatePageWidth() {
         let width = contentAreaWidth
         if width > 0 {
-            pageController.pageWidth = width
+            pageController.pageWidth = SettingsRailNavigation.swipePageWidth(contentWidth: width, isRail: elasticMode == .rail)
+            pageController.maxPagesPerSwipe = elasticMode == .rail ? 1 : nil
         }
     }
 
@@ -776,7 +795,8 @@ final class MainViewController: NSViewController {
 
     private func showSettingsContent() {
         contentStack.isHidden = true
-        settingsViewController.view.isHidden = false
+        // In rail mode Settings is the rail of workspace tiles, not the page.
+        settingsViewController.view.isHidden = elasticMode == .rail
         updateRailVisibility()
     }
 
@@ -1167,6 +1187,7 @@ final class MainViewController: NSViewController {
     private func applyElasticMode(_ mode: ElasticMode) {
         guard mode != elasticMode || railWorkspaceChip.superview == nil else { return }
         elasticMode = mode
+        updatePageWidth()
         if railWorkspaceChip.superview == nil {
             railWorkspaceChip.translatesAutoresizingMaskIntoConstraints = false
             railWorkspaceChip.isBordered = false
@@ -1201,21 +1222,90 @@ final class MainViewController: NSViewController {
     // MARK: - Rail
 
     /// The rail replaces the workspace chrome (header, search, list, bottom bar) and, like
-    /// the mockup, drops the traffic lights. Settings keeps its own header in rail.
+    /// the mockup, drops the traffic lights. On Settings the rail shows workspace tiles.
     private func updateRailVisibility() {
-        let showRail = elasticMode == .rail && !model.state.isSettingsSelected
-        railView.isHidden = !showRail
-        topBar.isHidden = showRail
-        contentStackTrailing.isActive = !showRail
-        if showRail {
+        let rail = elasticMode == .rail
+        let onSettings = model.state.isSettingsSelected
+        let page: RailPage = rail ? (onSettings ? .settings : .workspace) : .none
+        topBar.isHidden = rail
+        contentStackTrailing.isActive = !rail
+        if rail {
             contentStack.isHidden = true
-        } else if !model.state.isSettingsSelected {
+            settingsViewController.view.isHidden = true
+        } else if onSettings {
+            settingsViewController.view.isHidden = false
+        } else {
             contentStack.isHidden = false
         }
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            view.window?.standardWindowButton(kind)?.isHidden = showRail
+            view.window?.standardWindowButton(kind)?.isHidden = rail
         }
+        transitionRail(to: page)
         updateOpenTabsPolling()
+    }
+
+    /// Swaps the workspace rail and the Settings rail. Between the two, the dots grow
+    /// into tiles on the way in and the tiles shrink back into dots on the way out.
+    private func transitionRail(to page: RailPage) {
+        let previous = railPage
+        guard page != previous else {
+            guard !isRailMorphing else { return }
+            railView.isHidden = page != .workspace
+            settingsRail.view.isHidden = page != .settings
+            return
+        }
+        railPage = page
+        let animate = view.window?.isVisible == true && !isSwiping
+        let dotCenters = Dictionary(uniqueKeysWithValues: model.workspaces.enumerated().map {
+            ($1.id, SettingsRailLayout.dotCenterY(at: $0))
+        })
+        if page != .settings { settingsRail.willLeave() }
+
+        switch (previous, page) {
+        case (.workspace, .settings) where animate:
+            settingsRail.didEnter(from: lastShownWorkspaceId)
+            settingsRail.reload()
+            settingsRail.view.resetMorph()
+            settingsRail.view.isHidden = false
+            settingsRail.view.animateIn(dotCenters: dotCenters)
+            settingsRail.view.takeKeyboard()
+            isRailMorphing = true
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.25
+                railView.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                guard let self else { return }
+                self.isRailMorphing = false
+                guard self.railPage == .settings else { return }
+                self.railView.isHidden = true
+                self.railView.alphaValue = 1
+            })
+        case (.settings, .workspace) where animate:
+            railView.alphaValue = 0
+            railView.isHidden = false
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.38
+                railView.animator().alphaValue = 1
+            }
+            isRailMorphing = true
+            settingsRail.view.animateOut(dotCenters: dotCenters) { [weak self] in
+                guard let self else { return }
+                self.isRailMorphing = false
+                guard self.railPage == .workspace else { return }
+                self.settingsRail.view.isHidden = true
+                self.settingsRail.view.resetMorph()
+            }
+        default:
+            if page == .settings {
+                settingsRail.didEnter(from: lastShownWorkspaceId)
+                settingsRail.reload()
+                settingsRail.view.takeKeyboard()
+            }
+            settingsRail.view.resetMorph()
+            railView.alphaValue = 1
+            railView.isHidden = page != .workspace
+            settingsRail.view.isHidden = page != .settings
+        }
     }
 
     /// Open dots need the browsers' tab lists. They're read every 5s off the main thread,
@@ -1293,6 +1383,26 @@ final class MainViewController: NSViewController {
             NSPasteboard.general.setString(snippet.content, forType: .string)
         }
         railView.onStowTab = { [weak self] in self?.stowFrontTab() }
+        railView.onSettings = { [weak self] in self?.enterSettings() }
+        settingsRail.settingsPage = settingsViewController
+        settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
+        settingsRail.onPreviewColor = { [weak self] colorId in
+            self?.applyBackgroundColor(for: colorId ?? .settingsBackground)
+        }
+    }
+
+    private func enterSettings() {
+        model.selectSettings()
+        pageController.jumpToPage(0)
+    }
+
+    /// ⌘, opens Settings; in the rail it also leaves, back to where you came from.
+    func toggleSettings() {
+        if elasticMode == .rail, model.state.isSettingsSelected {
+            if let id = settingsRail.returnTarget { selectWorkspaceAndPage(id) }
+        } else {
+            enterSettings()
+        }
     }
 
     @objc private func stowTabTapped() {
@@ -1336,7 +1446,7 @@ final class MainViewController: NSViewController {
 
     private func updateSettingsConstraints() {
         // Only while Settings is on screen (or mid-swipe toward it) does its width matter.
-        let needed = model.state.isSettingsSelected || isSwiping
+        let needed = (model.state.isSettingsSelected || isSwiping) && elasticMode != .rail
         if needed {
             NSLayoutConstraint.activate(parkedSettingsConstraints)
             parkedSettingsConstraints = []
@@ -1686,6 +1796,10 @@ final class MainViewController: NSViewController {
         guard event.window === view.window, view.window?.isKeyWindow == true else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.isEmpty || flags == .capsLock || flags == .shift else { return false }
+        if event.keyCode == 53, elasticMode == .rail, model.state.isSettingsSelected, !isSwiping,
+           !(view.window?.firstResponder is NSTextView) {
+            return settingsRail.handleEscape()
+        }
         guard !model.state.isSettingsSelected, !isSwiping else { return false }
         let isEditingText = view.window?.firstResponder is NSTextView
 

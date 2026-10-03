@@ -22,6 +22,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         setupMenus()
         registerURLHandler()
         ActiveBrowserTracker.shared.start()
+        AppPreferences.shared.applyStoredTheme()
         #if DEBUG
         switch ProcessInfo.processInfo.environment["STOW_APPEARANCE"] {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -57,11 +58,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         if let width = ProcessInfo.processInfo.environment["STOW_WINDOW_WIDTH"].flatMap(Double.init) {
             restoredFrame = false
             // Window managers tile resizable windows; a fixed-size floating one is left alone.
-            window.styleMask.remove(.resizable)
+            // STOW_WINDOW_RESIZABLE keeps it resizable, for dragging between widths.
+            if ProcessInfo.processInfo.environment["STOW_WINDOW_RESIZABLE"] == nil {
+                window.styleMask.remove(.resizable)
+            }
             window.level = .floating
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let height = ProcessInfo.processInfo.environment["STOW_WINDOW_HEIGHT"].flatMap(Double.init) ?? 620
-                window.setFrame(NSRect(x: 200, y: 200, width: width, height: height), display: true)
+                let env = ProcessInfo.processInfo.environment
+                let height = env["STOW_WINDOW_HEIGHT"].flatMap(Double.init) ?? 620
+                let x = env["STOW_WINDOW_X"].flatMap(Double.init) ?? 200
+                let y = env["STOW_WINDOW_Y"].flatMap(Double.init) ?? 200
+                window.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
             }
         }
         #endif
@@ -289,7 +296,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     @objc private func openPreferences() {
         // Select the settings tab in the main window instead of opening a separate preferences window
         guard let mainVC = mainViewController else { return }
-        mainVC.model.selectSettings()
+        mainVC.toggleSettings()
         showMainWindow()
     }
 

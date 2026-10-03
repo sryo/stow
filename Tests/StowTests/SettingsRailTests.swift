@@ -146,6 +146,13 @@ final class SettingsRailNavigationTests: XCTestCase {
         XCTAssertEqual(nav.escapeAction(isOnSettings: false, flyoutOpen: false, workspaces: all), .none)
     }
 
+    func testOneSwipeInTheRailMovesOnePage() {
+        // The rail's content is ~36pt wide; paging by that would fly past several pages.
+        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 36, isRail: true), 160)
+        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 300, isRail: false), 300)
+        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 90, isRail: false), 90)
+    }
+
     func testSettingsIsPageZeroAndSwipesWalkThePages() {
         typealias N = SettingsRailNavigation
         XCTAssertEqual(N.page(of: .settings, workspaces: all), 0)
@@ -356,5 +363,34 @@ final class WorkspaceTileIdentityTests: XCTestCase {
         XCTAssertEqual(WorkspaceTileIdentity.resolve([ws])[ws.id], .symbol("house"))
         XCTAssertEqual(WorkspaceTileIdentity.symbols.count, 8)
         XCTAssertEqual(WorkspaceTileIdentity.symbols.first, "house")
+    }
+}
+
+// MARK: - New workspace color
+
+final class NewWorkspaceColorTests: XCTestCase {
+    func testTakesTheFirstPaletteColorNoWorkspaceUses() {
+        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: [.ember, .ruby]), .coral)
+        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: []), .ember)
+        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: [.ember, .custom("#123456"), .ruby, .coral]), .tangerine)
+    }
+
+    func testFallsBackToADistinctHueOnceAllEightAreTaken() {
+        let color = SettingsRailNewWorkspace.color(existing: WorkspaceColorId.allCases)
+        guard case .custom = color else { return XCTFail("expected an allocated custom color, got \(color)") }
+    }
+}
+
+// MARK: - One page per swipe
+
+final class SwipeStepTests: XCTestCase {
+    func testARailSwipeMovesAtMostOnePage() {
+        XCTAssertEqual(ScrollWheelPageController.clampTarget(2, start: 0, maxStep: 1), 1)
+        XCTAssertEqual(ScrollWheelPageController.clampTarget(0, start: 3, maxStep: 1), 2)
+        XCTAssertEqual(ScrollWheelPageController.clampTarget(1, start: 1, maxStep: 1), 1)
+    }
+
+    func testWithoutACapTheTargetStands() {
+        XCTAssertEqual(ScrollWheelPageController.clampTarget(4, start: 0, maxStep: nil), 4)
     }
 }
