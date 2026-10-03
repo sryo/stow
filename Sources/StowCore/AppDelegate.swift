@@ -136,6 +136,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         saveWindowFrame(window)
     }
 
+    public func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        NSSize(width: ElasticMode.snappedWidth(frameSize.width), height: frameSize.height)
+    }
+
     public func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         saveWindowFrame(window)
@@ -159,7 +163,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let savedFrame = NSRectFromString(frameString)
         guard savedFrame.width > 0, savedFrame.height > 0 else { return false }
 
-        let clampedWidth = min(max(savedFrame.width, window.minSize.width), window.maxSize.width)
+        let clampedWidth = ElasticMode.snappedWidth(min(max(savedFrame.width, window.minSize.width), window.maxSize.width))
         let clampedHeight = min(max(savedFrame.height, window.minSize.height), window.maxSize.height)
         let restoredFrame = NSRect(x: savedFrame.origin.x, y: savedFrame.origin.y, width: clampedWidth, height: clampedHeight)
         window.setFrame(restoredFrame, display: false)

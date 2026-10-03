@@ -20,7 +20,7 @@ public enum ElasticMode: Equatable {
 
     public static func forWidth(_ width: CGFloat) -> ElasticMode {
         switch width {
-        case ..<120: return .rail
+        case ..<listMinWidth: return .rail
         case ..<260: return .list
         case ...560: return .sidebar
         default: return .mosaic
@@ -28,6 +28,13 @@ public enum ElasticMode: Equatable {
     }
 
     public static let railWidth: CGFloat = 52
+    /// Narrowest list. Anything narrower snaps to `railWidth`; there's no in-between rail.
+    public static let listMinWidth: CGFloat = 120
+
+    /// The width a resize should land on: proposals below the list snap to the rail.
+    public static func snappedWidth(_ proposed: CGFloat) -> CGFloat {
+        proposed < listMinWidth ? railWidth : proposed
+    }
 }
 
 /// Row geometry, type and colors for the node list, all resolved from `StowTheme`.
