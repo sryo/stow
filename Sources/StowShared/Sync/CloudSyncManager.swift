@@ -629,9 +629,14 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         pendingWorkspaceSortOrders.removeAll()
         pendingNodeSortOrders.removeAll()
         saveLastKnownRecords()
-        model.onChange?()
+        Self.notifyMergeFinished(model)
         isMergingRemoteChanges = false
         recordSyncSuccess()
+    }
+
+    /// Tells the model's observers that a fetch cycle changed it.
+    static func notifyMergeFinished(_ model: AppModel) {
+        model.onChange?()
     }
 
     private func handleSentRecordZoneChanges(_ changes: CKSyncEngine.Event.SentRecordZoneChanges) {

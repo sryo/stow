@@ -518,7 +518,7 @@ private final class RailDotButton: NSButton {
 
 // MARK: - Cell
 
-private final class RailCell: NSView {
+final class RailCell: NSView {
     enum Kind {
         case link(Link, letters: String)
         case folder(Folder)

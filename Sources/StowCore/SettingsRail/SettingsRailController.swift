@@ -125,7 +125,7 @@ final class SettingsRailController: NSObject {
     }
 
     /// "18 items · Chrome · Work · ⌃1", as in the tip; the browser only when one is set.
-    private func detail(for ws: Workspace, position: Int) -> String {
+    func detail(for ws: Workspace, position: Int) -> String {
         let count = WorkspaceDeletion.itemCount(of: ws)
         var parts = ["\(count) \(count == 1 ? "item" : "items")"]
         if let choice = OpensInStore().choice(for: ws.id) { parts.append(OpensInMenu.display(choice).title) }
@@ -133,7 +133,7 @@ final class SettingsRailController: NSObject {
         return parts.joined(separator: " · ")
     }
 
-    private func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
+    func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
         let position = (model.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0) + 1
         let favicons = WorkspaceIconSites.pick(from: ws.items)
         var letterItems = [WorkspaceStripLayout.Item(id: ws.id, name: ws.name)]
@@ -321,7 +321,7 @@ final class SettingsRailController: NSObject {
         }
     }
 
-    private func chooseCustomColor() {
+    func chooseCustomColor() {
         guard let id = editingId, let ws = model.workspaces.first(where: { $0.id == id }) else { return }
         colorPanelWorkspace = id
         let panel = NSColorPanel.shared
@@ -332,7 +332,7 @@ final class SettingsRailController: NSObject {
         panel.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func customColorChanged(_ sender: Any?) {
+    @objc func customColorChanged(_ sender: Any?) {
         guard let id = colorPanelWorkspace else { return }
         model.updateWorkspaceColor(id: id, colorId: .custom(NSColorPanel.shared.color.hexString))
     }
@@ -390,10 +390,17 @@ final class SettingsRailController: NSObject {
             guard let self else { return event }
             let inFlyout = event.window === self.editorPanel || event.window === self.sheetPanel
             let inRail = event.window === self.view.window
-            let inMenuOrPanel = event.window is NSColorPanel || event.window?.className.contains("Menu") == true
-            if !inFlyout && !inRail && !inMenuOrPanel { self.closeFlyouts() }
+            if Self.clickClosesFlyouts(inFlyout: inFlyout, inRail: inRail,
+                                       isColorPanel: event.window is NSColorPanel,
+                                       windowClassName: event.window?.className) { self.closeFlyouts() }
             return event
         }
+    }
+
+    /// Whether a click in this window, seen by the outside-click monitor, closes the flyouts.
+    static func clickClosesFlyouts(inFlyout: Bool, inRail: Bool, isColorPanel: Bool, windowClassName: String?) -> Bool {
+        let inMenuOrPanel = isColorPanel || windowClassName?.contains("Menu") == true
+        return !inFlyout && !inRail && !inMenuOrPanel
     }
 
     private func removeMouseMonitor() {
