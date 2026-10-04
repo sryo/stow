@@ -67,34 +67,34 @@ struct OpensInStore {
     }
 }
 
-/// The browser, profile and tab-search scope for opening a link. Every place that opens
+/// The browser and profile for opening a link, and whether to switch to an open tab first. Every place that opens
 /// a link (click, Open all, Open in, the Tabline) resolves it here.
 struct LinkTarget: Equatable {
     var bundleId: String?
     var profile: String?
-    /// Look for an already-open tab only in this browser; nil looks everywhere.
-    var focusOnlyIn: String?
+    /// Switch to the link's tab if it's already open, in whichever browser has it (that's
+    /// what the open-tab dot promises). False opens a fresh tab, which Option asks for.
+    var focusesOpenTab = true
 
     static func resolve(choice: OpensIn?, activeBrowser: String?, systemDefault: String?,
-                        isInstalled: (String) -> Bool, searchEveryBrowser: Bool) -> LinkTarget {
+                        isInstalled: (String) -> Bool, forceNewTab: Bool) -> LinkTarget {
         if let choice, isInstalled(choice.bundleId) {
-            return LinkTarget(bundleId: choice.bundleId, profile: choice.profile,
-                              focusOnlyIn: searchEveryBrowser ? nil : choice.bundleId)
+            return LinkTarget(bundleId: choice.bundleId, profile: choice.profile, focusesOpenTab: !forceNewTab)
         }
         let active = activeBrowser.flatMap { isInstalled($0) ? $0 : nil }
         let bundleId = active ?? systemDefault
-        return LinkTarget(bundleId: bundleId, profile: nil, focusOnlyIn: searchEveryBrowser ? nil : bundleId)
+        return LinkTarget(bundleId: bundleId, profile: nil, focusesOpenTab: !forceNewTab)
     }
 
     /// Resolves against this Mac: the workspace's stored choice, the browser last in
     /// front, and the system default.
     @MainActor
-    static func forWorkspace(_ id: UUID?, searchEveryBrowser: Bool = NSEvent.modifierFlags.contains(.option)) -> LinkTarget {
+    static func forWorkspace(_ id: UUID?, forceNewTab: Bool = NSEvent.modifierFlags.contains(.option)) -> LinkTarget {
         resolve(choice: id.flatMap { OpensInStore().choice(for: $0) },
                 activeBrowser: ActiveBrowserTracker.shared.lastActiveBundleId,
                 systemDefault: BrowserManager.defaultBrowserBundleId(),
                 isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil },
-                searchEveryBrowser: searchEveryBrowser)
+                forceNewTab: forceNewTab)
     }
 }
 

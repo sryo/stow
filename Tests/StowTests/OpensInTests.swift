@@ -61,14 +61,14 @@ final class LinkTargetTests: XCTestCase {
     let installed: Set<String> = ["com.google.Chrome", "com.apple.Safari", "com.google.Chrome.canary"]
     func resolve(_ choice: OpensIn?, active: String?, system: String? = "com.apple.Safari", option: Bool = false) -> LinkTarget {
         LinkTarget.resolve(choice: choice, activeBrowser: active, systemDefault: system,
-                           isInstalled: { self.installed.contains($0) }, searchEveryBrowser: option)
+                           isInstalled: { self.installed.contains($0) }, forceNewTab: option)
     }
 
     func testBrowserImUsingFollowsTheActiveBrowserWithoutAProfile() {
         let target = resolve(nil, active: "com.google.Chrome.canary")
         XCTAssertEqual(target.bundleId, "com.google.Chrome.canary")
         XCTAssertNil(target.profile)
-        XCTAssertEqual(target.focusOnlyIn, "com.google.Chrome.canary", "an open tab elsewhere doesn't pull you out")
+        XCTAssertTrue(target.focusesOpenTab)
     }
 
     func testBrowserImUsingFallsBackToTheSystemDefault() {
@@ -82,7 +82,7 @@ final class LinkTargetTests: XCTestCase {
         let target = resolve(OpensIn(bundleId: "com.google.Chrome", profile: "Profile 1"), active: "com.apple.Safari")
         XCTAssertEqual(target.bundleId, "com.google.Chrome")
         XCTAssertEqual(target.profile, "Profile 1")
-        XCTAssertEqual(target.focusOnlyIn, "com.google.Chrome", "switches to an open tab in Chrome first")
+        XCTAssertTrue(target.focusesOpenTab, "switches to an open tab first, in whichever browser has it")
     }
 
     func testAnUninstalledPinnedBrowserFallsBackToTheBrowserImUsing() {
@@ -91,9 +91,11 @@ final class LinkTargetTests: XCTestCase {
         XCTAssertNil(target.profile)
     }
 
-    func testOptionLooksForTheTabInEveryBrowser() {
-        XCTAssertNil(resolve(nil, active: "com.google.Chrome", option: true).focusOnlyIn)
-        XCTAssertNil(resolve(OpensIn(bundleId: "com.apple.Safari", profile: nil), active: nil, option: true).focusOnlyIn)
+    /// The open-tab dot means "open in some browser", so a click switches to that tab
+    /// wherever it is; Option is the way to get a fresh tab anyway.
+    func testOptionOpensAFreshTabInsteadOfSwitching() {
+        XCTAssertFalse(resolve(nil, active: "com.google.Chrome", option: true).focusesOpenTab)
+        XCTAssertFalse(resolve(OpensIn(bundleId: "com.apple.Safari", profile: nil), active: nil, option: true).focusesOpenTab)
     }
 }
 

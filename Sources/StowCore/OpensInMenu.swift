@@ -29,7 +29,7 @@ enum OpensInMenu {
 
     /// The browser "Browser I'm using" would pick right now ("Arc now").
     static func currentBrowserName() -> String? {
-        LinkTarget.forWorkspace(nil, searchEveryBrowser: false).bundleId.map(browserName)
+        LinkTarget.forWorkspace(nil, forceNewTab: false).bundleId.map(browserName)
     }
 
     /// Wraps an optional choice for representedObject (nil is "Browser I'm using").

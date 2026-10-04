@@ -1344,16 +1344,16 @@ final class MainViewController: NSViewController {
         importClipboardContent()
     }
 
-    /// Opens in the workspace's "Opens in" browser (by default the browser you're using),
-    /// switching to an existing tab for the site first. Holding Option looks for the tab
-    /// in every browser. `override` is a one-off Open in ▸ choice from the link's menu.
+    /// Switches to the link's tab if it's open in any browser; otherwise opens it in the
+    /// workspace's "Opens in" browser (by default the browser you're using). Holding Option
+    /// opens a fresh tab instead. `override` is a one-off Open in ▸ choice from the link's menu.
     func openLink(_ link: Link, in override: OpensIn? = nil) {
         guard let url = URL(string: link.url) else { return }
         let target = override.map {
-            LinkTarget(bundleId: $0.bundleId, profile: $0.profile, focusOnlyIn: $0.bundleId)
+            LinkTarget(bundleId: $0.bundleId, profile: $0.profile)
         } ?? LinkTarget.forWorkspace(model.currentWorkspace.id)
         Task.detached(priority: .userInitiated) {
-            if await BrowserTabService.focusIfOpen(url: url, onlyIn: target.focusOnlyIn) { return }
+            if target.focusesOpenTab, await BrowserTabService.focusIfOpen(url: url) { return }
             await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
         }
     }
@@ -1369,8 +1369,7 @@ final class MainViewController: NSViewController {
             for link in links {
                 guard let url = URL(string: link.url) else { continue }
                 let key = BrowserTabService.canonicalize(url)
-                if let tab = tabs[key], target.focusOnlyIn == nil || tab.bundleId == target.focusOnlyIn,
-                   BrowserTabService.focus(tab: tab) { continue }
+                if target.focusesOpenTab, let tab = tabs[key], BrowserTabService.focus(tab: tab) { continue }
                 await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
             }
         }
