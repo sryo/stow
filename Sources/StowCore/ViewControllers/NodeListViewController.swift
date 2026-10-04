@@ -54,6 +54,8 @@ final class NodeListViewController: NSViewController {
     private var isDraggingItems = false
     private var pendingInsertedIds: Set<UUID> = []
     private let rowAnimationDuration: TimeInterval = 0.16
+    /// Whether the system asks for reduced motion; replaceable in tests.
+    var reduceMotion: () -> Bool = { RailMotion.reduceMotion }
     private let rowAnimationOffset: CGFloat = 10
 
     // Multi-selection support
@@ -655,7 +657,9 @@ final class NodeListViewController: NSViewController {
     }
 
     private func applyVisibleRows(_ newRows: [NodeListRow]) {
-        if isSearchActive || collectionView.window == nil {
+        let animates = RailMotion.animates(windowVisible: collectionView.window != nil, swiping: false,
+                                           reduceMotion: reduceMotion())
+        if isSearchActive || !animates {
             visibleRows = newRows
             collectionView.reloadData()
             return
@@ -767,6 +771,7 @@ final class NodeListViewController: NSViewController {
     }
 
     private func animateInsert(item: NSCollectionViewItem) {
+        guard !reduceMotion() else { return }
         let view = item.view
         view.wantsLayer = true
         let finalOrigin = view.frame.origin
@@ -827,11 +832,25 @@ final class NodeListViewController: NSViewController {
         }
         onNodeRenamed?(nodeId, trimmed)
         clearInlineRenameState()
+        refocusListAfterRename()
     }
 
     private func handleInlineRenameCancelled() {
         suppressNextSelection = true
         clearInlineRenameState()
+        refocusListAfterRename()
+    }
+
+    /// Gives the list focus back once a rename ends, unless the rename ended because
+    /// something else (search, another field) took focus.
+    private func refocusListAfterRename() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.view.window, self.inlineRenameNodeId == nil else { return }
+            let responder = window.firstResponder
+            let isFree = responder == nil || responder === window || responder === self.collectionView
+                || (responder as? NSView)?.isDescendant(of: self.collectionView) == true
+            if isFree { self.focusList() }
+        }
     }
 
     private func clearInlineRenameState() {
@@ -971,6 +990,17 @@ final class NodeListViewController: NSViewController {
         let index = cursorIndex
         let row = index.flatMap { visibleRows.indices.contains($0) ? visibleRows[$0] : nil }
 
+        // In the mosaic the arrows follow the grid. ←/→ fall through to collapse/expand
+        // below when there's no tile beside the cursor.
+        if elasticMode == .mosaic, flags.isEmpty, let index,
+           let direction: ElasticLayout.Direction = [125: .down, 126: .up, 123: .left, 124: .right][event.keyCode] {
+            if let target = mosaicNeighbor(of: index, direction: direction) {
+                moveCursor(to: target)
+                return true
+            }
+            if direction == .up || direction == .down { return true }
+        }
+
         switch (event.keyCode, flags) {
         case (125, []): // down
             moveCursor(to: (index ?? -1) + 1)
@@ -1039,6 +1069,11 @@ final class NodeListViewController: NSViewController {
             return false
         }
         return true
+    }
+
+    private func mosaicNeighbor(of index: Int, direction: ElasticLayout.Direction) -> Int? {
+        let frames = visibleRows.indices.map { frameForItem(at: IndexPath(item: $0, section: 0)) ?? .zero }
+        return ElasticLayout.neighbor(of: index, direction: direction, in: frames) { isFocusable(visibleRows[$0]) }
     }
 
     private func showContextMenu(forRowAt index: Int) {

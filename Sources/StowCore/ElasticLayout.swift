@@ -151,6 +151,38 @@ final class ElasticLayout: NSCollectionViewLayout {
         abs(newBounds.width - preparedWidth) > 0.5
     }
 
+    // MARK: - Keyboard
+
+    enum Direction { case up, down, left, right }
+
+    /// The item an arrow key moves to from `index`. Items sharing a `minY` form a line.
+    /// ↑/↓ go to the eligible item on the nearest line above or below whose midX is
+    /// closest (ties go to the earlier item); ←/→ go to the adjacent eligible item on
+    /// the same line. Nil when there's nothing that way.
+    static func neighbor(of index: Int, direction: Direction, in frames: [NSRect],
+                         eligible: (Int) -> Bool = { _ in true }) -> Int? {
+        guard frames.indices.contains(index) else { return nil }
+        let origin = frames[index]
+        let sameLine: (NSRect) -> Bool = { abs($0.minY - origin.minY) < 0.5 }
+        let candidates = frames.indices.filter { $0 != index && eligible($0) }
+        switch direction {
+        case .left, .right:
+            let onLine = candidates.filter { sameLine(frames[$0]) }
+            if direction == .left {
+                return onLine.filter { frames[$0].midX < origin.midX }.max { frames[$0].midX < frames[$1].midX }
+            }
+            return onLine.filter { frames[$0].midX > origin.midX }.min { frames[$0].midX < frames[$1].midX }
+        case .up, .down:
+            let other = candidates.filter {
+                direction == .down ? frames[$0].minY > origin.minY + 0.5 : frames[$0].minY < origin.minY - 0.5
+            }
+            let lineY = direction == .down ? other.map { frames[$0].minY }.min() : other.map { frames[$0].minY }.max()
+            guard let lineY else { return nil }
+            return other.filter { abs(frames[$0].minY - lineY) < 0.5 }
+                .min { (abs(frames[$0].midX - origin.midX), $0) < (abs(frames[$1].midX - origin.midX), $1) }
+        }
+    }
+
     // MARK: - Drops
 
     /// Over the upper three quarters of an item the drop targets that item (the controller
