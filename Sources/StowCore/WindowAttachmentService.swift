@@ -24,9 +24,8 @@ final class WindowAttachmentService {
     // State tracking
     private var browserApp: NSRunningApplication?
     private var browserWindowElement: AXUIElement?
-    private var observers: [AXObserver] = []
-    private var appObserver: AXObserver?
-    private var appObserverPid: pid_t?
+    private var windowObserver: AXNotificationObserver?
+    private var appObserver: AXNotificationObserver?
     private var isEnabled: Bool = false
     private var currentBrowserBundleId: String?
     private var sidebarPosition: SidebarPosition = .right
@@ -120,13 +119,13 @@ final class WindowAttachmentService {
 
         guard app.isActive else { return nil }
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let appElement = AXHelper.application(app.processIdentifier)
 
         // Try focused window first (handles multi-window correctly)
         var focusedRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success,
            let focusedWindow = focusedRef {
-            let element = focusedWindow as! AXUIElement
+            let element = AXHelper.bounded(focusedWindow as! AXUIElement)
             // Check if window is minimized
             var minimized: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &minimized)
@@ -141,7 +140,7 @@ final class WindowAttachmentService {
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowList)
         guard result == .success else { return nil }
 
-        guard let windows = windowList as? [AXUIElement], let firstWindow = windows.first else {
+        guard let windows = windowList as? [AXUIElement], let firstWindow = windows.first.map(AXHelper.bounded) else {
             return nil
         }
 
@@ -338,7 +337,7 @@ final class WindowAttachmentService {
         if let existingElement = browserWindowElement,
            CFEqual(existingElement, windowElement) {
             // Same window — check if observers got lost and re-register if needed
-            if observers.isEmpty {
+            if windowObserver == nil {
                 print("WindowAttachmentService: Re-registering observers for existing window")
                 browserApp = frontmost
                 observeBrowserWindow()
@@ -375,37 +374,22 @@ final class WindowAttachmentService {
     private func observeAppWindowChanges(app: NSRunningApplication) {
         let pid = app.processIdentifier
         // If already observing this PID, skip
-        if pid == appObserverPid, appObserver != nil { return }
+        if appObserver?.pid == pid { return }
 
         // Cleanup previous observer if PID changed
         cleanupAppObserver()
 
-        var observer: AXObserver?
-        let error = AXObserverCreate(pid, { (_, element, notification, refcon) in
-            guard let refcon = refcon else { return }
-            let service = Unmanaged<WindowAttachmentService>.fromOpaque(refcon).takeUnretainedValue()
+        guard let observer = AXNotificationObserver(pid: pid, handler: { [weak self] _, _ in
             Task { @MainActor in
-                service.attachToBrowser()
+                self?.attachToBrowser()
             }
-        }, &observer)
-
-        guard error == .success, let observer = observer else { return }
-
-        let appElement = AXUIElementCreateApplication(pid)
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        AXObserverAddNotification(observer, appElement, kAXFocusedWindowChangedNotification as CFString, selfPtr)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-
+        }) else { return }
+        observer.add([kAXFocusedWindowChangedNotification], to: AXHelper.application(pid))
         appObserver = observer
-        appObserverPid = pid
     }
 
     private func cleanupAppObserver() {
-        if let observer = appObserver {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-            appObserver = nil
-        }
-        appObserverPid = nil
+        appObserver = nil
     }
 
     // MARK: - AX Observers
@@ -414,14 +398,9 @@ final class WindowAttachmentService {
         guard let windowElement = browserWindowElement,
               let app = browserApp else { return }
 
-        var observer: AXObserver?
-        let error = AXObserverCreate(app.processIdentifier, { (_, element, notification, refcon) in
-            guard let refcon = refcon else { return }
-            let service = Unmanaged<WindowAttachmentService>.fromOpaque(refcon).takeUnretainedValue()
-
+        guard let observer = AXNotificationObserver(pid: app.processIdentifier, handler: { [weak self] notificationName, _ in
             Task { @MainActor in
-                let notificationName = notification as String
-
+                guard let service = self else { return }
                 if notificationName == (kAXMovedNotification as String) || notificationName == (kAXResizedNotification as String) {
                     service.schedulePositionUpdate()
                 } else if notificationName == (kAXUIElementDestroyedNotification as String) {
@@ -429,28 +408,14 @@ final class WindowAttachmentService {
                     service.cleanupObservers()
                 }
             }
-        }, &observer)
+        }) else { return }
 
-        guard error == .success, let observer = observer else { return }
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-
-        // Register for notifications
-        AXObserverAddNotification(observer, windowElement, kAXMovedNotification as CFString, selfPtr)
-        AXObserverAddNotification(observer, windowElement, kAXResizedNotification as CFString, selfPtr)
-        AXObserverAddNotification(observer, windowElement, kAXUIElementDestroyedNotification as CFString, selfPtr)
-
-        // Add observer to run loop
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-
-        observers.append(observer)
+        observer.add([kAXMovedNotification, kAXResizedNotification, kAXUIElementDestroyedNotification], to: windowElement)
+        windowObserver = observer
     }
 
     private func cleanupObservers() {
-        for observer in observers {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
-        }
-        observers.removeAll()
+        windowObserver = nil
         positionUpdateTimer?.invalidate()
         positionUpdateTimer = nil
         lastBrowserFrame = nil
@@ -582,5 +547,74 @@ final class WindowAttachmentService {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
         }
+    }
+}
+
+// MARK: - Shared Accessibility helpers
+
+/// Accessibility calls are synchronous IPC to the target app, so a hung browser would stall
+/// the main thread for the system default (about six seconds) on every call. Elements made
+/// here give up after `messagingTimeout` instead.
+enum AXHelper {
+    static let messagingTimeout: Float = 0.2
+
+    static func application(_ pid: pid_t) -> AXUIElement {
+        bounded(AXUIElementCreateApplication(pid))
+    }
+
+    /// The timeout is per element, so windows read from an app element need it too.
+    @discardableResult
+    static func bounded(_ element: AXUIElement) -> AXUIElement {
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
+    }
+}
+
+/// One AXObserver for a process, delivering its notifications to `handler` on the main run loop.
+/// The handler runs inside the observer's callback, so it must not release this object
+/// synchronously; hop to a later turn first.
+@MainActor
+final class AXNotificationObserver {
+    typealias Handler = @MainActor (_ notification: String, _ element: AXUIElement) -> Void
+
+    let pid: pid_t
+    private nonisolated(unsafe) let observer: AXObserver
+    private let handler: Handler
+
+    init?(pid: pid_t, handler: @escaping Handler) {
+        var created: AXObserver?
+        let error = AXObserverCreate(pid, { _, element, notification, refcon in
+            guard let refcon else { return }
+            let name = notification as String
+            MainActor.assumeIsolated {
+                let target = Unmanaged<AXNotificationObserver>.fromOpaque(refcon).takeUnretainedValue()
+                target.handler(name, element)
+            }
+        }, &created)
+        guard error == .success, let created else { return nil }
+        self.pid = pid
+        self.observer = created
+        self.handler = handler
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .defaultMode)
+    }
+
+    deinit {
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+    }
+
+    /// True when at least one notification is registered. Fails while Accessibility isn't granted.
+    @discardableResult
+    func add(_ notifications: [String], to element: AXUIElement) -> Bool {
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        var registered = false
+        for name in notifications {
+            let error = AXObserverAddNotification(observer, element, name as CFString, refcon)
+            if error == .success || error == .notificationAlreadyRegistered { registered = true }
+        }
+        return registered
+    }
+
+    func remove(_ notifications: [String], from element: AXUIElement) {
+        for name in notifications { AXObserverRemoveNotification(observer, element, name as CFString) }
     }
 }

@@ -22,6 +22,21 @@ struct TablineContent {
     var workspaces: [WorkspaceEntry]
 }
 
+/// When the Tabline tracks the browser window. Window moves, resizes and focus changes
+/// arrive as Accessibility notifications; the poll is only a safety net, and it stops
+/// entirely while no browser is running.
+enum TablineTracking {
+    static let fallbackInterval: TimeInterval = 1.0
+
+    static func shouldPoll(running: [String?], browsers: Set<String>) -> Bool {
+        running.contains { $0.map(browsers.contains) == true }
+    }
+
+    static let appNotifications = [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification]
+    static let windowNotifications = [kAXMovedNotification, kAXResizedNotification,
+                                      kAXWindowMiniaturizedNotification, kAXUIElementDestroyedNotification]
+}
+
 /// Tabline: the active workspace as a row of tabs riding whichever browser window is in
 /// front. It never takes focus, so clicking a tab opens the site in the browser you're using.
 ///
@@ -34,6 +49,8 @@ struct TablineContent {
 /// live dot; a page not saved in the workspace gets a dashed ghost tab. Both come from
 /// OpenTabsMonitor. The content follows the model through `bind(model:)`, so edits made
 /// anywhere (Settings included) show up without being pushed.
+///
+/// The ⌕ search tool from the mockup isn't drawn: searching lives in the sidebar.
 @MainActor
 final class TablineController {
     static let shared = TablineController()
@@ -51,7 +68,6 @@ final class TablineController {
     var onToggleTask: ((UUID) -> Void)?
     /// When nil, clicking a snippet copies its content to the general pasteboard.
     var onCopySnippet: ((Snippet) -> Void)?
-    var onSearch: (() -> Void)? { didSet { refreshStrip() } }
     /// Nudge a screen-height browser window down to make the band under the menu bar.
     var makesRoomForBand = true
 
@@ -60,6 +76,12 @@ final class TablineController {
     private var trackTimer: Timer?
     private var hoverTimer: Timer?
     private var lastFrame: NSRect = .zero
+    private var isRunning = false
+    private var trackScheduled = false
+    private var axObserver: AXNotificationObserver?
+    private var observedWindow: AXUIElement?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var browserIds: Set<String> = []
 
     private weak var model: AppModel?
     private var modelSubscription: AnyCancellable?
@@ -129,23 +151,100 @@ final class TablineController {
                 MainActor.assumeIsolated { TablineController.shared.refreshStripSoon() }
             }.store(in: &monitorSubscriptions)
         }
+        isRunning = true
+        if workspaceObservers.isEmpty { observeWorkspace() }
+        refreshBrowserIds()
+        updatePolling()
+    }
+
+    private func stop() {
+        isRunning = false
+        for observer in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            NotificationCenter.default.removeObserver(observer)
+        }
+        workspaceObservers = []
+        pauseTracking()
+        restoreNudgedWindows()
+    }
+
+    /// Stops every timer and observer and hides the strip, until a browser runs again.
+    private func pauseTracking() {
         trackTimer?.invalidate()
-        trackTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            MainActor.assumeIsolated { TablineController.shared.track() }
+        trackTimer = nil
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        stopObservingWindows()
+        hidePanel()
+    }
+
+    private func hidePanel() {
+        if panel?.isVisible == true { panel?.orderOut(nil) }
+        lastFrontBundleId = nil
+        monitor.setDemand(.tabline, false)
+        monitor.frontBundleId = nil
+    }
+
+    private func observeWorkspace() {
+        let center = NSWorkspace.shared.notificationCenter
+        let launchedOrQuit = { (note: Notification) in
+            let bundleId = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated { TablineController.shared.appsChanged(launched: note.name == NSWorkspace.didLaunchApplicationNotification ? bundleId : nil) }
+        }
+        let retrack = { (_: Notification) in
+            MainActor.assumeIsolated { TablineController.shared.scheduleTrack() }
+        }
+        workspaceObservers = [
+            center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main, using: launchedOrQuit),
+            center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main, using: launchedOrQuit),
+            center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main, using: retrack),
+            center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main, using: retrack),
+            NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main, using: retrack),
+        ]
+    }
+
+    private func refreshBrowserIds() {
+        browserIds = Set(BrowserManager.installedBrowsers().map(\.bundleId))
+        browserIds.remove(Bundle.main.bundleIdentifier ?? "")
+    }
+
+    private func appsChanged(launched bundleId: String?) {
+        guard isRunning else { return }
+        // A browser installed since the last look.
+        if let bundleId, !browserIds.contains(bundleId) { refreshBrowserIds() }
+        updatePolling()
+    }
+
+    /// Runs the slow fallback poll while any browser is running and pauses everything otherwise.
+    private func updatePolling() {
+        guard isRunning else { return }
+        let running = NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }.map(\.bundleIdentifier)
+        guard TablineTracking.shouldPoll(running: running, browsers: browserIds) else {
+            pauseTracking()
+            return
+        }
+        if trackTimer == nil {
+            trackTimer = Timer.scheduledTimer(withTimeInterval: TablineTracking.fallbackInterval, repeats: true) { _ in
+                MainActor.assumeIsolated { TablineController.shared.track() }
+            }
         }
         track()
     }
 
-    private func stop() {
-        trackTimer?.invalidate()
-        trackTimer = nil
-        monitor.setDemand(.tabline, false)
-        monitor.frontBundleId = nil
-        lastFrontBundleId = nil
-        hoverTimer?.invalidate()
-        hoverTimer = nil
-        panel?.orderOut(nil)
-        restoreNudgedWindows()
+    /// Coalesces bursts (a window drag sends a stream of moves) into one track per run loop
+    /// turn, and lets other observers of the same notification, such as ActiveBrowserTracker,
+    /// update first.
+    private func scheduleTrack() {
+        guard isRunning, trackTimer != nil, !trackScheduled else { return }
+        trackScheduled = true
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                let controller = TablineController.shared
+                controller.trackScheduled = false
+                guard controller.isRunning, controller.trackTimer != nil else { return }
+                controller.track()
+            }
+        }
     }
 
     private func makePanel() {
@@ -225,7 +324,6 @@ final class TablineController {
         model.colorId = content.colorId
         model.entries = entries
         model.pocketCount = pocketTasks.count + pocketSnippets.count
-        model.showsSearch = onSearch != nil
 
         model.liveIndices = Self.liveIndices(entries: entries, openKeys: monitor.openKeys)
         if let page = monitor.frontPage, page.bundleId == lastFrontBundleId {
@@ -289,7 +387,6 @@ final class TablineController {
             guard let ghost = strip.model.ghost else { return }
             onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title)
         case .overflow: popUp(overflowMenu(), under: rect)
-        case .search: onSearch?()
         case .pocket: popUp(pocketMenu(), under: rect, alignRight: true)
         }
     }
@@ -425,12 +522,10 @@ final class TablineController {
               let bundleId = front.bundleIdentifier,
               bundleId == ActiveBrowserTracker.shared.lastActiveBundleId,
               let window = frontWindow(of: front) else {
-            if panel.isVisible { panel.orderOut(nil) }
-            lastFrontBundleId = nil
-            monitor.setDemand(.tabline, false)
-            monitor.frontBundleId = nil
+            hidePanel()
             return
         }
+        observe(app: front, window: window.element)
         if bundleId != lastFrontBundleId {
             lastFrontBundleId = bundleId
             monitor.frontBundleId = bundleId
@@ -540,12 +635,34 @@ final class TablineController {
 
     // MARK: - Accessibility
 
+    /// Follows the browser's focused-window changes and the front window's moves and resizes.
+    private func observe(app: NSRunningApplication, window: AXUIElement) {
+        let pid = app.processIdentifier
+        if axObserver?.pid != pid {
+            stopObservingWindows()
+            // Registration fails until Accessibility is granted; the fallback poll retries.
+            guard let observer = AXNotificationObserver(pid: pid, handler: { _, _ in TablineController.shared.scheduleTrack() }),
+                  observer.add(TablineTracking.appNotifications, to: AXHelper.application(pid)) else { return }
+            axObserver = observer
+        }
+        guard let axObserver else { return }
+        if let observedWindow, CFEqual(observedWindow, window) { return }
+        if let observedWindow { axObserver.remove(TablineTracking.windowNotifications, from: observedWindow) }
+        observedWindow = axObserver.add(TablineTracking.windowNotifications, to: window) ? window : nil
+    }
+
+    private func stopObservingWindows() {
+        if let observedWindow { axObserver?.remove(TablineTracking.windowNotifications, from: observedWindow) }
+        observedWindow = nil
+        axObserver = nil
+    }
+
     private func frontWindow(of app: NSRunningApplication) -> FrontWindow? {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let appElement = AXHelper.application(app.processIdentifier)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
               let windowRef, CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
-        let element = windowRef as! AXUIElement
+        let element = AXHelper.bounded(windowRef as! AXUIElement)
         guard let rect = axFrame(element) else { return nil }
         var fullRef: CFTypeRef?
         let isFullScreen = AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &fullRef) == .success
