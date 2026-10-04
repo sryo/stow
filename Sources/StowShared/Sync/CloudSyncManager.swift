@@ -69,6 +69,14 @@ public final class CloudSyncManager {
 
     private init() {}
 
+    #if os(macOS)
+    /// Whether the app bundle carries a provisioning profile, which macOS keeps at
+    /// Contents/embedded.provisionprofile (not in Resources).
+    nonisolated static func hasProvisioningProfile(bundleURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("Contents/embedded.provisionprofile").path)
+    }
+    #endif
+
     public func configure(model: AppModel) {
         self.model = model
 
@@ -78,7 +86,7 @@ public final class CloudSyncManager {
         // macOS-only: iOS builds are provisioned through embedded.mobileprovision
         // or App Store signing, so this file never exists there and the guard
         // would disable sync on every iOS build.
-        guard Bundle.main.path(forResource: "embedded", ofType: "provisionprofile") != nil else {
+        guard Self.hasProvisioningProfile(bundleURL: Bundle.main.bundleURL) else {
             availability = .disabledNoProvisioningProfile
             logger.warning("No provisioning profile — iCloud sync disabled for this build")
             return
