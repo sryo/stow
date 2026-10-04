@@ -827,11 +827,25 @@ final class NodeListViewController: NSViewController {
         }
         onNodeRenamed?(nodeId, trimmed)
         clearInlineRenameState()
+        refocusListAfterRename()
     }
 
     private func handleInlineRenameCancelled() {
         suppressNextSelection = true
         clearInlineRenameState()
+        refocusListAfterRename()
+    }
+
+    /// Gives the list focus back once a rename ends, unless the rename ended because
+    /// something else (search, another field) took focus.
+    private func refocusListAfterRename() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.view.window, self.inlineRenameNodeId == nil else { return }
+            let responder = window.firstResponder
+            let isFree = responder == nil || responder === window || responder === self.collectionView
+                || (responder as? NSView)?.isDescendant(of: self.collectionView) == true
+            if isFree { self.focusList() }
+        }
     }
 
     private func clearInlineRenameState() {

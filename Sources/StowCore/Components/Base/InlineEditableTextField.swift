@@ -216,6 +216,14 @@ extension InlineEditableTextField: NSTextFieldDelegate {
     /// - **Enter or focus loss**: Commits if trimmed text is non-empty, otherwise cancels
     ///
     /// - Parameter obj: The notification containing information about how editing ended.
+    /// NSTextView treats Esc as `complete:` rather than ending editing, so the
+    /// `NSCancelTextMovement` branch below is only reached through this.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard isEditingTitle, commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        cancelInlineRename()
+        return true
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         guard isEditingTitle else { return }
         let movement = obj.userInfo?["NSTextMovement"] as? Int ?? NSOtherTextMovement

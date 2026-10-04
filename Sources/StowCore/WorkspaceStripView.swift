@@ -258,10 +258,16 @@ final class WorkspaceStripView: NSView {
 
     func cancelInlineRename() { endRename() }
 
+    /// Clears `renamingId` before the field leaves the window: removing a focused field
+    /// ends its editing, and `controlTextDidEndEditing` would otherwise commit it.
     private func endRename() {
-        renameField?.removeFromSuperview()
-        renameField = nil
+        let field = renameField
         renamingId = nil
+        renameField = nil
+        if let field, window?.firstResponder === field.currentEditor() {
+            window?.makeFirstResponder(nil)
+        }
+        field?.removeFromSuperview()
         needsLayout = true
     }
 }
