@@ -588,7 +588,10 @@ public final class AppModel {
         guard let index = state.workspaces.firstIndex(where: { $0.id == remote.id }) else { return }
         state.workspaces[index].name = remote.name
         state.workspaces[index].colorId = remote.colorId
-        state.workspaces[index].browserProfiles = remote.browserProfiles
+        // Current builds don't upload profiles; only an older build's record carries them.
+        if !remote.browserProfiles.isEmpty {
+            state.workspaces[index].browserProfiles = remote.browserProfiles
+        }
         persist(notify: false)
     }
 

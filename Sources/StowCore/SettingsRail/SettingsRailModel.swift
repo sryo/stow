@@ -332,13 +332,12 @@ enum FlyoutPlacement {
 enum AppWindowMode: Int { case floating, onTop, attached }
 
 enum AppSheetSection: CaseIterable {
-    case appearance, window, browser, shortcut, importing
+    case appearance, window, shortcut, importing
 
     var title: String {
         switch self {
         case .appearance: return "Appearance"
         case .window: return "Window"
-        case .browser: return "Browser"
         case .shortcut: return "Shortcut"
         case .importing: return "Import"
         }
@@ -347,7 +346,7 @@ enum AppSheetSection: CaseIterable {
 
 /// Everything that isn't about one workspace, behind the quiet cell, most-changed first.
 enum AppSheet {
-    static let sections: [AppSheetSection] = [.appearance, .window, .browser, .shortcut, .importing]
+    static let sections: [AppSheetSection] = [.appearance, .window, .shortcut, .importing]
 
     /// The quiet cell speaks up only when something needs you.
     static func showsBadge(windowMode: AppWindowMode, hasAccessibility: Bool) -> Bool {

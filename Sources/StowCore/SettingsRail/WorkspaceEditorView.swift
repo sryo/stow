@@ -16,9 +16,10 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         var current: WorkspaceTileIdentity
         var itemCount: Int
         var position: Int
-        var profileTitle: String
-        var profileDetail: String
-        var hasProfiles: Bool
+        /// "Chrome · Work" with its icon, or "Browser I'm using".
+        var opensIn: OpensInMenu.Display
+        /// Shown muted after "Browser I'm using": the browser it picks right now.
+        var opensInNow: String?
         var canDelete: Bool
     }
 
@@ -30,7 +31,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     var onColor: ((WorkspaceColorId) -> Void)?
     var onCustomColor: (() -> Void)?
     var onIcon: ((WorkspaceIcon) -> Void)?
-    var profileMenu: (() -> NSMenu?)?
+    var opensInMenu: (() -> NSMenu?)?
     var onOpen: (() -> Void)?
     var onDelete: (() -> Void)?
     var onHeightChange: (() -> Void)?
@@ -46,8 +47,10 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let iconLabel = FlyoutLabel.section("Icon")
     private var iconChoices: [IconChoiceButton] = []
     private var symbolButtons: [SymbolButton] = []
-    private let profileLabel = FlyoutLabel.section("Browser profile")
-    private let profileRow = FlyoutPopRow(symbol: "person.fill", accessibilityLabel: "Browser profile")
+    private let profileLabel = FlyoutLabel.section("Opens in")
+    private let profileScope = FlyoutLabel.text("this Mac", size: 11, color: FlyoutColors.inkSecondary)
+    private let profileRow = FlyoutPopRow(symbol: nil, accessibilityLabel: "Opens in")
+    private let profileHint = FlyoutLabel.wrapping("", size: 11)
     private let footerLine = NSView()
     private let openButton = FlyoutButton("Open ↩", style: .primary)
     private let deleteButton = FlyoutButton("Delete…", style: .danger)
@@ -58,7 +61,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let confirmDelete = FlyoutButton("Delete", style: .dangerFilled)
 
     private var normalViews: [NSView] {
-        [colorLabel, iconLabel, profileLabel, profileRow, footerLine, openButton, deleteButton, hint] + swatches + iconChoices + symbolButtons
+        [colorLabel, iconLabel, profileLabel, profileScope, profileRow, profileHint, footerLine, openButton, deleteButton, hint] + swatches + iconChoices + symbolButtons
     }
 
     init() {
@@ -102,8 +105,12 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
             addSubview(button)
         }
         addSubview(profileLabel)
-        profileRow.menuProvider = { [weak self] in self?.profileMenu?() }
+        profileScope.alignment = .right
+        profileScope.toolTip = "Stored on this Mac only: browser profiles exist on one Mac."
+        addSubview(profileScope)
+        profileRow.menuProvider = { [weak self] in self?.opensInMenu?() }
         addSubview(profileRow)
+        addSubview(profileHint)
         footerLine.wantsLayer = true
         addSubview(footerLine)
         openButton.target = self
@@ -158,9 +165,8 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
             choice.colorId = content.colorId
         }
         for button in symbolButtons { button.isOn = button.symbol == symbol }
-        profileRow.set(title: content.profileTitle, detail: content.profileDetail)
-        profileRow.isEnabled = content.hasProfiles
-        profileRow.toolTip = content.hasProfiles ? nil : "The browser you open links in doesn't have profiles"
+        profileRow.set(title: content.opensIn.title, detail: content.opensInNow.map { "\($0) now" }, icon: content.opensIn.icon)
+        profileHint.stringValue = Self.opensInHint(content)
         deleteButton.isEnabled = content.canDelete
         deleteButton.toolTip = content.canDelete ? nil : "The only workspace can't be deleted"
         updateConfirmText()
@@ -170,6 +176,16 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
             onHeightChange?()
         }
         applyColors()
+    }
+
+    static func opensInHint(_ content: Content) -> String {
+        if content.opensIn.title == OpensIn.browserImUsing {
+            return "Follows whichever browser was last in front."
+        }
+        if let profile = content.opensIn.title.components(separatedBy: " · ").dropFirst().first {
+            return "Switches to an open tab first; \(profile) profile only for new tabs."
+        }
+        return "Switches to an open tab first."
     }
 
     private var showsSymbols: Bool {
@@ -288,9 +304,14 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         }
         y += 12
         place(profileLabel, NSRect(x: pad + 2, y: y + 2, width: w, height: 13))
+        place(profileScope, NSRect(x: pad + w - 80, y: y + 1, width: 80, height: 14))
         y += 16 + 6
         place(profileRow, NSRect(x: pad, y: y, width: w, height: 26))
-        y += 26 + 12
+        y += 26 + 6
+        let hintHeight = ceil(profileHint.attributedStringValue.boundingRect(with: NSSize(width: w - 4, height: 60),
+                                                                              options: [.usesLineFragmentOrigin]).height)
+        place(profileHint, NSRect(x: pad + 2, y: y, width: w - 2, height: hintHeight))
+        y += hintHeight + 12
         place(footerLine, NSRect(x: pad, y: y, width: w, height: 1))
         y += 1 + 10
         let o = openButton.fittingWidth, dl = deleteButton.fittingWidth

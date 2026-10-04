@@ -2,7 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// The per-workspace menu used by Settings: Rename workspace · Change color › ·
-/// Browser profile › · Move up · Move down · Export workspace… · Delete workspace….
+/// Opens in › · Move up · Move down · Export workspace… · Delete workspace….
 ///
 /// Every item acts on the workspace ID it was built for and never selects that
 /// workspace, so opening it from Settings doesn't page away.
@@ -38,10 +38,11 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         return handler.retained(handler.colorSubmenu() ?? NSMenu())
     }
 
-    /// Only the "Browser profile" submenu, for a click on the profile chip.
-    static func makeProfileMenu(for workspaceId: UUID, model: AppModel, presentingView: NSView) -> NSMenu? {
-        let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: { _ in })
-        return handler.profileSubmenu().map(handler.retained)
+    /// Only the "Opens in" submenu, for the editor row and the sidebar row's chip.
+    static func makeOpensInMenu(for workspaceId: UUID) -> NSMenu {
+        OpensInMenu.make(current: OpensInStore().choice(for: workspaceId)) { choice in
+            OpensInStore().set(choice, for: workspaceId)
+        }
     }
 
     private func retained(_ menu: NSMenu) -> NSMenu {
@@ -68,14 +69,9 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         color.submenu = colorSubmenu()
         menu.addItem(color)
 
-        let profile = NSMenuItem(title: "Browser profile", action: nil, keyEquivalent: "")
-        if let submenu = profileSubmenu() {
-            profile.submenu = submenu
-        } else {
-            profile.isEnabled = false
-            profile.toolTip = "The browser you open links in doesn't have profiles"
-        }
-        menu.addItem(profile)
+        let opensIn = NSMenuItem(title: "Opens in", action: nil, keyEquivalent: "")
+        opensIn.submenu = Self.makeOpensInMenu(for: workspaceId)
+        menu.addItem(opensIn)
 
         menu.addItem(.separator())
         let up = item("Move up", #selector(moveUp))
@@ -120,28 +116,6 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         return submenu
     }
 
-    private func profileSubmenu() -> NSMenu? {
-        guard let workspace,
-              let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-              BrowserManager.supportsProfiles(bundleId) else { return nil }
-        let profiles = BrowserManager.profiles(for: bundleId)
-        guard !profiles.isEmpty else { return nil }
-        let current = workspace.browserProfiles[bundleId]
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        let none = item("None (default)", #selector(clearProfile))
-        none.state = current == nil ? .on : .off
-        submenu.addItem(none)
-        submenu.addItem(.separator())
-        for profile in profiles {
-            let item = item(profile.displayName, #selector(setProfile(_:)))
-            item.representedObject = profile.directoryName
-            item.state = current == profile.directoryName ? .on : .off
-            submenu.addItem(item)
-        }
-        return submenu
-    }
-
     /// A 12pt dot with a 1pt ring, rendered per appearance when the menu draws.
     static func dotImage(color: NSColor, size: CGFloat = 12) -> NSImage {
         NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
@@ -179,17 +153,6 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
 
     @objc private func customColorChanged(_ sender: Any?) {
         model?.updateWorkspaceColor(id: workspaceId, colorId: .custom(NSColorPanel.shared.color.hexString))
-    }
-
-    @objc private func setProfile(_ sender: NSMenuItem) {
-        guard let dir = sender.representedObject as? String,
-              let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        model?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: dir)
-    }
-
-    @objc private func clearProfile() {
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        model?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: nil)
     }
 
     @objc private func moveUp() {

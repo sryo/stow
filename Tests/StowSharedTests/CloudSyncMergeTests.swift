@@ -138,6 +138,17 @@ final class CloudSyncMergeTests: XCTestCase {
         XCTAssertEqual(merged.browserProfiles["com.other.browser"], "Other", "Remote-only profiles added")
     }
 
+    func testUpdateFromSync_keepsThisMacsProfilesWhenTheRecordHasNone() {
+        let local = model.workspaces[0]
+        model.updateWorkspaceBrowserProfile(id: local.id, bundleId: "com.google.Chrome", profile: "Profile 1")
+        var remote = local
+        remote.name = "Renamed elsewhere"
+        remote.browserProfiles = [:]
+        model.updateWorkspaceFromSync(remote)
+        XCTAssertEqual(model.workspaces[0].name, "Renamed elsewhere")
+        XCTAssertEqual(model.workspaces[0].browserProfiles, ["com.google.Chrome": "Profile 1"])
+    }
+
     // MARK: - reorder
 
     func testReorderWorkspacesFromSync_serverOrderApplies() {

@@ -39,9 +39,24 @@ final class RecordConverterTests: XCTestCase {
         XCTAssertEqual(decoded?.id, workspace.id)
         XCTAssertEqual(decoded?.name, workspace.name)
         XCTAssertEqual(decoded?.colorId, workspace.colorId)
-        XCTAssertEqual(decoded?.browserProfiles, workspace.browserProfiles)
         XCTAssertEqual(record[CKWorkspaceFields.sortOrder] as? Int, 3)
         XCTAssertEqual(decoded?.items, [], "Items travel as separate Node records")
+    }
+
+    func testBrowserProfilesStayOnThisMac() {
+        // Profile folders only exist on the Mac that made them, so they aren't uploaded.
+        let workspace = Workspace(id: UUID(), name: "w", colorId: .ocean, items: [],
+                                  browserProfiles: ["com.google.Chrome": "Profile 1"])
+        let record = RecordConverter.workspaceToCKRecord(workspace: workspace, sortOrder: 0, zoneID: zoneID)
+        XCTAssertNil(record[CKWorkspaceFields.browserProfilesJSON])
+        XCTAssertEqual(RecordConverter.ckRecordToWorkspace(record: record)?.browserProfiles, [:])
+    }
+
+    func testRecordsFromOlderBuildsStillReadTheirProfiles() {
+        let workspace = Workspace(id: UUID(), name: "w", colorId: .ocean, items: [])
+        let record = RecordConverter.workspaceToCKRecord(workspace: workspace, sortOrder: 0, zoneID: zoneID)
+        record[CKWorkspaceFields.browserProfilesJSON] = "{\"com.google.Chrome\":\"Profile 2\"}" as CKRecordValue
+        XCTAssertEqual(RecordConverter.ckRecordToWorkspace(record: record)?.browserProfiles, ["com.google.Chrome": "Profile 2"])
     }
 
     func testWorkspaceRoundTrip_customColor() {

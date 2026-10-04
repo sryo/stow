@@ -43,6 +43,7 @@ final class SettingsRailController: NSObject {
         dwell.onPreview = { [weak self] id in self?.preview(id) }
         NotificationCenter.default.addObserver(self, selector: #selector(appResigned), name: NSApplication.didResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .stowAppPreferencesChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .workspaceOpensInChanged, object: nil)
     }
 
     var isFlyoutOpen: Bool { editorPanel.isVisible || sheetPanel.isVisible }
@@ -124,19 +125,13 @@ final class SettingsRailController: NSObject {
         return "\(name), \(detail(for: ws, position: position))"
     }
 
-    /// "18 items · Work profile · ⌃1", as in the tip.
+    /// "18 items · Chrome · Work · ⌃1", as in the tip; the browser only when one is set.
     private func detail(for ws: Workspace, position: Int) -> String {
         let count = WorkspaceDeletion.itemCount(of: ws)
         var parts = ["\(count) \(count == 1 ? "item" : "items")"]
-        parts.append(profileName(for: ws).map { "\($0) profile" } ?? "default profile")
+        if let choice = OpensInStore().choice(for: ws.id) { parts.append(OpensInMenu.display(choice).title) }
         if position <= 9 { parts.append("⌃\(position)") }
         return parts.joined(separator: " · ")
-    }
-
-    private func profileName(for ws: Workspace) -> String? {
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-              let dir = ws.browserProfiles[bundleId] else { return nil }
-        return BrowserManager.profiles(for: bundleId).first(where: { $0.directoryName == dir })?.displayName ?? dir
     }
 
     private func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
@@ -144,17 +139,14 @@ final class SettingsRailController: NSObject {
         let favicons = WorkspaceIconSites.pick(from: ws.items)
         var letterItems = [WorkspaceStripLayout.Item(id: ws.id, name: ws.name)]
         WorkspaceStripLayout.assignMonograms(&letterItems)
-        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
-        let hasProfiles = bundleId.map { BrowserManager.supportsProfiles($0) && !BrowserManager.profiles(for: $0).isEmpty } ?? false
-        let browserName = bundleId.flatMap { id in BrowserManager.installedBrowsers().first { $0.bundleId == id }?.name } ?? "your browser"
-        let profile = profileName(for: ws)
+        let choice = OpensInStore().choice(for: ws.id)
         return .init(id: ws.id, name: ws.name, colorId: ws.colorId, icon: ws.icon,
                      favicons: .mosaic(favicons), letter: .letter(letterItems[0].monogram),
                      current: identities[ws.id] ?? .letter("?"),
                      itemCount: WorkspaceDeletion.itemCount(of: ws), position: position,
-                     profileTitle: profile ?? "None",
-                     profileDetail: profile == nil ? "default profile" : "opens in \(browserName)",
-                     hasProfiles: hasProfiles, canDelete: model.workspaces.count > 1)
+                     opensIn: OpensInMenu.display(choice),
+                     opensInNow: choice == nil ? OpensInMenu.currentBrowserName() : nil,
+                     canDelete: model.workspaces.count > 1)
     }
 
     // MARK: View events
@@ -309,9 +301,9 @@ final class SettingsRailController: NSObject {
             guard let self, let id = self.editingId else { return }
             self.model.updateWorkspaceIcon(id: id, icon: icon)
         }
-        editor.profileMenu = { [weak self] in
+        editor.opensInMenu = { [weak self] in
             guard let self, let id = self.editingId else { return nil }
-            return WorkspaceMenu.makeProfileMenu(for: id, model: self.model, presentingView: self.view)
+            return WorkspaceMenu.makeOpensInMenu(for: id)
         }
         editor.onOpen = { [weak self] in
             guard let self, let id = self.editingId else { return }

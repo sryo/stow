@@ -34,30 +34,18 @@ enum BrowserManager {
         return Bundle(url: appURL)?.bundleIdentifier
     }
 
-    static func resolveDefaultBrowserBundleId() -> String? {
-        if let stored = UserDefaults.standard.string(forKey: UserDefaultsKeys.defaultBrowserBundleId) {
-            return stored
+    /// The browser Attached mode sits beside: the one last in front, else the system default.
+    @MainActor
+    static func attachTargetBundleId() -> String? {
+        if let active = ActiveBrowserTracker.shared.lastActiveBundleId,
+           NSWorkspace.shared.urlForApplication(withBundleIdentifier: active) != nil {
+            return active
         }
         return defaultBrowserBundleId()
     }
 
-    static var opensInActiveBrowser: Bool {
-        UserDefaults.standard.object(forKey: UserDefaultsKeys.openLinksInActiveBrowser) as? Bool ?? true
-    }
-
-    /// The browser a link should open in: the one the user was last working in, or the
-    /// chosen default when that preference is off or no browser has been used yet.
-    @MainActor
-    static func linkTargetBundleId() -> String? {
-        if opensInActiveBrowser, let active = ActiveBrowserTracker.shared.lastActiveBundleId,
-           NSWorkspace.shared.urlForApplication(withBundleIdentifier: active) != nil {
-            return active
-        }
-        return resolveDefaultBrowserBundleId()
-    }
-
     static func open(url: URL, bundleId targetBundleId: String? = nil, profile: String? = nil) {
-        if let bundleId = targetBundleId ?? resolveDefaultBrowserBundleId(),
+        if let bundleId = targetBundleId ?? defaultBrowserBundleId(),
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
             let configuration = NSWorkspace.OpenConfiguration()
             if let profile = profile {
@@ -96,7 +84,7 @@ enum BrowserManager {
         return isChromiumBased(bundleId) || bundleId == "org.mozilla.firefox"
     }
 
-    private static func isChromiumBased(_ bundleId: String) -> Bool {
+    static func isChromiumBased(_ bundleId: String) -> Bool {
         let chromiumBundleIds = [
             "com.google.Chrome",
             "com.google.Chrome.canary",

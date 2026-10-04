@@ -31,7 +31,7 @@ final class SettingsContentViewController: NSViewController {
     }
 
     enum Section: CaseIterable {
-        case workspaces, appearance, window, shortcut, browser, importing
+        case workspaces, appearance, window, shortcut, importing
 
         var title: String {
             switch self {
@@ -39,7 +39,6 @@ final class SettingsContentViewController: NSViewController {
             case .appearance: return "Appearance"
             case .window: return "Window"
             case .shortcut: return "Shortcut"
-            case .browser: return "Browser"
             case .importing: return "Import"
             }
         }
@@ -50,7 +49,6 @@ final class SettingsContentViewController: NSViewController {
             case .appearance: return "paintpalette"
             case .window: return "macwindow"
             case .shortcut: return "command"
-            case .browser: return "globe"
             case .importing: return "square.and.arrow.down"
             }
         }
@@ -104,10 +102,6 @@ final class SettingsContentViewController: NSViewController {
     private let shortcutRecorderView = FlyoutShortcutRecorder(action: .toggleStow)
     private let shortcutStatus = SettingsStatusLine()
 
-    // Browser
-    private let browserPopUp = SettingsPopUp()
-    private var browsers: [AppPreferences.BrowserChoice] = []
-
     // Import
     private let arcImportButton = SettingsButton(title: "Import…", accessibilityLabel: "Import from Arc…")
     private let fileImportButton = SettingsButton(title: "Import…", accessibilityLabel: "Import workspace file…")
@@ -136,7 +130,6 @@ final class SettingsContentViewController: NSViewController {
         setupWorkspaceList()
         buildGroups()
         buildRail()
-        loadBrowsers()
         reloadWorkspaces()
         updateWindowSection()
 
@@ -147,6 +140,7 @@ final class SettingsContentViewController: NSViewController {
         center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .alwaysOnTopSettingChanged, object: nil)
         center.addObserver(self, selector: #selector(windowSettingsChangedElsewhere), name: .attachmentSettingChanged, object: nil)
         center.addObserver(self, selector: #selector(preferencesChangedElsewhere), name: .stowAppPreferencesChanged, object: nil)
+        center.addObserver(self, selector: #selector(opensInChanged), name: .workspaceOpensInChanged, object: nil)
     }
 
     override func viewDidAppear() {
@@ -281,13 +275,6 @@ final class SettingsContentViewController: NSViewController {
         shortcut.add(SettingsRow(title: "Toggle Stow", control: shortcutRecorderView))
         shortcut.add(shortcutStatus)
 
-        // Browser
-        browserPopUp.popup.target = self
-        browserPopUp.popup.action = #selector(browserChanged)
-        browserPopUp.popup.setAccessibilityLabel("Open links in")
-        let browser = SettingsGroupView(section: .browser)
-        browser.add(SettingsRow(title: "Open links in", control: browserPopUp))
-
         // Import
         arcImportButton.target = self
         arcImportButton.action = #selector(importFromArc)
@@ -302,7 +289,7 @@ final class SettingsContentViewController: NSViewController {
         importing.add(fileImportStatus)
 
         groups = [.workspaces: workspaces, .appearance: appearance, .window: window,
-                  .shortcut: shortcut, .browser: browser, .importing: importing]
+                  .shortcut: shortcut, .importing: importing]
         for section in Section.allCases {
             if let group = groups[section] { pageView.addSubview(group) }
         }
@@ -612,10 +599,8 @@ final class SettingsContentViewController: NSViewController {
         WorkspaceDeletion.confirm(id, model: appModel, in: window)
     }
 
-    private func profileName(for workspace: Workspace) -> String? {
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-              let dir = workspace.browserProfiles[bundleId] else { return nil }
-        return BrowserManager.profiles(for: bundleId).first(where: { $0.directoryName == dir })?.displayName ?? dir
+    private func opensInChip(for workspace: Workspace) -> OpensInMenu.Display? {
+        OpensInStore().choice(for: workspace.id).map(OpensInMenu.display)
     }
 
     @objc private func scrollBoundsChanged() {
@@ -685,12 +670,11 @@ final class SettingsContentViewController: NSViewController {
     @objc private func preferencesChangedElsewhere() {
         tintModeChangedElsewhere()
         browserSideControl.selectedIndex = preferences.browserSide
-        if !browsers.isEmpty {
-            let index = preferences.selectedBrowserIndex(in: browsers)
-            browserPopUp.popup.selectItem(at: index == 0 ? 0 : index + 1)
-            browserPopUp.refreshTitle()
-        }
         updateWindowSection()
+    }
+
+    @objc private func opensInChanged() {
+        reloadWorkspaces()
     }
 
     @objc private func applicationDidBecomeActive() {
@@ -704,38 +688,6 @@ final class SettingsContentViewController: NSViewController {
 
     @objc private func openAccessibilitySettings() {
         preferences.openAccessibilitySettings()
-    }
-
-    // MARK: Browser
-
-    private func loadBrowsers() {
-        let popup = browserPopUp.popup
-        browsers = preferences.browserChoices()
-        popup.removeAllItems()
-        let menu = NSMenu()
-        popup.menu = menu
-        for (index, choice) in browsers.enumerated() {
-            let item = NSMenuItem(title: choice.name, action: nil, keyEquivalent: "")
-            item.representedObject = index
-            if let icon = choice.icon {
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
-            }
-            if choice.bundleId == nil { item.toolTip = "Open links in whichever browser you were last using" }
-            menu.addItem(item)
-            if index == 0 { menu.addItem(.separator()) }
-        }
-        let selected = preferences.selectedBrowserIndex(in: browsers)
-        popup.selectItem(at: selected == 0 ? 0 : selected + 1)
-        browserPopUp.refreshTitle()
-    }
-
-    @objc private func browserChanged() {
-        guard let index = browserPopUp.popup.selectedItem?.representedObject as? Int, browsers.indices.contains(index) else { return }
-        browserPopUp.refreshTitle()
-        preferences.setBrowser(browsers[index].bundleId)
-        // Profiles belong to a browser, so the chips may change.
-        reloadWorkspaces()
     }
 
     // MARK: Import
@@ -872,7 +824,7 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
             name: workspace.name,
             colorId: workspace.colorId,
             iconLinks: WorkspaceIconSites.pick(from: workspace.items),
-            profileName: profileName(for: workspace),
+            opensIn: opensInChip(for: workspace),
             itemCount: WorkspaceDeletion.itemCount(of: workspace),
             position: indexPath.item + 1,
             total: appModel.workspaces.count,
@@ -885,9 +837,8 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
                 self.popUp(WorkspaceMenu.makeColorMenu(for: id, model: appModel, presentingView: self.view), below: anchor)
             },
             showProfileMenu: { [weak self] id, anchor in
-                guard let self, let appModel = self.appModel,
-                      let menu = WorkspaceMenu.makeProfileMenu(for: id, model: appModel, presentingView: self.view) else { return }
-                self.popUp(menu, below: anchor)
+                guard let self else { return }
+                self.popUp(WorkspaceMenu.makeOpensInMenu(for: id), below: anchor)
             },
             rename: { [weak self] id in self?.beginInlineRename(id) },
             commitRename: { [weak self] id, name in self?.appModel?.renameWorkspace(id: id, newName: name) },

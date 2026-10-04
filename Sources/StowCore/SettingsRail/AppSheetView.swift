@@ -24,7 +24,6 @@ final class AppSheetView: RailFlippedView {
     private let warningMark = FlyoutLabel.text("!", size: 11, weight: .heavy, color: FlyoutColors.warning)
     private let grantButton = FlyoutButton("Open Settings…", height: 20, fontSize: 11)
     private var sideControl: FlyoutSegmented!
-    private let browserRow = FlyoutPopRow(symbol: nil, accessibilityLabel: "Open links in")
     private let shortcutRecorder = FlyoutShortcutRecorder(action: .toggleStow)
     private let shortcutStatus = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private let footerLine = NSView()
@@ -33,7 +32,6 @@ final class AppSheetView: RailFlippedView {
     private let fileButton = FlyoutButton("From file…", height: 22, fontSize: 11.5)
     private let importStatus = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private var lineLabels: [NSTextField] = []
-    private var browsers: [AppPreferences.BrowserChoice] = []
 
     /// The workspace whose color the page-color previews use.
     var previewColor: WorkspaceColorId = .defaultColor() {
@@ -77,7 +75,6 @@ final class AppSheetView: RailFlippedView {
                                       selected: preferences.browserSide, accessibilityLabel: "Browser side")
         sideControl.onChange = { [weak self] index in self?.preferences.setBrowserSide(index) }
 
-        browserRow.menuProvider = { [weak self] in self?.browserMenu() }
         shortcutRecorder.onShortcutChanged = {
             NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
         }
@@ -100,7 +97,7 @@ final class AppSheetView: RailFlippedView {
             lineLabels.append(label)
             addSubview(label)
         }
-        for view in [themeControl!, tintControl!, windowControl!, windowHelp, warningMark, grantButton, sideControl!, browserRow,
+        for view in [themeControl!, tintControl!, windowControl!, windowHelp, warningMark, grantButton, sideControl!,
                      shortcutRecorder, shortcutStatus, footerLine, importLabel, arcButton, fileButton, importStatus] as [NSView] {
             addSubview(view)
         }
@@ -126,7 +123,6 @@ final class AppSheetView: RailFlippedView {
     // MARK: State
 
     @objc func refresh() {
-        browsers = preferences.browserChoices()
         themeControl.selectedIndex = preferences.theme.rawValue
         tintControl.selectedIndex = StowTheme.TintMode.allCases.firstIndex(of: preferences.tint) ?? 0
         let mode = preferences.windowMode
@@ -145,9 +141,6 @@ final class AppSheetView: RailFlippedView {
         }
         sideControl.selectedIndex = preferences.browserSide
         sideControl.isEnabled = mode == .attached && !missing
-        let selected = preferences.selectedBrowserIndex(in: browsers)
-        let name = browsers.indices.contains(selected) ? browsers[selected].name : "Browser I'm using"
-        browserRow.set(title: name == "Browser I'm using" ? "The browser I’m using" : name, detail: nil)
         needsLayout = true
         onHeightChange?()
     }
@@ -158,29 +151,6 @@ final class AppSheetView: RailFlippedView {
         arcButton.title = "From Arc…"
         needsLayout = true
         onHeightChange?()
-    }
-
-    private func browserMenu() -> NSMenu {
-        let menu = NSMenu()
-        let selected = preferences.selectedBrowserIndex(in: browsers)
-        for (index, choice) in browsers.enumerated() {
-            let item = NSMenuItem(title: choice.bundleId == nil ? "The browser I’m using" : choice.name, action: #selector(browserPicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = index
-            item.state = index == selected ? .on : .off
-            if let icon = choice.icon?.copy() as? NSImage {
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
-            }
-            menu.addItem(item)
-            if index == 0 && browsers.count > 1 { menu.addItem(.separator()) }
-        }
-        return menu
-    }
-
-    @objc private func browserPicked(_ sender: NSMenuItem) {
-        guard browsers.indices.contains(sender.tag) else { return }
-        preferences.setBrowser(browsers[sender.tag].bundleId)
     }
 
     @objc private func grantTapped() { preferences.openAccessibilitySettings() }
@@ -255,9 +225,6 @@ final class AppSheetView: RailFlippedView {
                 }
                 windowHelp.isHidden = windowHelp.stringValue.isEmpty
                 line(2, sideControl, height: 28)
-            case .browser:
-                header(section)
-                line(3, browserRow, height: 26)
             case .shortcut:
                 header(section)
                 line(4, shortcutRecorder, height: 26)

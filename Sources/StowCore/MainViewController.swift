@@ -1577,24 +1577,24 @@ final class MainViewController: NSViewController {
         importClipboardContent()
     }
 
-    /// Opens in the browser the user is working in, switching to its existing tab for
-    /// the site if there is one. Holding Option looks for the tab in every browser.
-    private func openLink(_ link: Link) {
+    /// Opens in the workspace's "Opens in" browser (by default the browser you're using),
+    /// switching to an existing tab for the site first. Holding Option looks for the tab
+    /// in every browser. `override` is a one-off Open in ▸ choice from the link's menu.
+    func openLink(_ link: Link, in override: OpensIn? = nil) {
         guard let url = URL(string: link.url) else { return }
-        let bundleId = BrowserManager.linkTargetBundleId()
-        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
-        let searchEveryBrowser = NSEvent.modifierFlags.contains(.option) || !BrowserManager.opensInActiveBrowser
+        let target = override.map {
+            LinkTarget(bundleId: $0.bundleId, profile: $0.profile, focusOnlyIn: $0.bundleId)
+        } ?? LinkTarget.forWorkspace(model.currentWorkspace.id)
         Task.detached(priority: .userInitiated) {
-            if await BrowserTabService.focusIfOpen(url: url, onlyIn: searchEveryBrowser ? nil : bundleId) { return }
-            await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
+            if await BrowserTabService.focusIfOpen(url: url, onlyIn: target.focusOnlyIn) { return }
+            await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
         }
     }
 
     private func openLinksInFolder(_ folder: Folder) {
         let links = collectLinks(in: folder)
         guard !links.isEmpty else { return }
-        let bundleId = BrowserManager.linkTargetBundleId()
-        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
+        let target = LinkTarget.forWorkspace(model.currentWorkspace.id)
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
         Task.detached(priority: .userInitiated) {
@@ -1602,8 +1602,9 @@ final class MainViewController: NSViewController {
             for link in links {
                 guard let url = URL(string: link.url) else { continue }
                 let key = BrowserTabService.canonicalize(url)
-                if let tab = tabs[key], tab.bundleId == bundleId || bundleId == nil, BrowserTabService.focus(tab: tab) { continue }
-                await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
+                if let tab = tabs[key], target.focusOnlyIn == nil || tab.bundleId == target.focusOnlyIn,
+                   BrowserTabService.focus(tab: tab) { continue }
+                await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
             }
         }
     }

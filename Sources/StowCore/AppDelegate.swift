@@ -32,6 +32,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         #endif
 
         let model = AppModel(store: Self.makeDataStore())
+        OpensInStore().migrateIfNeeded(workspaces: model.workspaces)
         let mainViewController = MainViewController(model: model)
         self.mainViewController = mainViewController
 
@@ -442,7 +443,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let positionString = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
         let position: SidebarPosition = positionString == "left" ? .left : .right
 
-        guard let browserBundleId = BrowserManager.resolveDefaultBrowserBundleId() else {
+        guard let browserBundleId = BrowserManager.attachTargetBundleId() else {
             print("AppDelegate: No browser bundle ID available for attachment")
             return
         }
@@ -546,7 +547,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         if enabled {
             // Enable attachment
-            guard let browserBundleId = BrowserManager.resolveDefaultBrowserBundleId() else {
+            guard let browserBundleId = BrowserManager.attachTargetBundleId() else {
                 print("AppDelegate: No browser bundle ID available for attachment")
                 return
             }
@@ -575,7 +576,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     @objc private func handleSidebarPositionChanged(_ notification: Notification) {
         guard isAttachmentMode,
               let positionString = notification.userInfo?["position"] as? String,
-              let browserBundleId = BrowserManager.resolveDefaultBrowserBundleId() else {
+              let browserBundleId = BrowserManager.attachTargetBundleId() else {
             return
         }
 

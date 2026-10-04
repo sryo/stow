@@ -19,13 +19,6 @@ final class AppPreferences {
         }
     }
 
-    struct BrowserChoice: Equatable {
-        /// nil is "the browser I'm using".
-        let bundleId: String?
-        let name: String
-        let icon: NSImage?
-    }
-
     static let themeKey = "appTheme"
 
     /// Attached was chosen but Accessibility isn't granted yet; applied once it is.
@@ -157,37 +150,6 @@ final class AppPreferences {
         changed()
     }
 
-    // MARK: Browser
-
-    /// "The browser I'm using" first, then every installed browser.
-    func browserChoices() -> [BrowserChoice] {
-        let active = BrowserChoice(bundleId: nil, name: "Browser I'm using",
-                                   icon: NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil))
-        return [active] + BrowserManager.installedBrowsers().map { BrowserChoice(bundleId: $0.bundleId, name: $0.name, icon: $0.icon) }
-    }
-
-    /// The current choice's index in `choices`, picking the first browser when the
-    /// stored default is gone.
-    func selectedBrowserIndex(in choices: [BrowserChoice]) -> Int {
-        if BrowserManager.opensInActiveBrowser { return 0 }
-        if let id = BrowserManager.resolveDefaultBrowserBundleId(), let index = choices.firstIndex(where: { $0.bundleId == id }) {
-            return index
-        }
-        if choices.count > 1, let first = choices[1].bundleId {
-            defaults.set(first, forKey: UserDefaultsKeys.defaultBrowserBundleId)
-            return 1
-        }
-        return 0
-    }
-
-    func setBrowser(_ bundleId: String?) {
-        defaults.set(bundleId == nil, forKey: UserDefaultsKeys.openLinksInActiveBrowser)
-        if let bundleId {
-            defaults.set(bundleId, forKey: UserDefaultsKeys.defaultBrowserBundleId)
-            NotificationCenter.default.post(name: .defaultBrowserChanged, object: nil, userInfo: ["bundleId": bundleId])
-        }
-        changed()
-    }
 }
 
 extension Notification.Name {

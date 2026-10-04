@@ -298,6 +298,7 @@ final class FlyoutPopRow: FlyoutControl {
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let chevron = NSImageView()
+    private var usesIconGlyph = false
     var menuProvider: (() -> NSMenu?)?
 
     init(symbol: String?, accessibilityLabel: String) {
@@ -328,7 +329,17 @@ final class FlyoutPopRow: FlyoutControl {
 
     override var isFlipped: Bool { true }
 
-    func set(title: String, detail: String?) {
+    func set(title: String, detail: String?, icon: NSImage? = nil) {
+        // An app icon (a browser) leads the title in full color; nil drops it.
+        if let icon {
+            glyph.image = icon
+            glyph.imageScaling = .scaleProportionallyUpOrDown
+            usesIconGlyph = true
+            if glyph.superview == nil { addSubview(glyph) }
+        } else if usesIconGlyph {
+            glyph.image = nil
+            usesIconGlyph = false
+        }
         titleLabel.stringValue = title
         detailLabel.stringValue = detail ?? ""
         setAccessibilityValue(detail.map { "\(title), \($0)" } ?? title)
@@ -339,8 +350,13 @@ final class FlyoutPopRow: FlyoutControl {
         super.layout()
         var x: CGFloat = 8
         if glyph.image != nil {
-            glyph.frame = NSRect(x: x, y: (bounds.height - 12) / 2, width: 11, height: 12)
-            x += 11 + 7
+            if usesIconGlyph {
+                glyph.frame = NSRect(x: x, y: (bounds.height - 16) / 2, width: 16, height: 16)
+                x += 16 + 6
+            } else {
+                glyph.frame = NSRect(x: x, y: (bounds.height - 12) / 2, width: 11, height: 12)
+                x += 11 + 7
+            }
         }
         chevron.frame = NSRect(x: bounds.width - 8 - 9, y: (bounds.height - 12) / 2, width: 9, height: 12)
         let limit = chevron.frame.minX - 6
@@ -356,7 +372,7 @@ final class FlyoutPopRow: FlyoutControl {
         layer?.backgroundColor = flyoutCG(isHovered || isPressed ? FlyoutColors.hover : FlyoutColors.field)
         titleLabel.textColor = isEnabled ? FlyoutColors.ink : FlyoutColors.inkSecondary
         detailLabel.textColor = FlyoutColors.inkSecondary
-        glyph.contentTintColor = FlyoutColors.ink
+        glyph.contentTintColor = usesIconGlyph ? nil : FlyoutColors.ink
         chevron.contentTintColor = FlyoutColors.ink
         applyFocusRing()
     }

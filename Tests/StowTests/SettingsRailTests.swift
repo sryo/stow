@@ -317,8 +317,8 @@ final class FlyoutPlacementTests: XCTestCase {
 
 final class AppSheetTests: XCTestCase {
     func testSectionsFollowTheConceptOrder() {
-        XCTAssertEqual(AppSheet.sections, [.appearance, .window, .browser, .shortcut, .importing])
-        XCTAssertEqual(AppSheet.sections.map(\.title), ["Appearance", "Window", "Browser", "Shortcut", "Import"])
+        XCTAssertEqual(AppSheet.sections, [.appearance, .window, .shortcut, .importing])
+        XCTAssertEqual(AppSheet.sections.map(\.title), ["Appearance", "Window", "Shortcut", "Import"])
     }
 
     func testBadgeOnlyWhenAttachedIsMissingAccessibility() {

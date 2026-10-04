@@ -1,7 +1,7 @@
 import AppKit
 
 /// One workspace in the Settings list: a fixed 28pt row with the workspace icon, name,
-/// browser profile chip, item count and a "…" menu button.
+/// "Opens in" chip, item count and a "…" menu button.
 ///
 /// At rest the row is neutral on the Settings surface. Hovering or focusing it fills it
 /// with that workspace's own page color in the current tint mode, so you see the page
@@ -11,7 +11,8 @@ final class WorkspaceRowView: BaseView {
         var name: String
         var colorId: WorkspaceColorId
         var iconLinks: [Link]
-        var profileName: String?
+        /// The workspace's "Opens in" browser, shown only when one is set.
+        var opensIn: OpensInMenu.Display?
         var itemCount: Int
         var position: Int
         var total: Int
@@ -129,8 +130,9 @@ final class WorkspaceRowView: BaseView {
 
         iconView.configure(name: content.name, colorId: content.colorId, links: content.iconLinks)
 
-        if let profile = content.profileName {
-            profileChip.title = profile
+        if let opensIn = content.opensIn {
+            profileChip.title = opensIn.title
+            profileChip.icon = opensIn.icon
             profileChip.isHidden = false
         } else {
             profileChip.isHidden = true
@@ -297,7 +299,7 @@ final class WorkspaceRowView: BaseView {
         setAccessibilityRole(.button)
         var parts = [content.name, content.colorId.name, "\(content.position) of \(content.total)",
                      "\(content.itemCount) \(content.itemCount == 1 ? "item" : "items")"]
-        if let profile = content.profileName { parts.append("profile \(profile)") }
+        if let opensIn = content.opensIn { parts.append("opens in \(opensIn.title)") }
         setAccessibilityLabel(parts.joined(separator: ", "))
         if !content.canDelete {
             setAccessibilityHelp("The only workspace can't be deleted.")
@@ -420,8 +422,8 @@ final class WorkspaceIconView: NSView {
 
 // MARK: - Profile chip
 
-/// "􀉩 Work": the workspace's browser profile in Font.meta. Clicking it opens the
-/// Browser profile submenu.
+/// "[C] Chrome · Work": the workspace's "Opens in" browser with its icon, in Font.meta.
+/// Clicking it opens the Opens in submenu.
 private final class ProfileChipButton: BaseControl {
     private let symbolView = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -430,22 +432,24 @@ private final class ProfileChipButton: BaseControl {
         didSet {
             label.stringValue = title
             label.toolTip = title
-            setAccessibilityLabel("Browser profile, \(title)")
+            setAccessibilityLabel("Opens in, \(title)")
         }
+    }
+
+    var icon: NSImage? {
+        didSet { symbolView.image = icon }
     }
 
     var tint: NSColor = SettingsColors.inkSecondary {
         didSet {
             label.textColor = tint
-            symbolView.contentTintColor = tint
         }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.image = NSImage(systemSymbolName: "person.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 8, weight: .medium))
+        symbolView.imageScaling = .scaleProportionallyUpOrDown
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = StowTheme.Font.meta
         label.lineBreakMode = .byTruncatingTail
@@ -456,6 +460,8 @@ private final class ProfileChipButton: BaseControl {
             heightAnchor.constraint(equalToConstant: 18),
             symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: 13),
+            symbolView.heightAnchor.constraint(equalToConstant: 13),
             label.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: 3),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
