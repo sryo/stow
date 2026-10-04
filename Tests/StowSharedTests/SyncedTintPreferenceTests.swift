@@ -12,20 +12,15 @@ private final class FakeCloudStore: StringKeyValueStore {
 
 @MainActor
 final class SyncedTintPreferenceTests: XCTestCase {
-    private var suiteName: String!
-    private var local: UserDefaults!
+    private var local: FakeCloudStore!
     private var cloud: FakeCloudStore!
     private var center: NotificationCenter!
 
     override func setUp() async throws {
-        suiteName = "stow-tint-tests-\(UUID().uuidString)"
-        local = UserDefaults(suiteName: suiteName)
+        // In memory: a UserDefaults suite leaves a plist in ~/Library/Preferences per run.
+        local = FakeCloudStore()
         cloud = FakeCloudStore()
         center = NotificationCenter()
-    }
-
-    override func tearDown() async throws {
-        local.removePersistentDomain(forName: suiteName)
     }
 
     private func makePreference() -> SyncedTintPreference {
@@ -57,7 +52,7 @@ final class SyncedTintPreferenceTests: XCTestCase {
     }
 
     func testStartAdoptsTheValueAlreadyInICloud() {
-        local.set("full", forKey: "StowTintMode")
+        local.setString("full", forKey: "StowTintMode")
         cloud.values["StowTintMode"] = "off"
         let preference = makePreference()
         preference.start()
@@ -66,14 +61,14 @@ final class SyncedTintPreferenceTests: XCTestCase {
     }
 
     func testStartPushesTheLocalChoiceWhenICloudHasNone() {
-        local.set("subtle", forKey: "StowTintMode")
+        local.setString("subtle", forKey: "StowTintMode")
         let preference = makePreference()
         preference.start()
         XCTAssertEqual(cloud.values["StowTintMode"], "subtle")
     }
 
     func testStartIgnoresAnUnknownICloudValue() {
-        local.set("subtle", forKey: "StowTintMode")
+        local.setString("subtle", forKey: "StowTintMode")
         cloud.values["StowTintMode"] = "neon"
         let preference = makePreference()
         preference.start()
@@ -92,7 +87,7 @@ final class SyncedTintPreferenceTests: XCTestCase {
     }
 
     func testExternalChangeToOtherKeysIsIgnored() {
-        local.set("subtle", forKey: "StowTintMode")
+        local.setString("subtle", forKey: "StowTintMode")
         let preference = makePreference()
         cloud.values["StowTintMode"] = "off"
         preference.handleExternalChange(changedKeys: ["somethingElse"])
