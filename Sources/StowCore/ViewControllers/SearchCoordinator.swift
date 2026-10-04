@@ -41,7 +41,7 @@ final class SearchCoordinator {
         let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmedQuery.isEmpty {
-            return nodes
+            return includeArchived ? nodes : nodes.unarchived()
         }
 
         return NodeFiltering.filter(nodes: nodes, query: trimmedQuery, includeArchived: includeArchived)

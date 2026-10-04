@@ -4,6 +4,7 @@ import StowShared
 struct NodeRowView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.stowColors) private var colors
+    @Environment(\.undoManager) private var undoManager
     let node: Node
     let parentId: UUID?
     var isArchived: Bool = false
@@ -61,11 +62,14 @@ struct NodeRowView: View {
             )
         ) {
             ForEach(folder.children, id: \.id) { child in
-                NodeRowView(node: child, parentId: folder.id)
+                NodeRowView(node: child, parentId: folder.id, isArchived: isArchived)
                     .environmentObject(viewModel)
             }
             .onMove { indices, destination in
-                RowMove.apply(indices, to: destination, shown: folder.children, all: folder.children,
+                // The row shows the folder without its archived items; the model counts them.
+                let all: [Node]
+                if case .folder(let stored)? = viewModel.model.nodeById(folder.id) { all = stored.children } else { all = folder.children }
+                RowMove.apply(indices, to: destination, shown: folder.children, all: all,
                               parentId: folder.id, model: viewModel.model)
             }
         } label: {
@@ -78,6 +82,16 @@ struct NodeRowView: View {
             )
         }
         .contextMenu { contextMenuItems(for: node) }
+        .onAppear { beginPendingRename(folder.id, name: folder.name) }
+        .onChange(of: viewModel.pendingRenameId) { beginPendingRename(folder.id, name: folder.name) }
+    }
+
+    /// Opens a new folder straight into rename, as on the Mac.
+    private func beginPendingRename(_ id: UUID, name: String) {
+        guard viewModel.pendingRenameId == id else { return }
+        viewModel.pendingRenameId = nil
+        editText = name
+        isEditing = true
     }
 
     // MARK: - Link
@@ -268,7 +282,7 @@ struct NodeRowView: View {
         switch node {
         case .folder(let folder):
             Button {
-                viewModel.model.addFolder(name: "New Folder", parentId: folder.id)
+                viewModel.addFolderAndBeginRename(parentId: folder.id)
             } label: {
                 Label("New Folder Inside", systemImage: "folder.badge.plus")
             }
@@ -362,13 +376,13 @@ struct NodeRowView: View {
             }
 
             Button(role: .destructive) {
-                viewModel.model.permanentlyDeleteNode(id: node.id)
+                viewModel.deletePermanently(node.id, undoManager: undoManager)
             } label: {
                 Label("Delete Permanently", systemImage: "trash")
             }
         } else {
             Button(role: .destructive) {
-                viewModel.model.archiveNode(id: node.id)
+                viewModel.archive([node.id], undoManager: undoManager)
             } label: {
                 Label("Archive", systemImage: "archivebox")
             }

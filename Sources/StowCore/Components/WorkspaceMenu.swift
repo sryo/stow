@@ -260,54 +260,15 @@ enum WorkspaceDeletion {
         return count(workspace.items)
     }
 
-    /// A deleted workspace that can still come back.
-    @MainActor
-    final class Pending {
-        let workspace: Workspace
-        let index: Int
-        private weak var model: AppModel?
-        private(set) var isOpen = true
-
-        init(workspace: Workspace, index: Int, model: AppModel) {
-            self.workspace = workspace
-            self.index = index
-            self.model = model
-        }
-
-        var message: String { "Deleted “\(workspace.name.isEmpty ? "Untitled" : workspace.name)”" }
-
-        func undo() {
-            guard isOpen else { return }
-            isOpen = false
-            model?.restoreWorkspace(workspace, at: index)
-            CloudSyncManager.shared.scheduleLocalChanges()
-        }
-
-        /// The undo window closed: its favicons can go.
-        func expire() {
-            guard isOpen else { return }
-            isOpen = false
-            model?.cleanOrphanedFavicons()
-        }
-    }
-
     /// Deletes now and returns what an Undo needs, or nil for the only workspace.
-    static func deleteUndoably(_ workspaceId: UUID, model: AppModel) -> Pending? {
-        guard model.workspaces.count > 1, let index = model.workspaces.firstIndex(id: workspaceId) else { return nil }
-        let pending = Pending(workspace: model.workspaces[index], index: index, model: model)
-        model.deleteWorkspace(id: workspaceId, keepFavicons: true)
-        return pending
+    static func deleteUndoably(_ workspaceId: UUID, model: AppModel) -> PendingChange? {
+        PendingChange.deleteWorkspace(workspaceId, model: model)
     }
 
     /// Deletes and shows the undo toast at the bottom of `window`.
     static func delete(_ workspaceId: UUID, model: AppModel, in window: NSWindow?, onDeleted: (() -> Void)? = nil) {
         guard let pending = deleteUndoably(workspaceId, model: model) else { return }
         onDeleted?()
-        window?.undoManager?.registerUndo(withTarget: pending) { pending in
-            pending.undo()
-            UndoToast.dismiss(expired: false)
-        }
-        window?.undoManager?.setActionName("Delete Workspace")
-        UndoToast.show(pending.message, in: window, onUndo: { pending.undo() }, onExpire: { pending.expire() })
+        pending.offer(in: window)
     }
 }
