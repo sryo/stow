@@ -181,8 +181,13 @@ final class EmptyStateView: NSView {
 
     // MARK: - Drop target
 
-    private func droppedText(from info: NSDraggingInfo) -> String? {
-        let pb = info.draggingPasteboard
+    /// The text a drag from a browser or editor carries: its web URLs one per line, or
+    /// else its plain text. The list and the rail read drops the same way.
+    static func droppedText(from info: NSDraggingInfo) -> String? {
+        droppedText(from: info.draggingPasteboard)
+    }
+
+    static func droppedText(from pb: NSPasteboard) -> String? {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: false]) as? [URL],
            !urls.isEmpty {
             return urls.filter { !$0.isFileURL }.map(\.absoluteString).joined(separator: "\n")
@@ -197,7 +202,7 @@ final class EmptyStateView: NSView {
         notch.setOpen(dragging)
         actionButton.alphaValue = dragging ? 0 : 1
         if dragging {
-            let host = info.flatMap(droppedText(from:)).flatMap { URL(string: $0.components(separatedBy: "\n")[0])?.host }
+            let host = info.flatMap(Self.droppedText(from:)).flatMap { URL(string: $0.components(separatedBy: "\n")[0])?.host }
             titleLabel.stringValue = host.map { "Drop to add \($0)" } ?? "Drop to add to \(workspaceName)"
             messageLabel.stringValue = "It goes to the top of the list."
         } else if let copy {
@@ -207,7 +212,7 @@ final class EmptyStateView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard onDropText != nil, droppedText(from: sender)?.isEmpty == false else { return [] }
+        guard onDropText != nil, Self.droppedText(from: sender)?.isEmpty == false else { return [] }
         setDragging(true, info: sender)
         return .copy
     }
@@ -221,7 +226,7 @@ final class EmptyStateView: NSView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let text = droppedText(from: sender), !text.isEmpty else { return false }
+        guard let text = Self.droppedText(from: sender), !text.isEmpty else { return false }
         onDropText?(text)
         return true
     }

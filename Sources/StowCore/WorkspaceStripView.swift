@@ -45,6 +45,14 @@ final class WorkspaceStripView: NSView {
     private var renameField: NSTextField?
     private var renamingId: UUID?
     private var drag: (id: UUID, startX: CGFloat, originX: CGFloat, moved: Bool)?
+    /// The tab an item dragged from the list would move to, lit like a rail dot.
+    private var dropTargetId: UUID? {
+        didSet {
+            guard dropTargetId != oldValue else { return }
+            if let oldValue { tabViews[oldValue]?.isDropTarget = false }
+            if let dropTargetId { tabViews[dropTargetId]?.isDropTarget = true }
+        }
+    }
 
     var isInlineRenaming: Bool { renamingId != nil }
 
@@ -66,6 +74,7 @@ final class WorkspaceStripView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel("Workspaces")
+        registerForDraggedTypes([nodePasteboardType])
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -227,6 +236,44 @@ final class WorkspaceStripView: NSView {
         }
     }
 
+    // MARK: - Dropping an item on a tab
+
+    /// A shown tab's frame, in the strip's coordinates.
+    func tabFrame(for id: UUID) -> NSRect? {
+        guard let view = tabViews[id], !view.isHidden else { return nil }
+        return view.frame
+    }
+
+    /// The workspace whose tab is under `point`; never the current one, which already
+    /// holds the item.
+    func dropTarget(at point: NSPoint) -> UUID? {
+        let tabs = workspaces.compactMap { ws in tabFrame(for: ws.id).map { (ws.id, $0) } }
+        return RailDrag.workspaceTarget(at: point, targets: tabs, current: isSettingsSelected ? nil : selectedWorkspaceId)
+    }
+
+    private func updateDrop(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard onDropNode != nil, sender.draggingPasteboard.string(forType: nodePasteboardType) != nil else {
+            dropTargetId = nil
+            return []
+        }
+        dropTargetId = dropTarget(at: convert(sender.draggingLocation, from: nil))
+        return dropTargetId == nil ? [] : .move
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { updateDrop(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { updateDrop(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { dropTargetId = nil }
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) { dropTargetId = nil }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { dropTargetId = nil }
+        guard let idString = sender.draggingPasteboard.string(forType: nodePasteboardType),
+              let nodeId = UUID(uuidString: idString),
+              let workspaceId = dropTarget(at: convert(sender.draggingLocation, from: nil)) else { return false }
+        onDropNode?(nodeId, workspaceId)
+        return true
+    }
+
     // MARK: - Rename
 
     private func renameEditingWidth() -> CGFloat {
@@ -301,6 +348,8 @@ private final class StripTabView: NSView {
     private let hintLabel = NSTextField(labelWithString: "")
     private let dot = CALayer()
     private var isHovered = false
+    /// An item dragged over this tab would move here: it lights and its border inks in.
+    var isDropTarget = false { didSet { paint() } }
     private var tracking: NSTrackingArea?
     private var last: (own: StowTheme.Colors, page: StowTheme.Colors, selection: CGFloat)?
     var onMouseDown: ((NSEvent) -> Void)?
@@ -352,10 +401,11 @@ private final class StripTabView: NSView {
 
     private func paint() {
         guard let (own, page, s) = last else { return }
-        let rest = isHovered && s < 0.5 ? own.hover : own.surface
+        let rest = (isHovered || isDropTarget) && s < 0.5 ? own.hover : own.surface
         let fill = blend(resolved(rest), resolved(page.inkPrimary), s)
         layer?.backgroundColor = fill.cgColor
-        layer?.borderColor = blend(resolved(page.guide), resolved(page.inkPrimary), s).cgColor
+        layer?.borderColor = blend(resolved(page.guide), resolved(page.inkPrimary), isDropTarget ? 1 : s).cgColor
+        layer?.borderWidth = isDropTarget ? 2 : 1
         let ink = blend(resolved(own.inkPrimary), resolved(page.surface), s)
         nameLabel.textColor = ink
         monoLabel.textColor = resolved(own.inkPrimary)

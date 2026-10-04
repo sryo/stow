@@ -62,7 +62,20 @@ final class NodeListViewController: NSViewController {
 
     // Inline rename support
     private weak var inlineRenameItem: NodeCollectionViewItem?
-    var inlineRenameNodeId: UUID?
+    /// The rename flyout, where an item can't edit its own title (a mosaic tile or group).
+    private weak var renameFlyout: TextFieldFlyout?
+    private var isFlyoutRename = false
+    private var renameNodeId: UUID?
+    /// The item being renamed, in its row or in the rename flyout. A flyout another one
+    /// replaced no longer counts, so it can't hold up reloads and keys.
+    var inlineRenameNodeId: UUID? {
+        get { isFlyoutRename && !isRenameFlyoutOpen ? nil : renameNodeId }
+        set { renameNodeId = newValue }
+    }
+    private var isRenameFlyoutOpen: Bool {
+        guard let renameFlyout else { return false }
+        return flyouts.isOpen(.text) && renameFlyout.window != nil
+    }
     private var pendingInlineRenameId: UUID?
     private var suppressNextSelection = false
 
@@ -190,12 +203,12 @@ final class NodeListViewController: NSViewController {
         return ordinal < indices.count ? indices[ordinal] : nil
     }
 
-    /// While true, rows show a–z jump letters and plain letter keys activate rows.
+    /// While true, rows and tiles show a–z jump letters and plain letter keys activate them.
     var isJumpModeActive = false {
         didSet {
             guard isJumpModeActive != oldValue else { return }
             for item in collectionView.visibleItems() {
-                guard let nodeItem = item as? NodeCollectionViewItem,
+                guard let nodeItem = item as? NodeItemConfigurable,
                       let indexPath = collectionView.indexPath(for: item),
                       let row = row(at: indexPath) else { continue }
                 var isArchived = false
@@ -262,7 +275,8 @@ final class NodeListViewController: NSViewController {
         collectionView.register(NodeCollectionViewItem.self, forItemWithIdentifier: NodeCollectionViewItem.identifier)
         collectionView.register(NodeTileItem.self, forItemWithIdentifier: NodeTileItem.identifier)
         collectionView.register(ArchiveHeaderItem.self, forItemWithIdentifier: ArchiveHeaderItem.identifier)
-        collectionView.registerForDraggedTypes([nodePasteboardType])
+        // Items reorder; links and text dragged in from a browser or editor are added.
+        collectionView.registerForDraggedTypes([nodePasteboardType, .URL, .string])
         collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
 
         collectionView.onDragExit = { [weak self] in
@@ -431,10 +445,9 @@ final class NodeListViewController: NSViewController {
         if !animated {
             visibleRows = newRows
             collectionView.reloadData()
-            return
+        } else {
+            applyVisibleRows(newRows)
         }
-
-        applyVisibleRows(newRows)
         handlePendingInlineRename()
     }
 
@@ -573,6 +586,7 @@ final class NodeListViewController: NSViewController {
         if let item = inlineRenameItem {
             item.cancelInlineRename()
         } else {
+            if isRenameFlyoutOpen { flyouts.close(.text) }
             clearInlineRenameState()
         }
     }
@@ -791,29 +805,33 @@ final class NodeListViewController: NSViewController {
         }
     }
 
+    /// Starts the rename `scheduleInlineRename` asked for. A reload that can't show the
+    /// item drops it, so a later reload never opens a rename out of nowhere.
     private func handlePendingInlineRename() {
         guard let nodeId = pendingInlineRenameId else { return }
+        pendingInlineRenameId = nil
         guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }) else { return }
         let indexPath = IndexPath(item: index, section: 0)
-        pendingInlineRenameId = nil
 
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, index < self.visibleRows.count, self.visibleRows[index].id == nodeId else { return }
             self.collectionView.scrollToItems(at: [indexPath], scrollPosition: .centeredVertically)
-            if self.collectionView.item(at: indexPath) is NodeCollectionViewItem {
-                self.beginInlineRename(nodeId: nodeId, indexPath: indexPath)
-            } else {
-                self.pendingInlineRenameId = nodeId
-            }
+            self.collectionView.layoutSubtreeIfNeeded()
+            self.beginInlineRename(nodeId: nodeId, indexPath: indexPath)
         }
     }
 
-    private func beginInlineRename(nodeId: UUID, indexPath: IndexPath) {
+    /// Renames in place on a list row; on a mosaic tile or group header, which can't edit
+    /// their own titles, in the rename flyout beside them. Returns that flyout.
+    @discardableResult
+    private func beginInlineRename(nodeId: UUID, indexPath: IndexPath) -> TextFieldFlyout? {
         cancelInlineRename()
-        guard findNodeById?(nodeId) != nil,
-              let item = collectionView.item(at: indexPath) as? NodeCollectionViewItem else {
+        guard findNodeById?(nodeId) != nil else {
             clearInlineRenameState()
-            return
+            return nil
+        }
+        guard let item = collectionView.item(at: indexPath) as? NodeCollectionViewItem else {
+            return beginFlyoutRename(nodeId: nodeId)
         }
 
         inlineRenameNodeId = nodeId
@@ -823,6 +841,23 @@ final class NodeListViewController: NSViewController {
         }, onCancel: { [weak self] in
             self?.handleInlineRenameCancelled()
         })
+        return nil
+    }
+
+    private func beginFlyoutRename(nodeId: UUID) -> TextFieldFlyout? {
+        let flyout = presentRenameFlyout(for: nodeId, onEnd: { [weak self] in
+            guard let self, self.renameNodeId == nodeId else { return }
+            self.clearInlineRenameState()
+            self.refocusListAfterRename()
+        })
+        guard let flyout else {
+            clearInlineRenameState()
+            return nil
+        }
+        renameFlyout = flyout
+        isFlyoutRename = true
+        inlineRenameNodeId = nodeId
+        return flyout
     }
 
     private func commitInlineRename(_ newName: String) {
@@ -860,6 +895,8 @@ final class NodeListViewController: NSViewController {
 
     private func clearInlineRenameState() {
         inlineRenameItem = nil
+        renameFlyout = nil
+        isFlyoutRename = false
         inlineRenameNodeId = nil
     }
 
@@ -931,9 +968,7 @@ final class NodeListViewController: NSViewController {
         let showRing = listHasFocus
         for item in collectionView.visibleItems() {
             guard let indexPath = collectionView.indexPath(for: item), let row = row(at: indexPath) else { continue }
-            let focused = showRing && row.id == keyboardCursorId
-            (item as? NodeCollectionViewItem)?.setKeyboardFocused(focused)
-            (item as? NodeTileItem)?.setKeyboardFocused(focused)
+            (item as? NodeItemConfigurable)?.setKeyboardFocused(showRing && row.id == keyboardCursorId)
         }
     }
 
@@ -1276,9 +1311,15 @@ extension NodeListViewController {
         let content = NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived,
                                      isOpen: isOpen, codePreview: codePreview)
 
+        // After the content: the cursor ring, and jump letters (a–z for the first 26
+        // items), which appear only in jump mode.
+        func applyFocusAndHint(_ configurable: NodeItemConfigurable) {
+            configurable.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
+            configurable.setHintCharacter(isJumpModeActive && !isArchived ? jumpLetter(at: indexPath.item) : nil)
+        }
         if let tileItem = item as? NodeTileItem {
             tileItem.configure(content: content, metrics: listMetrics, isSelected: isSelected)
-            tileItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
+            applyFocusAndHint(tileItem)
             return tileItem
         }
         guard let nodeItem = item as? NodeCollectionViewItem else { return item }
@@ -1311,15 +1352,7 @@ extension NodeListViewController {
         } else {
             nodeItem.onDisclosure = nil
         }
-
-        nodeItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
-
-        // Jump letters (a–z for the first 26 rows) appear only in jump mode.
-        if isJumpModeActive && !isArchived, let letter = jumpLetter(at: indexPath.item) {
-            nodeItem.setHintCharacter(letter)
-        } else {
-            nodeItem.setHintCharacter(nil)
-        }
+        applyFocusAndHint(nodeItem)
 
         // Configure swipe actions per node type and archive state
         nodeItem.swipeEnabled = !isSearchActive
@@ -1491,6 +1524,16 @@ extension NodeListViewController: NSCollectionViewDelegate {
                         dragOperation operation: NSDragOperation) {
         isDraggingItems = false
         hideDropIndicator()
+        restoreDraggedItems()
+    }
+
+    /// Shows every on-screen item again. The collection view hides the dragged one, and
+    /// after a drop elsewhere (a workspace tab) or a missed one it could stay blank.
+    func restoreDraggedItems() {
+        for item in collectionView.visibleItems() {
+            item.view.isHidden = false
+            item.view.alphaValue = 1
+        }
     }
 
     func collectionView(_ collectionView: NSCollectionView,
@@ -1503,6 +1546,11 @@ extension NodeListViewController: NSCollectionViewDelegate {
         }
 
         let indexPath = proposedDropIndexPath.pointee as IndexPath
+        let isItemDrag = draggingInfo.draggingPasteboard.availableType(from: [nodePasteboardType]) != nil
+        if !isItemDrag, onDropText == nil || EmptyStateView.droppedText(from: draggingInfo)?.isEmpty != false {
+            hideDropIndicator()
+            return []
+        }
         guard dropStaysInSection(indexPath, draggingInfo: draggingInfo) else {
             hideDropIndicator()
             return []
@@ -1521,7 +1569,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
 
         showDropIndicator(at: indexPath, operation: proposedDropOperation.pointee)
 
-        return .move
+        return isItemDrag ? .move : .copy
     }
 
     private func draggedRow(_ draggingInfo: NSDraggingInfo) -> NodeListRow? {
@@ -1560,42 +1608,28 @@ extension NodeListViewController: NSCollectionViewDelegate {
                         dropOperation: NSCollectionView.DropOperation) -> Bool {
         hideDropIndicator()
         guard let idString = draggingInfo.draggingPasteboard.string(forType: nodePasteboardType),
-              let nodeId = UUID(uuidString: idString),
-              let nodes = nodeProvider?() else { return false }
-
-        var targetParentId: UUID?
-        var targetIndex: Int
-
-        if indexPath.item < visibleRows.count, let row = row(at: indexPath), let dropNode = row.node {
-            switch dropNode {
-            case .folder(let folder):
-                if dropOperation == .on, draggedRow(draggingInfo)?.section ?? .links == .links {
-                    targetParentId = folder.id
-                    targetIndex = folder.children.count
-                } else if let location = findNodeLocation?(folder.id) {
-                    targetParentId = location.parentId
-                    targetIndex = location.index
-                } else {
-                    targetParentId = nil
-                    targetIndex = nodes.count
-                }
-            case .link, .task, .snippet:
-                if let location = findNodeLocation?(dropNode.id) {
-                    targetParentId = location.parentId
-                    targetIndex = location.index
-                } else {
-                    targetParentId = nil
-                    targetIndex = nodes.count
-                }
-            }
-        } else {
-            targetParentId = nil
-            targetIndex = nodes.count
+              let nodeId = UUID(uuidString: idString) else {
+            guard let text = EmptyStateView.droppedText(from: draggingInfo), !text.isEmpty, let onDropText else { return false }
+            let target = dropDestination(at: indexPath, operation: dropOperation)
+            onDropText(text, target.parentId, target.index)
+            return true
         }
-
-        if targetIndex < 0 { targetIndex = nodes.count }
-        onNodeMoved?(nodeId, targetParentId, targetIndex)
+        let intoFolder = draggedRow(draggingInfo)?.section ?? .links == .links
+        let target = dropDestination(at: indexPath, operation: intoFolder ? dropOperation : .before)
+        onNodeMoved?(nodeId, target.parentId, target.index)
         return true
+    }
+
+    /// Where a drop at `indexPath` lands: inside a folder dropped `.on`, else before the
+    /// row's item in its parent, or at the end of the top level past the last row.
+    func dropDestination(at indexPath: IndexPath, operation: NSCollectionView.DropOperation) -> (parentId: UUID?, index: Int) {
+        let end = nodeProvider?().count ?? 0
+        guard indexPath.item < visibleRows.count, let dropNode = row(at: indexPath)?.node else { return (nil, end) }
+        if operation == .on, case .folder(let folder) = dropNode {
+            return (folder.id, folder.children.count)
+        }
+        guard let location = findNodeLocation?(dropNode.id), location.index >= 0 else { return (nil, end) }
+        return (location.parentId, location.index)
     }
 }
 
@@ -1650,26 +1684,25 @@ extension NodeListViewController: NewItemMenuTarget {
     // MARK: Rename and Edit URL
 
     /// Renames in place on a list row; anywhere a row can't edit its own title (a mosaic
-    /// tile), in the rename flyout beside it.
-    func beginRename(for nodeId: UUID) {
-        guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }) else { return }
-        let indexPath = IndexPath(item: index, section: 0)
-        if collectionView.item(at: indexPath) is NodeCollectionViewItem {
-            beginInlineRename(nodeId: nodeId, indexPath: indexPath)
-        } else {
-            presentRenameFlyout(for: nodeId)
-        }
+    /// tile or group header), in the rename flyout beside it, which it returns.
+    @discardableResult
+    func beginRename(for nodeId: UUID) -> TextFieldFlyout? {
+        guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }) else { return nil }
+        return beginInlineRename(nodeId: nodeId, indexPath: IndexPath(item: index, section: 0))
     }
 
     /// The rename flyout beside the item's row or tile, or beside `anchor` (a rail cell).
+    /// `onEnd` runs after it saves or cancels.
     @discardableResult
-    func presentRenameFlyout(for nodeId: UUID, from anchor: NSView? = nil) -> TextFieldFlyout? {
+    func presentRenameFlyout(for nodeId: UUID, from anchor: NSView? = nil,
+                             onEnd: (() -> Void)? = nil) -> TextFieldFlyout? {
         guard let node = findNodeById?(nodeId), let anchor = anchor ?? rowAnchorView(for: nodeId) else { return nil }
         return TextFieldFlyout.present(in: flyouts, title: "Rename", value: node.displayName, placeholder: "Name",
                                        from: anchor, onSave: { [weak self] name in
+                                           onEnd?()
                                            guard name != node.displayName else { return }
                                            self?.onNodeRenamed?(nodeId, name)
-                                       })
+                                       }, onCancel: onEnd)
     }
 
     /// Edit URL… in a flyout beside the link's row (or `anchor`), instead of an app-modal alert.

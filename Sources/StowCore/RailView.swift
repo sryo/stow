@@ -26,7 +26,7 @@ final class RailView: NSView {
     var onMoveToWorkspace: ((UUID, UUID) -> Void)?
     /// A workspace dot right-clicked: its id and the dot. Falls back to `onWorkspaceMenu`.
     var onWorkspaceContextMenu: ((UUID, NSView) -> Void)?
-    /// Text dropped on the rail and the `AppModel` index it lands at. Not registered yet.
+    /// Text dropped on the rail (a URL from a browser) and the `AppModel` index it lands at.
     var onDropText: ((String, Int) -> Void)?
     /// A snippet to edit, anchored to the rail view that asked.
     var onEditSnippet: ((UUID, NSView) -> Void)?
@@ -52,6 +52,7 @@ final class RailView: NSView {
     private var colors = StowTheme.colors(for: .defaultColor())
     private var openKeys: Set<String> = []
     private var currentWorkspaceId: UUID?
+    private var workspaceName = ""
     private var itemIds: [UUID] = []
     private var items: [Node] = []
     private var pocket = Pocket.Contents()
@@ -94,6 +95,8 @@ final class RailView: NSView {
         fab.setAccessibilityLabel("Stow this tab")
         addSubview(fab)
 
+        registerForDraggedTypes([.URL, .string])
+
         scrollTop = scrollView.topAnchor.constraint(equalTo: topAnchor, constant: SettingsRailLayout.dotsSeparatorY(count: 0) + 4)
         NSLayoutConstraint.activate([
             scrollTop,
@@ -113,6 +116,7 @@ final class RailView: NSView {
         colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
         let pageChanged = currentWorkspaceId != selectedId
         currentWorkspaceId = selectedId
+        workspaceName = workspaces.first { $0.id == selectedId }?.name ?? ""
         itemIds = items.map(\.id)
         cancelDrag()
         tips.hide()
@@ -234,6 +238,10 @@ final class RailView: NSView {
             sectionStart = sectionStart ?? cells.count
             cells.append(RailCell(kind: .snippets(snippets)))
         }
+        // An empty workspace shows a dashed "+" cell rather than a blank column. It takes drops.
+        if cells.isEmpty, let copy = EmptyStateCopy.make(.emptyWorkspace, workspaceName: workspaceName, isTouch: false) {
+            cells.append(RailCell(kind: .empty(RailTipController.Tip(title: copy.title, detail: copy.message))))
+        }
 
         var y: CGFloat = 6
         for (i, cell) in cells.enumerated() {
@@ -343,11 +351,23 @@ final class RailView: NSView {
         addSubview(ghost)
         dragGhost = ghost
         cell.alphaValue = 0.3
+        prepareDropBar()
+    }
+
+    /// The 2pt line between cells where a drop lands, hidden until a slot is shown.
+    private func prepareDropBar() {
         dropBar.wantsLayer = true
         dropBar.layer?.cornerRadius = 1
         dropBar.layer?.backgroundColor = resolvedCGColor(colors.inkPrimary)
         dropBar.isHidden = true
-        column.addSubview(dropBar)
+        if dropBar.superview !== column { column.addSubview(dropBar) }
+    }
+
+    private func showDropBar(atSlot slot: Int, frames: [NSRect]) {
+        guard !frames.isEmpty else { dropBar.isHidden = true; return }
+        let y = slot < frames.count ? frames[slot].minY - 2 : frames[frames.count - 1].maxY + 1
+        dropBar.frame = NSRect(x: 9, y: y, width: column.bounds.width - 18, height: 2)
+        dropBar.isHidden = false
     }
 
     private func moveDrag(_ cell: RailCell, to point: NSPoint) {
@@ -369,9 +389,7 @@ final class RailView: NSView {
             dropBar.isHidden = true
             return
         }
-        let y = slot < frames.count ? frames[slot].minY - 2 : frames[frames.count - 1].maxY + 1
-        dropBar.frame = NSRect(x: 9, y: y, width: column.bounds.width - 18, height: 2)
-        dropBar.isHidden = false
+        showDropBar(atSlot: slot, frames: frames)
     }
 
     private func endDrag(_ cell: RailCell, at point: NSPoint) {
@@ -402,6 +420,50 @@ final class RailView: NSView {
         cells.forEach { $0.alphaValue = 1 }
     }
 
+    // MARK: - Text dropped from a browser
+
+    /// The empty workspace's "+" cell, which takes the whole drop.
+    private var emptyCell: RailCell? {
+        cells.first { if case .empty = $0.kind { return true } else { return false } }
+    }
+
+    private func textDropSlot(at point: NSPoint) -> Int {
+        RailDrag.targetSlot(dragY: column.convert(point, from: self).y, cellFrames: reorderableCells.map(\.frame))
+    }
+
+    private func updateTextDrop(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard onDropText != nil, EmptyStateView.droppedText(from: sender)?.isEmpty == false else {
+            endTextDrop()
+            return []
+        }
+        tips.hide()
+        if let empty = emptyCell {
+            empty.isDropTarget = true
+        } else {
+            prepareDropBar()
+            showDropBar(atSlot: textDropSlot(at: convert(sender.draggingLocation, from: nil)), frames: reorderableCells.map(\.frame))
+        }
+        return .copy
+    }
+
+    private func endTextDrop() {
+        dropBar.removeFromSuperview()
+        emptyCell?.isDropTarget = false
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { updateTextDrop(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { updateTextDrop(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { endTextDrop() }
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) { endTextDrop() }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { endTextDrop() }
+        guard let onDropText, let text = EmptyStateView.droppedText(from: sender), !text.isEmpty else { return false }
+        let slot = textDropSlot(at: convert(sender.draggingLocation, from: nil))
+        onDropText(text, RailDrag.textDropIndex(forSlot: slot, railIds: reorderableCells.compactMap { $0.node?.id }, itemIds: itemIds))
+        return true
+    }
+
     private func dotDrop(at point: NSPoint) -> UUID? {
         guard let current = currentWorkspaceId else { return nil }
         let dots = dotButtons.compactMap { b in b.workspaceId.map { ($0, convert(b.dotRect, from: b)) } }
@@ -419,6 +481,9 @@ final class RailView: NSView {
             showList(.tasks, from: cell)
         case .snippets:
             showList(.snippets, from: cell)
+        case .empty:
+            flyout.closeAll()
+            onStowTab?()
         }
     }
 
@@ -623,6 +688,8 @@ final class RailCell: BaseView {
         case folder(Folder)
         case tasks([TaskItem])
         case snippets([Snippet])
+        /// An empty workspace: the dashed "+" tile, with the empty state's words as its tip.
+        case empty(RailTipController.Tip)
     }
 
     enum DragPhase { case began, moved, ended }
@@ -664,7 +731,10 @@ final class RailCell: BaseView {
     private var folderPlate: CALayer?
     private let openDot = NSView()
     private let badge = RailBadge()
+    private var addTile: RailGlyphButton?
     private var colors = StowTheme.colors(for: .defaultColor())
+    /// Something dragged in would land here (the empty cell), so it lights like a hover.
+    var isDropTarget = false { didSet { updateBackground() } }
 
     var node: Node? {
         switch kind {
@@ -744,14 +814,32 @@ final class RailCell: BaseView {
             iconLayer.isHidden = true
             setGlyph("chevron.left.forwardslash.chevron.right")
             setBadge(snippets.count)
+        case .empty(let emptyTip):
+            tip = emptyTip
+            baseAccessibilityLabel = emptyTip.title
+            iconLayer.isHidden = true
+            // The Settings rail's dashed "+" tile, drawn in the 38pt cell.
+            let tile = RailGlyphButton(glyph: .addTile)
+            tile.frame = NSRect(x: 7, y: 0, width: 38, height: 38)
+            tile.target = self
+            tile.action = #selector(addTileTapped)
+            tile.setAccessibilityElement(false)
+            addSubview(tile)
+            addTile = tile
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityHelp(node == nil ? "Opens a list" : "Drag to reorder or onto a workspace dot")
+        switch kind {
+        case .link, .folder: setAccessibilityHelp("Drag to reorder or onto a workspace dot")
+        case .tasks, .snippets: setAccessibilityHelp("Opens a list")
+        case .empty: setAccessibilityHelp("Stows the front browser tab. You can also drop a link here.")
+        }
         updateAccessibilityLabel()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func addTileTapped() { onActivate?() }
 
     private func updateAccessibilityLabel() {
         setAccessibilityLabel(baseAccessibilityLabel + (isOpen ? ", open in browser" : ""))
@@ -810,11 +898,14 @@ final class RailCell: BaseView {
         badge.ink = colors.surface
         glyphView.contentTintColor = colors.inkPrimary
         folderPlate?.backgroundColor = resolvedCGColor(colors.inkPrimary.withAlphaComponent(0.1))
+        addTile?.colors = colors
         updateBackground()
     }
 
     private func updateBackground() {
-        backgroundLayer.backgroundColor = isHovered ? resolvedCGColor(colors.hover) : NSColor.clear.cgColor
+        // The dashed tile draws its own hover.
+        let lit = isDropTarget || (isHovered && addTile == nil)
+        backgroundLayer.backgroundColor = lit ? resolvedCGColor(colors.hover) : NSColor.clear.cgColor
     }
 
     // The rail hovers while the app is active, not only in the key window.

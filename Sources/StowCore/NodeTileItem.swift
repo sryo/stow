@@ -4,7 +4,7 @@ import AppKit
 /// links are 80pt cards (icon, name, domain), tasks are 38pt strips with the due date at
 /// the end, and snippets are 80pt cards with the first two lines of code. Selection,
 /// drag and menus come from the collection view, as for rows.
-final class NodeTileItem: NSCollectionViewItem {
+final class NodeTileItem: NSCollectionViewItem, NodeItemConfigurable {
     static let identifier = NSUserInterfaceItemIdentifier("NodeTileItem")
     private let tile = NodeTileView()
 
@@ -16,7 +16,21 @@ final class NodeTileItem: NSCollectionViewItem {
     }
 
     func setKeyboardFocused(_ focused: Bool) { tile.isKeyboardFocused = focused }
+
+    /// The jump letter shown in the tile's top-right corner while jump mode is on.
+    var hintCharacter: String? { tile.hint }
+
+    func setHintCharacter(_ hint: String?) { tile.hint = hint }
 }
+
+/// What the list sets on a row or a tile alike, whichever the density draws.
+@MainActor
+protocol NodeItemConfigurable: AnyObject {
+    func setKeyboardFocused(_ focused: Bool)
+    func setHintCharacter(_ hint: String?)
+}
+
+extension NodeCollectionViewItem: NodeItemConfigurable {}
 
 private final class NodeTileView: BaseView {
     private enum Style { case link, task, snippet }
@@ -26,6 +40,7 @@ private final class NodeTileView: BaseView {
     private let metaLabel = NSTextField(labelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
     private let badge = TileBadge()
+    private let hintBadge = TileBadge(font: StowTheme.Font.keycap)
     private let openDot = NSView()
     private var metrics = ListMetrics()
     private var isSelected = false
@@ -33,6 +48,14 @@ private final class NodeTileView: BaseView {
     private var isOverdue = false
     private var isDone = false
     var isKeyboardFocused = false { didSet { paint() } }
+    var hint: String? {
+        didSet {
+            guard hint != oldValue else { return }
+            hintBadge.text = hint ?? ""
+            hintBadge.isHidden = hint == nil
+            needsLayout = true
+        }
+    }
 
     override var isFlipped: Bool { true }
 
@@ -52,7 +75,8 @@ private final class NodeTileView: BaseView {
         codeLabel.cell?.truncatesLastVisibleLine = false
         openDot.wantsLayer = true
         openDot.layer?.cornerRadius = 2
-        for v in [iconView, titleLabel, metaLabel, codeLabel, badge, openDot] as [NSView] {
+        hintBadge.isHidden = true
+        for v in [iconView, titleLabel, metaLabel, codeLabel, badge, hintBadge, openDot] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = true
             addSubview(v)
         }
@@ -160,6 +184,15 @@ private final class NodeTileView: BaseView {
             line(titleLabel, x: 34, y: 10, width: w - 34 - 11 - (badgeWidth > 0 ? badgeWidth + 8 : 0))
             line(codeLabel, x: 11, y: 36, width: w - 22, height: 32)
         }
+        // The jump letter's keycap takes the top-right corner, in front of what sits there.
+        if !hintBadge.isHidden {
+            let side: CGFloat = 16
+            let width = max(side, ceil(hintBadge.fittingSize.width))
+            let y = style == .task ? (bounds.height - side) / 2 : 8
+            hintBadge.frame = NSRect(x: w - 8 - width, y: y, width: width, height: side)
+        }
+        metaLabel.alphaValue = style == .task && !hintBadge.isHidden ? 0 : 1
+        badge.alphaValue = hintBadge.isHidden ? 1 : 0
     }
 
     override func handleHoverStateChanged() { paint() }
@@ -186,12 +219,13 @@ private final class NodeTileView: BaseView {
         metaLabel.textColor = isOverdue ? c.overdue : c.inkSecondary
         codeLabel.textColor = c.inkSecondary
         badge.color = c.inkSecondary
+        hintBadge.color = c.inkPrimary
         openDot.layer?.backgroundColor = resolvedCGColor(c.inkPrimary.withAlphaComponent(0.9))
     }
 }
 
-/// Outlined monospaced language tag, as on snippet rows.
-private final class TileBadge: NSView {
+/// Outlined monospaced tag: a snippet's language, or a jump letter's keycap.
+final class TileBadge: NSView {
     private let label = NSTextField(labelWithString: "")
     var text: String {
         get { label.stringValue }
@@ -201,12 +235,13 @@ private final class TileBadge: NSView {
         didSet { label.textColor = color; needsDisplay = true }
     }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    init(font: NSFont = StowTheme.Font.badge) {
+        super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 4
         layer?.borderWidth = 1
-        label.font = StowTheme.Font.badge
+        label.font = font
+        label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
