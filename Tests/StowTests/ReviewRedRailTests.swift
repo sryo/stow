@@ -57,6 +57,21 @@ final class ReviewRedRailTests: XCTestCase {
                       "patterns-13: rail dot tooltip is \(tip ?? "nil"), but the shortcut is \(expected)")
     }
 
+    func testNewDotsSitInTheirOwnPlacesBeforeHoverIsReread() {
+        // configure() re-reads the hover right after rebuilding the dots. An unclipped
+        // button's visible rect is the whole rail, so a pointer resting on the gear
+        // "hovered" every dot and the last one's tip stuck beside the rail.
+        let names = ["Alpha", "Beta", "Gamma"]
+        let view = rail(items: [], dots: names.map(dot))
+        let dots = view.subviews.compactMap { $0 as? NSButton }.filter { names.contains($0.accessibilityLabel() ?? "") }
+        XCTAssertEqual(dots.count, names.count)
+        for (i, b) in dots.enumerated() {
+            XCTAssertEqual(b.frame.midY, SettingsRailLayout.dotCenterY(at: i), accuracy: 0.5, "dot \(i) isn't in its place yet")
+            XCTAssertEqual(b.frame.width, 20, accuracy: 0.5)
+            XCTAssertTrue(b.bounds.contains(b.visibleRect), "dot \(i)'s hover area spills past it: \(b.visibleRect)")
+        }
+    }
+
     // MARK: patterns-9 / modes-14
 
     func testALetterTileHasTheSameColorInTheRailAndTheTabline() {

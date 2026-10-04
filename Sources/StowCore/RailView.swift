@@ -147,6 +147,8 @@ final class RailView: NSView {
             return b
         }
         scrollTop.constant = SettingsRailLayout.dotsSeparatorY(count: workspaces.count) + 4
+        // Place the new dots now: refreshHover() below reads the pointer against them.
+        layoutDots()
         needsLayout = true
 
         rebuildCells(items: items)
@@ -291,13 +293,18 @@ final class RailView: NSView {
         super.layout()
         let midX = round(bounds.midX)
         gear.frame = SettingsRailLayout.gearFrame.insetBy(dx: -4, dy: -4).offsetBy(dx: midX - 26, dy: 0)
+        layoutDots()
+        separator.frame = NSRect(x: midX - 10, y: SettingsRailLayout.dotsSeparatorY(count: dotButtons.count), width: 20, height: 1)
+        column.frame.size.width = scrollView.contentSize.width
+        for cell in cells { cell.frame.origin.x = (column.bounds.width - cell.frame.width) / 2 }
+    }
+
+    private func layoutDots() {
+        let midX = round(bounds.midX)
         for (i, b) in dotButtons.enumerated() {
             let y = SettingsRailLayout.dotCenterY(at: i)
             b.frame = NSRect(x: midX - 10, y: y - 10, width: 20, height: 20)
         }
-        separator.frame = NSRect(x: midX - 10, y: SettingsRailLayout.dotsSeparatorY(count: dotButtons.count), width: 20, height: 1)
-        column.frame.size.width = scrollView.contentSize.width
-        for cell in cells { cell.frame.origin.x = (column.bounds.width - cell.frame.width) / 2 }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -651,6 +658,9 @@ private final class RailDotButton: NSButton {
         isBordered = false
         title = ""
         setButtonType(.momentaryChange)
+        // Unclipped, its visible rect (and so its hover area and tracking rect) is the
+        // whole rail, and a pointer anywhere on it would hover every dot.
+        clipsToBounds = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -669,8 +679,8 @@ private final class RailDotButton: NSButton {
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
 
     func refreshHover() {
-        guard let window else { isHovered = false; return }
-        isHovered = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        guard let window, !bounds.isEmpty else { isHovered = false; return }
+        isHovered = visibleRect.intersection(bounds).contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     override func draw(_ dirtyRect: NSRect) {
