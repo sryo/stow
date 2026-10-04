@@ -79,6 +79,19 @@ final class TablineStripViewTests: XCTestCase {
         XCTAssertEqual(github.accessibilityFrameInParentSpace(), tab)
     }
 
+    func testStripElementsOutliveTheCallThatReturnedThem() {
+        // VoiceOver asks for the children, then asks each one for its role and label. An
+        // element nothing keeps is gone by then, and every query fails as invalid.
+        let view = strip(width: 1100)
+        weak var first: NSAccessibilityElement?
+        autoreleasepool {
+            first = view.accessibilityChildren()?.first as? NSAccessibilityElement
+        }
+        XCTAssertNotNil(first, "the strip must hold on to its accessibility elements")
+        let again = view.accessibilityChildren()?.first as? NSAccessibilityElement
+        XCTAssertTrue(first === again, "the same part keeps the same element between queries")
+    }
+
     func testStripHasNoSearchTool() {
         let view = strip(width: 1100)
         let labels = (view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }

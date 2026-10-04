@@ -136,7 +136,7 @@ extension SiteGlyph {
 /// 32pt strip, 24pt items, 14pt glyphs, and three width tiers (full names, short names,
 /// icons only) before the trailing tabs fold into a "+n" overflow.
 final class TablineStripView: NSView {
-    enum Kind: Equatable { case chip, tab(Int), group(Int), ghost, overflow, pocket }
+    enum Kind: Hashable { case chip, tab(Int), group(Int), ghost, overflow, pocket }
     enum Tier { case full, short, icon }
 
     /// Called on click with the clicked part and its rect in this view's (flipped) coordinates.
@@ -334,17 +334,25 @@ final class TablineStripView: NSView {
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
     override func accessibilityLabel() -> String? { "Tabline, \(model.name)" }
 
+    /// One element per part, kept between queries: VoiceOver reads an element's role and
+    /// label after asking for the children, and a fresh element would be gone by then.
+    private var partElements: [Kind: PartElement] = [:]
+
     override func accessibilityChildren() -> [Any]? {
-        guard !isLip else { return [] }
-        return items.map { item in
-            let element = PartElement()
+        guard !isLip else { partElements = [:]; return [] }
+        var kept: [Kind: PartElement] = [:]
+        let children = items.map { item in
+            let element = partElements[item.kind] ?? PartElement()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.button)
             element.setAccessibilityLabel(accessibilityLabel(for: item.kind))
             element.setAccessibilityFrameInParentSpace(item.rect)
             element.onPress = { [weak self] in self?.onActivate?(item.kind, item.rect) }
+            kept[item.kind] = element
             return element
         }
+        partElements = kept
+        return children
     }
 
     private func accessibilityLabel(for kind: Kind) -> String {
