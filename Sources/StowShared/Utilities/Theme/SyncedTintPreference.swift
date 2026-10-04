@@ -84,7 +84,7 @@ public final class SyncedTintPreference {
         }
     }
 
-    func handleExternalChange(changedKeys: [String]) {
+    public func handleExternalChange(changedKeys: [String]) {
         guard changedKeys.contains(Self.key),
               let remote = Self.decode(cloud.string(forKey: Self.key)),
               remote != Self.decode(local.string(forKey: Self.key))

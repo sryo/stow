@@ -15,7 +15,7 @@ struct ContentView: View {
                 } detail: {
                     NodeListView(workspaceId: viewModel.currentWorkspace.id)
                         .searchable(text: $viewModel.searchQuery, prompt: "Search items")
-                        .background(Color(uiColor: viewModel.currentWorkspace.colorId.adaptiveBackgroundColor))
+                        .background(Color(uiColor: viewModel.background(for: viewModel.currentWorkspace.colorId)))
                 }
                 } else {
                 // iPhone: Full-screen workspace pager (no tab bar)
