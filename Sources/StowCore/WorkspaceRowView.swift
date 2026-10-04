@@ -150,7 +150,7 @@ final class WorkspaceRowView: BaseView {
 
     /// The workspace's page palette in the current tint mode, cached per color and mode.
     static func palette(for colorId: WorkspaceColorId) -> StowTheme.Colors {
-        let tint = StowTheme.preferredTint
+        let tint = StowTheme.displayTint
         let key = "\(colorId.color.hexString)-\(tint.rawValue)"
         if let cached = paletteCache[key] { return cached }
         let colors = StowTheme.colors(for: colorId, tint: tint)

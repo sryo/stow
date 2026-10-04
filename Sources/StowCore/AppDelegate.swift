@@ -1,13 +1,12 @@
 import AppKit
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation, WindowAttachmentServiceDelegate, GlobalHotkeyServiceDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation, WindowAttachmentServiceDelegate, GlobalHotkeyServiceDelegate, AppMenuActions {
     public override init() {
         super.init()
     }
     private var window: NSWindow?
     private var mainViewController: MainViewController?
-    private var alwaysOnTopMenuItem: NSMenuItem?
 
     // Attachment state
     private var isAttachmentMode: Bool = false
@@ -32,6 +31,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         let model = AppModel(store: Self.makeDataStore())
         OpensInStore().migrateIfNeeded(workspaces: model.workspaces)
+        ImportCoordinator.shared.model = model
+        ImportCoordinator.shared.backups = BackupService(baseDirectory: Self.dataDirectory)
+        scheduleBackups()
+        PageColorSync().adoptRemote()
         let mainViewController = MainViewController(model: model)
         self.mainViewController = mainViewController
 
@@ -81,6 +84,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window.orderFrontRegardless()
 
         self.window = window
+        ImportCoordinator.shared.window = window
         applyAlwaysOnTopFromDefaults()
         setupAttachmentService()
         setupGlobalHotkey()
@@ -101,13 +105,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     /// `STOW_DATA_DIR` points debug builds at a scratch data directory, for UI work
     /// against fixtures without touching the real library.
-    private static func makeDataStore() -> DataStore {
+    static var dataDirectory: URL {
         #if DEBUG
         if let path = ProcessInfo.processInfo.environment["STOW_DATA_DIR"], !path.isEmpty {
-            return DataStore(baseDirectory: URL(fileURLWithPath: path, isDirectory: true))
+            return URL(fileURLWithPath: path, isDirectory: true)
         }
         #endif
-        return DataStore()
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Stow", isDirectory: true)
+    }
+
+    private static func makeDataStore() -> DataStore {
+        DataStore(baseDirectory: dataDirectory)
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {
@@ -184,154 +193,131 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func setupMenus() {
-        let mainMenu = NSMenu()
+        let main = AppMenus.build(target: nil)
+        NSApplication.shared.mainMenu = main
+        NSApplication.shared.windowsMenu = main.items.first { $0.submenu?.title == "Window" }?.submenu
+    }
 
-        let appMenuItem = NSMenuItem()
-        mainMenu.addItem(appMenuItem)
-        let appMenu = NSMenu()
-        appMenuItem.submenu = appMenu
-        appMenu.addItem(withTitle: "Settings…", action: #selector(openPreferences), keyEquivalent: ",")
-        appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Quit Stow", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-
-        let fileMenuItem = NSMenuItem()
-        mainMenu.addItem(fileMenuItem)
-        let fileMenu = NSMenu(title: "File")
-        fileMenuItem.submenu = fileMenu
-        fileMenu.addItem(withTitle: "New Workspace…", action: #selector(newWorkspace), keyEquivalent: "n")
-        let newFolderItem = NSMenuItem(title: "New Folder…", action: #selector(newFolder), keyEquivalent: "N")
-        newFolderItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(newFolderItem)
-
-        let editMenuItem = NSMenuItem()
-        mainMenu.addItem(editMenuItem)
-        let editMenu = NSMenu(title: "Edit")
-        editMenuItem.submenu = editMenu
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
-        redoItem.keyEquivalentModifierMask = [.command, .shift]
-        editMenu.addItem(redoItem)
-        editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        editMenu.addItem(NSMenuItem.separator())
-        let findItem = NSMenuItem(title: "Find…", action: #selector(focusSearch), keyEquivalent: "f")
-        findItem.target = self
-        editMenu.addItem(findItem)
-        let jumpItem = NSMenuItem(title: "Jump to Item", action: #selector(toggleJumpMode), keyEquivalent: "j")
-        jumpItem.target = self
-        editMenu.addItem(jumpItem)
-
-        let windowMenuItem = NSMenuItem()
-        mainMenu.addItem(windowMenuItem)
-        let windowMenu = NSMenu(title: "Window")
-        windowMenuItem.submenu = windowMenu
-        NSApplication.shared.windowsMenu = windowMenu
-        let showWindowItem = NSMenuItem(title: "Show Stow", action: #selector(showMainWindow), keyEquivalent: "")
-        showWindowItem.target = self
-        windowMenu.addItem(showWindowItem)
-        let alwaysOnTopItem = NSMenuItem(title: "Always on top", action: #selector(toggleAlwaysOnTop), keyEquivalent: "t")
-        alwaysOnTopItem.keyEquivalentModifierMask = [.command, .option]
-        windowMenu.addItem(alwaysOnTopItem)
-        alwaysOnTopMenuItem = alwaysOnTopItem
-        let tablineItem = NSMenuItem(title: "Show Tabline", action: #selector(toggleTabline(_:)), keyEquivalent: "l")
-        tablineItem.keyEquivalentModifierMask = [.command, .option]
-        tablineItem.target = self
-        tablineItem.state = TablineController.shared.isEnabled ? .on : .off
-        windowMenu.addItem(tablineItem)
-        windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-        windowMenu.addItem(NSMenuItem.separator())
-        for i in 1...9 {
-            let item = NSMenuItem(title: "Workspace \(i)", action: #selector(switchToWorkspaceByTag(_:)), keyEquivalent: "\(i)")
-            item.tag = i
-            item.target = self
-            windowMenu.addItem(item)
-        }
-
-        NSApplication.shared.mainMenu = mainMenu
+    /// On Top floats the window; `STOW_KEEP_FLOATING` keeps a debug test window above
+    /// other apps whatever the mode.
+    private func applyWindowLevel(onTop: Bool) {
+        var floating = onTop
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["STOW_KEEP_FLOATING"] != nil { floating = true }
+        #endif
+        window?.level = floating ? .floating : .normal
     }
 
     private func applyAlwaysOnTopFromDefaults() {
-        let enabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-        alwaysOnTopMenuItem?.state = enabled ? .on : .off
-        window?.level = enabled ? .floating : .normal
+        applyWindowLevel(onTop: UserDefaults.standard.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled))
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showMainWindow()
+        showMainWindow(nil)
         return true
     }
 
-    @objc private func showMainWindow() {
+    // MARK: - Menu actions
+
+    @objc public func showMainWindow(_ sender: Any?) {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func toggleAlwaysOnTop() {
-        let enabled = !(UserDefaults.standard.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled))
-
-        // If enabling always on top, disable attachment first
-        if enabled && isAttachmentMode {
-            // Save current frame before disabling attachment
-            if let window = window {
-                lastManualFrame = window.frame
-            }
-
-            WindowAttachmentService.shared.disable()
-            isAttachmentMode = false
-            UserDefaults.standard.set(false, forKey: UserDefaultsKeys.sidebarAttachmentEnabled)
-            updateWindowConstraints()
-        }
-
-        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.alwaysOnTopEnabled)
-        alwaysOnTopMenuItem?.state = enabled ? .on : .off
-        window?.level = enabled ? .floating : .normal
+    /// Window ▸ Window Mode ▸ Floating / On Top / Attached, through the same setter as
+    /// the sheet so both stay in step.
+    @objc public func setWindowModeFromMenu(_ sender: NSMenuItem) {
+        AppPreferences.shared.setWindowMode(AppWindowMode(rawValue: sender.tag) ?? .floating)
     }
 
-    @objc private func openPreferences() {
+    /// ⌥⌘T: On Top ↔ Floating.
+    @objc public func toggleAlwaysOnTop(_ sender: Any?) {
+        AppPreferences.shared.toggleOnTop()
+    }
+
+    /// ⌥⌘L: the same switch as the sheet's Tabline row.
+    @objc public func toggleTabline(_ sender: Any?) {
+        AppPreferences.shared.toggleTabline()
+    }
+
+    @objc public func openPreferences(_ sender: Any?) {
         // Select the settings tab in the main window instead of opening a separate preferences window
         guard let mainVC = mainViewController else { return }
         mainVC.toggleSettings()
-        showMainWindow()
+        showMainWindow(nil)
     }
 
-    @objc private func newWorkspace() {
+    @objc public func newWorkspace(_ sender: Any?) {
         mainViewController?.promptCreateWorkspace()
     }
 
-    @objc private func newFolder() {
+    @objc public func newFolder(_ sender: Any?) {
         mainViewController?.createFolderAndBeginRename(parentId: nil)
     }
 
-    @objc private func toggleTabline(_ sender: NSMenuItem) {
-        TablineController.shared.isEnabled.toggle()
-        sender.state = TablineController.shared.isEnabled ? .on : .off
-    }
-
-    @objc private func focusSearch() {
-        showMainWindow()
+    @objc public func focusSearch(_ sender: Any?) {
+        showMainWindow(nil)
         mainViewController?.focusSearch()
     }
 
-    @objc private func toggleJumpMode() {
+    @objc public func toggleJumpMode(_ sender: Any?) {
         mainViewController?.toggleJumpMode()
     }
 
-    @objc private func switchToWorkspaceByTag(_ sender: NSMenuItem) {
+    @objc public func switchToWorkspaceByTag(_ sender: NSMenuItem) {
         mainViewController?.switchToWorkspace(atIndex: sender.tag - 1)
+    }
+
+    @objc public func nextWorkspace(_ sender: Any?) { stepWorkspace(1) }
+    @objc public func previousWorkspace(_ sender: Any?) { stepWorkspace(-1) }
+
+    private func stepWorkspace(_ step: Int) {
+        guard let main = mainViewController else { return }
+        let model = main.model
+        let current = model.state.isSettingsSelected ? nil : model.workspaces.firstIndex { $0.id == model.currentWorkspace.id }
+        guard let index = AppMenus.steppedIndex(current: current, count: model.workspaces.count, step: step) else { return }
+        main.switchToWorkspace(atIndex: index)
+    }
+
+    @objc public func showImport(_ sender: Any?) {
+        showMainWindow(nil)
+        ImportCoordinator.shared.showPicker()
+    }
+
+    @objc public func exportAll(_ sender: Any?) {
+        ImportCoordinator.shared.exportAll()
+    }
+
+    @objc public func showDataInFinder(_ sender: Any?) {
+        NSWorkspace.shared.activateFileViewerSelecting([Self.dataDirectory.appendingPathComponent("data.json")])
+    }
+
+    @objc public func restoreFromBackup(_ sender: Any?) {
+        showMainWindow(nil)
+        ImportCoordinator.shared.showRestore()
     }
 
     // MARK: - Menu Validation
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(switchToWorkspaceByTag(_:)) {
+        let count = mainViewController?.model.workspaces.count ?? 0
+        switch menuItem.action {
+        case #selector(switchToWorkspaceByTag(_:)):
             let index = menuItem.tag - 1
-            return index >= 0 && index < (mainViewController?.model.workspaces.count ?? 0)
+            return index >= 0 && index < count
+        case #selector(setWindowModeFromMenu(_:)):
+            menuItem.state = AppPreferences.shared.windowMode.rawValue == menuItem.tag ? .on : .off
+        case #selector(toggleAlwaysOnTop(_:)):
+            menuItem.state = AppPreferences.shared.windowMode == .onTop ? .on : .off
+        case #selector(toggleTabline(_:)):
+            menuItem.state = AppPreferences.shared.tablineEnabled ? .on : .off
+        case #selector(nextWorkspace(_:)), #selector(previousWorkspace(_:)):
+            return count > 1 || (count == 1 && mainViewController?.model.state.isSettingsSelected == true)
+        case #selector(restoreFromBackup(_:)):
+            return !BackupService(baseDirectory: Self.dataDirectory).list().isEmpty
+        default:
+            break
         }
         return true
     }
@@ -409,7 +395,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         do {
             let workspaceId = try model.importWorkspaceFromShareURL(fragment: fragment)
             model.selectWorkspace(id: workspaceId)
-            showMainWindow()
+            showMainWindow(nil)
 
             let alert = NSAlert()
             alert.messageText = "Workspace imported"
@@ -481,7 +467,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    /// One silent snapshot of data.json a day, kept 14 days.
+    private func scheduleBackups() {
+        let backups = BackupService(baseDirectory: Self.dataDirectory)
+        backups.backUpIfNeeded()
+        backupTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+            BackupService(baseDirectory: AppDelegate.dataDirectory).backUpIfNeeded()
+        }
+    }
+
+    private var backupTimer: Timer?
+
+    @objc private func pageColorChangedElsewhere(_ note: Notification) {
+        guard PageColorSync().adoptRemote() != nil else { return }
+        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
+        NotificationCenter.default.post(name: .stowAppPreferencesChanged, object: nil)
+    }
+
+    @objc private func accessibilityDisplayChanged(_ note: Notification) {
+        // Increase Contrast changes the page color that's drawn.
+        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
+    }
+
+    @objc private func showImportFromFooter(_ note: Notification) {
+        showImport(nil)
+    }
+
     private func observeBrowserChanges() {
+        NotificationCenter.default.addObserver(self, selector: #selector(showImportFromFooter(_:)), name: .stowShowImport, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(pageColorChangedElsewhere(_:)),
+                                               name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+                                               object: NSUbiquitousKeyValueStore.default)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(accessibilityDisplayChanged(_:)),
+                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleBrowserChanged),
@@ -527,8 +545,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     @objc private func handleAlwaysOnTopSettingChanged(_ notification: Notification) {
         guard let enabled = notification.userInfo?["enabled"] as? Bool else { return }
 
-        alwaysOnTopMenuItem?.state = enabled ? .on : .off
-        window?.level = enabled ? .floating : .normal
+        applyWindowLevel(onTop: enabled)
 
         // If enabling and attachment is active, disable attachment
         if enabled && isAttachmentMode {

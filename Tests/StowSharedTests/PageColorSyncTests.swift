@@ -9,10 +9,7 @@ private final class MemoryStore: PageColorKeyValueStore {
 }
 
 final class PageColorSyncTests: XCTestCase {
-    private func defaults() -> UserDefaults {
-        let suite = "stow-tests-pagecolor-\(UUID().uuidString)"
-        return UserDefaults(suiteName: suite)!
-    }
+    private func defaults() -> UserDefaults { scratchDefaults() }
 
     func testChoosingAPageColorPublishesIt() {
         let store = MemoryStore()

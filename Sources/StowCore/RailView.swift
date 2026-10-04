@@ -72,7 +72,7 @@ final class RailView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(workspaces: [WorkspaceDot], selectedId: UUID?, colorId: WorkspaceColorId, items: [Node]) {
-        colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
+        colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
 
         dotButtons.forEach { $0.removeFromSuperview() }
         dotButtons = workspaces.enumerated().map { i, ws in

@@ -95,25 +95,23 @@ enum BrowserManager {
         return chromiumBundleIds.contains(bundleId)
     }
 
-    private static func chromiumProfiles(bundleId: String) -> [BrowserProfile] {
-        let appSupportDir: String
+    /// Where a Chromium browser keeps its profiles (each holds a `Bookmarks` file).
+    static func chromiumSupportDirectory(_ bundleId: String) -> URL? {
+        let dir: String
         switch bundleId {
-        case "com.google.Chrome":
-            appSupportDir = "Google/Chrome"
-        case "com.google.Chrome.canary":
-            appSupportDir = "Google/Chrome Canary"
-        case "com.brave.Browser":
-            appSupportDir = "BraveSoftware/Brave-Browser"
-        case "com.microsoft.edgemac":
-            appSupportDir = "Microsoft Edge"
-        case "com.vivaldi.Vivaldi":
-            appSupportDir = "Vivaldi"
-        default:
-            return []
+        case "com.google.Chrome": dir = "Google/Chrome"
+        case "com.google.Chrome.canary": dir = "Google/Chrome Canary"
+        case "com.brave.Browser": dir = "BraveSoftware/Brave-Browser"
+        case "com.microsoft.edgemac": dir = "Microsoft Edge"
+        case "com.vivaldi.Vivaldi": dir = "Vivaldi"
+        default: return nil
         }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/\(dir)")
+    }
 
-        let localStatePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/\(appSupportDir)/Local State")
+    private static func chromiumProfiles(bundleId: String) -> [BrowserProfile] {
+        guard let support = chromiumSupportDirectory(bundleId) else { return [] }
+        let localStatePath = support.appendingPathComponent("Local State")
 
         guard let data = try? Data(contentsOf: localStatePath),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

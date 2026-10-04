@@ -1,8 +1,9 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// The per-workspace menu used by Settings: Rename workspace · Change color › ·
-/// Opens in › · Move up · Move down · Export workspace… · Delete workspace….
+/// The one workspace menu, everywhere a workspace shows (rail tile, Settings row "…",
+/// title-bar switcher): Rename · Color › · Icon › · Opens in › · Move Up · Move Down ·
+/// Share… · Export… · Delete.
 ///
 /// Every item acts on the workspace ID it was built for and never selects that
 /// workspace, so opening it from Settings doesn't page away.
@@ -32,7 +33,7 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         return handler.retained(handler.buildMenu())
     }
 
-    /// Only the "Change color" submenu, for a click on the workspace icon.
+    /// Only the "Color" submenu, for a click on the workspace icon.
     static func makeColorMenu(for workspaceId: UUID, model: AppModel, presentingView: NSView) -> NSMenu {
         let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: { _ in })
         return handler.retained(handler.colorSubmenu() ?? NSMenu())
@@ -63,26 +64,28 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         let index = model.workspaces.firstIndex(id: workspaceId) ?? 0
         let count = model.workspaces.count
 
-        menu.addItem(item("Rename workspace", #selector(rename)))
-
-        let color = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
+        menu.addItem(item("Rename", #selector(rename)))
+        let color = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         color.submenu = colorSubmenu()
         menu.addItem(color)
-
+        let icon = NSMenuItem(title: "Icon", action: nil, keyEquivalent: "")
+        icon.submenu = iconSubmenu()
+        menu.addItem(icon)
         let opensIn = NSMenuItem(title: "Opens in", action: nil, keyEquivalent: "")
         opensIn.submenu = Self.makeOpensInMenu(for: workspaceId)
         menu.addItem(opensIn)
 
         menu.addItem(.separator())
-        let up = item("Move up", #selector(moveUp))
+        let up = item("Move Up", #selector(moveUp))
         up.isEnabled = index > 0
         menu.addItem(up)
-        let down = item("Move down", #selector(moveDown))
+        let down = item("Move Down", #selector(moveDown))
         down.isEnabled = index < count - 1
         menu.addItem(down)
 
         menu.addItem(.separator())
-        menu.addItem(item("Export workspace…", #selector(export)))
+        menu.addItem(item("Share…", #selector(share)))
+        menu.addItem(item("Export…", #selector(export)))
 
         menu.addItem(.separator())
         let delete = item("Delete", #selector(delete))
@@ -90,6 +93,34 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         if count <= 1 { delete.toolTip = "The only workspace can't be deleted" }
         menu.addItem(delete)
         return menu
+    }
+
+    private func iconSubmenu() -> NSMenu? {
+        guard let workspace else { return nil }
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let favicons = item("Favicons", #selector(setIcon(_:)))
+        favicons.representedObject = "favicons"
+        favicons.state = workspace.icon == .favicons ? .on : .off
+        let letter = item("Letter", #selector(setIcon(_:)))
+        letter.representedObject = "letter"
+        letter.state = workspace.icon == .letter ? .on : .off
+        submenu.addItem(favicons)
+        submenu.addItem(letter)
+        let symbol = NSMenuItem(title: "Symbol", action: nil, keyEquivalent: "")
+        let symbols = NSMenu()
+        symbols.autoenablesItems = false
+        for name in WorkspaceTileIdentity.symbols {
+            let choice = item(name.replacingOccurrences(of: ".", with: " ").capitalized, #selector(setIcon(_:)))
+            choice.representedObject = "symbol:" + name
+            choice.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            if case .symbol(name) = workspace.icon { choice.state = .on }
+            symbols.addItem(choice)
+        }
+        symbol.submenu = symbols
+        if case .symbol = workspace.icon { symbol.state = .on }
+        submenu.addItem(symbol)
+        return submenu
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -153,6 +184,27 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
 
     @objc private func customColorChanged(_ sender: Any?) {
         model?.updateWorkspaceColor(id: workspaceId, colorId: .custom(NSColorPanel.shared.color.hexString))
+    }
+
+    @objc private func setIcon(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String else { return }
+        let icon: WorkspaceIcon
+        if value == "favicons" { icon = .favicons }
+        else if value == "letter" { icon = .letter }
+        else { icon = .symbol(String(value.dropFirst("symbol:".count))) }
+        model?.updateWorkspaceIcon(id: workspaceId, icon: icon)
+    }
+
+    @objc private func share() {
+        guard let model, let workspace else { return }
+        do {
+            SharePanel.show(url: try model.shareWorkspace(id: workspaceId), workspaceName: workspace.name)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Share failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 
     @objc private func moveUp() {

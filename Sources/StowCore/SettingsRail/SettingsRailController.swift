@@ -215,7 +215,7 @@ final class SettingsRailController: NSObject {
         let workspace = id.flatMap { id in model.workspaces.first { $0.id == id } }
         previewId = workspace?.id
         onPreviewColor?(workspace?.colorId)
-        let colors = StowTheme.colors(for: workspace?.colorId ?? .settingsBackground, tint: StowTheme.preferredTint)
+        let colors = StowTheme.colors(for: workspace?.colorId ?? .settingsBackground, tint: StowTheme.displayTint)
         view.setColors(colors)
         if let workspace, editingId == nil, !isSheetOpen {
             showTip(for: workspace)
@@ -248,7 +248,6 @@ final class SettingsRailController: NSObject {
         hideTip()
         commitPendingName()
         editingId = id
-        editor.setConfirming(false)
         reload()
         if focusName {
             editorPanel.makeKey()
@@ -263,7 +262,6 @@ final class SettingsRailController: NSObject {
     private func closeEditor() {
         commitPendingName()
         editingId = nil
-        editor.setConfirming(false)
         if editorPanel.isVisible { editorPanel.dismiss() }
         view.window?.makeKey()
         reload()
@@ -308,12 +306,16 @@ final class SettingsRailController: NSObject {
             guard let self, let id = self.editingId else { return }
             self.onLeave?(id)
         }
+        editor.onShare = { [weak self] in
+            guard let self, let id = self.editingId, let ws = self.model.workspaces.first(where: { $0.id == id }),
+                  let url = try? self.model.shareWorkspace(id: id) else { return }
+            SharePanel.show(url: url, workspaceName: ws.name)
+        }
         editor.onDelete = { [weak self] in
             guard let self, let id = self.editingId, self.model.workspaces.count > 1 else { return }
             self.editingId = nil
-            self.editor.setConfirming(false)
             self.editorPanel.dismiss()
-            self.model.deleteWorkspace(id: id)
+            WorkspaceDeletion.delete(id, model: self.model, in: self.view.window)
         }
     }
 

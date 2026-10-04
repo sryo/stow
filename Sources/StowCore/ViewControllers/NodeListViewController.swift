@@ -90,6 +90,8 @@ final class NodeListViewController: NSViewController {
     var onNewSnippetRequested: ((UUID?) -> Void)?
     var onLinkUrlEdited: ((UUID, String) -> Void)?
     var onOpenFolderLinks: ((UUID) -> Void)?
+    /// A one-off "Open in ▸" from a link's menu.
+    var onOpenLinkIn: ((Link, OpensIn) -> Void)?
     var onBulkOpenLinks: (([UUID]) -> Void)?
     var onMoveToNewWorkspace: (([UUID]) -> Void)?
     var onMoveToNewFolder: (([UUID]) -> Void)?
@@ -1693,6 +1695,14 @@ extension NodeListViewController: NSMenuDelegate {
             archive.representedObject = node.id
             menu.addItem(archive)
         case .link(let link):
+            let openIn = NSMenuItem(title: "Open in", action: nil, keyEquivalent: "")
+            openIn.submenu = OpensInMenu.make(current: nil, includeBrowserImUsing: false) { [weak self] choice in
+                guard let choice else { return }
+                self?.onOpenLinkIn?(link, choice)
+            }
+            menu.addItem(openIn)
+            menu.addItem(.separator())
+
             let editUrl = NSMenuItem(title: "Edit URL…", action: #selector(contextEditUrl(_:)), keyEquivalent: "")
             editUrl.target = self
             editUrl.representedObject = ["nodeId": link.id, "currentUrl": link.url]

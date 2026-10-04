@@ -23,7 +23,7 @@ final class WorkspaceBarView: NSView {
         didSet { updateTitle(); updateDots() }
     }
     var workspaceColor: WorkspaceColorId = .defaultColor() {
-        didSet { colors = StowTheme.colors(for: workspaceColor, tint: StowTheme.preferredTint) }
+        didSet { colors = StowTheme.colors(for: workspaceColor, tint: StowTheme.displayTint) }
     }
     /// Fractional page offset while the user is swiping, nil otherwise.
     var visualPageOffset: CGFloat? {

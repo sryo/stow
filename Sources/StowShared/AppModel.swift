@@ -167,6 +167,20 @@ public final class AppModel {
         persist()
     }
 
+    /// Swaps in a whole library (Restore from Backup). Selection falls back to the first
+    /// workspace when the selected one isn't in it.
+    public func replaceAll(with newState: AppState) {
+        guard !newState.workspaces.isEmpty else { return }
+        let wasSettings = state.isSettingsSelected
+        state.workspaces = newState.workspaces
+        if wasSettings {
+            state.selectedWorkspaceId = nil
+        } else if !state.workspaces.contains(where: { $0.id == state.selectedWorkspaceId }) {
+            state.selectedWorkspaceId = state.workspaces.first?.id
+        }
+        persist()
+    }
+
     /// Removes icon files no workspace references, after a delete's undo window closes.
     public func cleanOrphanedFavicons() {
         store.cleanOrphanedFavicons(state: state)

@@ -1,8 +1,8 @@
 import AppKit
 
-/// The 258pt editor that flies out beside a tile: name, color, icon, browser profile,
-/// Open and Delete (confirmed in place). Every change is reported at once, so the tile
-/// behind it updates as you edit.
+/// The 258pt editor that flies out beside a tile: name, color, icon, "Opens in", then
+/// Open, Share… and Delete (which deletes at once, with an undo toast). Every change is
+/// reported at once, so the tile behind it updates as you edit.
 @MainActor
 final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     struct Content {
@@ -33,11 +33,11 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     var onIcon: ((WorkspaceIcon) -> Void)?
     var opensInMenu: (() -> NSMenu?)?
     var onOpen: (() -> Void)?
+    var onShare: (() -> Void)?
     var onDelete: (() -> Void)?
     var onHeightChange: (() -> Void)?
 
     private(set) var content: Content?
-    private(set) var isConfirmingDelete = false
 
     private let bigTile = WorkspaceTileView()
     let nameField = FlyoutNameField()
@@ -53,16 +53,8 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let profileHint = FlyoutLabel.wrapping("", size: 11)
     private let footerLine = NSView()
     private let openButton = FlyoutButton("Open ↩", style: .primary)
-    private let deleteButton = FlyoutButton("Delete…", style: .danger)
-    private let hint = FlyoutLabel.wrapping("Drag the tile to reorder. Right-click for the full workspace menu.", size: 11)
-    private let confirmBox = NSView()
-    private let confirmText = NSTextField(wrappingLabelWithString: "")
-    private let cancelDelete = FlyoutButton("Cancel")
-    private let confirmDelete = FlyoutButton("Delete", style: .dangerFilled)
-
-    private var normalViews: [NSView] {
-        [colorLabel, iconLabel, profileLabel, profileScope, profileRow, profileHint, footerLine, openButton, deleteButton, hint] + swatches + iconChoices + symbolButtons
-    }
+    private let shareButton = FlyoutButton("Share…")
+    private let deleteButton = FlyoutButton("Delete", style: .danger)
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 372))
@@ -116,24 +108,13 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         openButton.target = self
         openButton.action = #selector(openTapped)
         addSubview(openButton)
+        shareButton.target = self
+        shareButton.action = #selector(shareTapped)
+        addSubview(shareButton)
         deleteButton.target = self
         deleteButton.action = #selector(deleteTapped)
+        deleteButton.toolTip = "Deletes now; Undo brings it back"
         addSubview(deleteButton)
-        addSubview(hint)
-
-        confirmBox.wantsLayer = true
-        confirmBox.layer?.cornerRadius = 9
-        confirmBox.layer?.cornerCurve = .continuous
-        confirmText.isSelectable = false
-        confirmBox.addSubview(confirmText)
-        cancelDelete.target = self
-        cancelDelete.action = #selector(cancelDeleteTapped)
-        confirmDelete.target = self
-        confirmDelete.action = #selector(confirmDeleteTapped)
-        confirmBox.addSubview(cancelDelete)
-        confirmBox.addSubview(confirmDelete)
-        addSubview(confirmBox)
-        confirmBox.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -169,7 +150,6 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         profileHint.stringValue = Self.opensInHint(content)
         deleteButton.isEnabled = content.canDelete
         deleteButton.toolTip = content.canDelete ? nil : "The only workspace can't be deleted"
-        updateConfirmText()
         let symbolsShown = { (c: Content?) -> Bool in if case .symbol = c?.icon { return true } else { return false } }
         if previous == nil || symbolsShown(previous) != symbolsShown(content) {
             needsLayout = true
@@ -194,38 +174,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     }
 
     var preferredHeight: CGFloat {
-        if isConfirmingDelete { return 68 + confirmHeight + 12 }
-        return layoutPieces(apply: false)
-    }
-
-    private var confirmHeight: CGFloat {
-        let textHeight = confirmText.attributedStringValue.boundingRect(with: NSSize(width: Self.width - 24 - 20, height: 200),
-                                                                         options: [.usesLineFragmentOrigin]).height
-        return 10 + ceil(textHeight) + 8 + 24 + 10
-    }
-
-    private func updateConfirmText() {
-        guard let content else { return }
-        let text = NSMutableAttributedString(string: "Delete ", attributes: [.font: FlyoutFonts.ui(12), .foregroundColor: FlyoutColors.ink])
-        text.append(NSAttributedString(string: content.name.isEmpty ? "Untitled" : content.name,
-                                       attributes: [.font: FlyoutFonts.ui(12, .semibold), .foregroundColor: FlyoutColors.ink]))
-        let count = content.itemCount
-        let rest = count > 0
-            ? " and its \(count) \(count == 1 ? "item" : "items")? Links stay in your browser history, not in Stow."
-            : "? It's empty."
-        text.append(NSAttributedString(string: rest, attributes: [.font: FlyoutFonts.ui(12), .foregroundColor: FlyoutColors.ink]))
-        confirmText.attributedStringValue = text
-    }
-
-    func setConfirming(_ confirming: Bool) {
-        isConfirmingDelete = confirming
-        confirmBox.isHidden = !confirming
-        normalViews.forEach { $0.isHidden = confirming }
-        if !confirming { symbolButtons.forEach { $0.isHidden = !showsSymbols } }
-        needsLayout = true
-        onHeightChange?()
-        // Hiding the focused control would hand focus to the name field; park it instead.
-        window?.makeFirstResponder(nil)
+        layoutPieces(apply: false)
     }
 
     func focusName(selectAll: Bool = true) {
@@ -235,16 +184,14 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
 
     private func applyColors() {
         footerLine.layer?.backgroundColor = flyoutCG(FlyoutColors.line)
-        confirmBox.layer?.backgroundColor = flyoutCG(FlyoutColors.danger.withAlphaComponent(0.1))
         meta.textColor = FlyoutColors.inkSecondary
-        hint.textColor = FlyoutColors.inkSecondary
+        profileHint.textColor = FlyoutColors.inkSecondary
         nameField.refreshLook()
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-        updateConfirmText()
     }
 
     // MARK: Layout
@@ -257,17 +204,6 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         nameField.frame = NSRect(x: fieldX, y: pad + 0.5, width: Self.width - pad - fieldX, height: 26)
         meta.frame = NSRect(x: fieldX + 2, y: pad + 26 + 3, width: Self.width - pad - fieldX - 2, height: 14)
 
-        if isConfirmingDelete {
-            confirmBox.frame = NSRect(x: pad, y: 68, width: w, height: confirmHeight)
-            let textWidth = w - 20
-            let textHeight = confirmHeight - 10 - 8 - 24 - 10
-            // The box isn't flipped: buttons along its bottom, the question above them.
-            confirmText.frame = NSRect(x: 10, y: 10 + 24 + 8, width: textWidth, height: textHeight)
-            let d = confirmDelete.fittingWidth, c = cancelDelete.fittingWidth
-            confirmDelete.frame = NSRect(x: w - 10 - d, y: 10, width: d, height: 24)
-            cancelDelete.frame = NSRect(x: confirmDelete.frame.minX - 6 - c, y: 10, width: c, height: 24)
-            return
-        }
 
         layoutPieces(apply: true)
     }
@@ -314,12 +250,11 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         y += hintHeight + 12
         place(footerLine, NSRect(x: pad, y: y, width: w, height: 1))
         y += 1 + 10
-        let o = openButton.fittingWidth, dl = deleteButton.fittingWidth
+        let o = openButton.fittingWidth, sh = shareButton.fittingWidth, dl = deleteButton.fittingWidth
         place(openButton, NSRect(x: pad, y: y, width: o, height: 24))
+        place(shareButton, NSRect(x: pad + o + 6, y: y, width: sh, height: 24))
         place(deleteButton, NSRect(x: Self.width - pad - dl, y: y, width: dl, height: 24))
-        y += 24 + 8
-        place(hint, NSRect(x: pad, y: y, width: w, height: 32))
-        y += 32
+        y += 24
         return y + 12
     }
 
@@ -344,9 +279,8 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
 
     @objc private func symbolTapped(_ sender: SymbolButton) { onIcon?(.symbol(sender.symbol)) }
     @objc private func openTapped() { onOpen?() }
-    @objc private func deleteTapped() { setConfirming(true) }
-    @objc private func cancelDeleteTapped() { setConfirming(false) }
-    @objc private func confirmDeleteTapped() { onDelete?() }
+    @objc private func shareTapped() { onShare?() }
+    @objc private func deleteTapped() { onDelete?() }
 
     func controlTextDidChange(_ notification: Notification) {
         onRename?(nameField.stringValue)

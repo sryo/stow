@@ -2,13 +2,6 @@ import XCTest
 import Carbon
 @testable import StowCore
 
-private func freshDefaults(_ name: String = #function) -> UserDefaults {
-    let suite = "stow-tests-\(name)-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defaults.removePersistentDomain(forName: suite)
-    return defaults
-}
-
 // MARK: - Stored shortcuts
 
 final class ShortcutStoreTests: XCTestCase {
@@ -16,18 +9,18 @@ final class ShortcutStoreTests: XCTestCase {
     let optCmdS = KeyboardShortcut(keyCode: UInt32(kVK_ANSI_S), carbonModifiers: UInt32(optionKey | cmdKey))
 
     func testToggleStowDefaultsToControlOptionS() {
-        let store = ShortcutStore(defaults: freshDefaults())
+        let store = ShortcutStore(defaults: scratchDefaults())
         XCTAssertEqual(store.shortcut(for: .toggleStow), ctrlOptS, "⇧⌘B is Show Bookmarks Bar in every browser")
         XCTAssertEqual(HotkeyAction.toggleStow.defaultShortcut.displayString, "⌃⌥S")
     }
 
     func testStowFrontTabDefaultsToOptionCommandS() {
-        let store = ShortcutStore(defaults: freshDefaults())
+        let store = ShortcutStore(defaults: scratchDefaults())
         XCTAssertEqual(store.shortcut(for: .stowFrontTab), optCmdS)
     }
 
     func testClearStaysCleared() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let store = ShortcutStore(defaults: defaults)
         store.clear(.toggleStow)
         XCTAssertNil(store.shortcut(for: .toggleStow), "Clear must not fall back to the default")
@@ -37,7 +30,7 @@ final class ShortcutStoreTests: XCTestCase {
     }
 
     func testRecordedShortcutRoundTripsPerAction() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let store = ShortcutStore(defaults: defaults)
         let f5 = KeyboardShortcut(keyCode: UInt32(kVK_F5), carbonModifiers: UInt32(cmdKey))
         store.set(f5, for: .stowFrontTab)
@@ -46,7 +39,7 @@ final class ShortcutStoreTests: XCTestCase {
     }
 
     func testAnExplicitlyRecordedShiftCommandBIsKept() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let old = KeyboardShortcut(keyCode: UInt32(kVK_ANSI_B), carbonModifiers: UInt32(cmdKey | shiftKey))
         // What older builds wrote when someone recorded ⇧⌘B themselves.
         defaults.set(try! JSONEncoder().encode(old), forKey: UserDefaultsKeys.toggleSidebarShortcut)
@@ -83,7 +76,7 @@ final class ShortcutConflictTests: XCTestCase {
     }
 
     func testTheOtherStowShortcutIsRefused() {
-        let store = ShortcutStore(defaults: freshDefaults())
+        let store = ShortcutStore(defaults: scratchDefaults())
         let reason = ShortcutConflicts.stowRejection(for: HotkeyAction.stowFrontTab.defaultShortcut, recording: .toggleStow, store: store)
         XCTAssertEqual(reason, "⌥⌘S already stows the front tab.")
         XCTAssertNil(ShortcutConflicts.stowRejection(for: HotkeyAction.toggleStow.defaultShortcut, recording: .toggleStow, store: store),
@@ -137,7 +130,7 @@ final class GlobalHotkeyServiceTests: XCTestCase {
     }
 
     func testApplyRegistersWhatIsStoredAndSkipsCleared() {
-        let store = ShortcutStore(defaults: freshDefaults())
+        let store = ShortcutStore(defaults: scratchDefaults())
         store.set(a, for: .toggleStow)
         store.clear(.stowFrontTab)
         GlobalHotkeyService.shared.apply(store)

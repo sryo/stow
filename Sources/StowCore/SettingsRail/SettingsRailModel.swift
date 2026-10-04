@@ -461,3 +461,16 @@ enum SettingsRailNewWorkspace {
         WorkspaceColorId.allCases.first { !existing.contains($0) } ?? WorkspaceColorAllocator.next(existing: existing)
     }
 }
+
+// MARK: - Motion
+
+/// Whether the rail's dot↔tile morph and tile reorder animate. Reduce Motion swaps
+/// instantly.
+enum RailMotion {
+    static func animates(windowVisible: Bool, swiping: Bool, reduceMotion: Bool) -> Bool {
+        windowVisible && !swiping && !reduceMotion
+    }
+
+    @MainActor
+    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}

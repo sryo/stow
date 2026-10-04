@@ -45,6 +45,22 @@ final class WorkspaceRestoreTests: XCTestCase {
         XCTAssertEqual(model.workspaces.last?.id, id, "an index past the end appends")
     }
 
+    func testReplaceAllSwapsInARestoredLibrary() {
+        let keep = model.workspaces[0]
+        _ = model.createWorkspace(name: "Added after the backup", colorId: .ruby)
+        let backup = AppState(schemaVersion: DataStore.currentSchemaVersion, workspaces: [keep], selectedWorkspaceId: keep.id, isSettingsSelected: false)
+        model.replaceAll(with: backup)
+        XCTAssertEqual(model.workspaces.map(\.id), [keep.id])
+        XCTAssertEqual(model.currentWorkspace.id, keep.id, "the selected workspace was dropped, so the first is selected")
+        XCTAssertEqual(AppModel(store: DataStore(baseDirectory: tempDir)).workspaces.map(\.id), [keep.id])
+    }
+
+    func testReplaceAllIgnoresAnEmptyLibrary() {
+        let before = model.workspaces.map(\.id)
+        model.replaceAll(with: AppState(schemaVersion: 2, workspaces: [], selectedWorkspaceId: nil, isSettingsSelected: false))
+        XCTAssertEqual(model.workspaces.map(\.id), before)
+    }
+
     func testKeepingFaviconsLeavesTheIconFilesForAnUndo() throws {
         let id = model.createWorkspace(name: "Research", colorId: .ocean)
         let icons = tempDir.appendingPathComponent("Icons", isDirectory: true)

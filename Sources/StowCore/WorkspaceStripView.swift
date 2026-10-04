@@ -149,7 +149,7 @@ final class WorkspaceStripView: NSView {
     }
 
     private var colors: StowTheme.Colors {
-        StowTheme.colors(for: workspaceColor, tint: StowTheme.preferredTint)
+        StowTheme.colors(for: workspaceColor, tint: StowTheme.displayTint)
     }
 
     private func updateColors() {

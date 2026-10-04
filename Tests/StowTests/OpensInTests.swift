@@ -1,25 +1,18 @@
 import XCTest
 @testable import StowCore
 
-private func freshDefaults(_ name: String = #function) -> UserDefaults {
-    let suite = "stow-tests-\(name)-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defaults.removePersistentDomain(forName: suite)
-    return defaults
-}
-
 // MARK: - Stored per workspace, per Mac
 
 final class OpensInStoreTests: XCTestCase {
     let work = UUID(), home = UUID()
 
     func testDefaultsToTheBrowserImUsing() {
-        let store = OpensInStore(defaults: freshDefaults())
+        let store = OpensInStore(defaults: scratchDefaults())
         XCTAssertNil(store.choice(for: work))
     }
 
     func testBrowserAndProfileAreStoredTogetherPerWorkspace() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let store = OpensInStore(defaults: defaults)
         store.set(OpensIn(bundleId: "com.google.Chrome", profile: "Profile 1"), for: work)
         store.set(OpensIn(bundleId: "com.apple.Safari", profile: nil), for: home)
@@ -31,7 +24,7 @@ final class OpensInStoreTests: XCTestCase {
     }
 
     func testAPinnedGlobalBrowserIsCopiedOntoEveryWorkspace() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         defaults.set(false, forKey: UserDefaultsKeys.openLinksInActiveBrowser)
         defaults.set("com.google.Chrome", forKey: UserDefaultsKeys.defaultBrowserBundleId)
         let a = Workspace(id: work, name: "Work", colorId: .ocean, items: [], browserProfiles: ["com.google.Chrome": "Profile 2"])
@@ -43,7 +36,7 @@ final class OpensInStoreTests: XCTestCase {
     }
 
     func testASyncedProfileBecomesThatWorkspacesBrowserAndProfile() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let a = Workspace(id: work, name: "Work", colorId: .ocean, items: [], browserProfiles: ["com.google.Chrome": "Profile 1"])
         let b = Workspace(id: home, name: "Home", colorId: .ruby, items: [])
         let store = OpensInStore(defaults: defaults)
@@ -53,7 +46,7 @@ final class OpensInStoreTests: XCTestCase {
     }
 
     func testMigrationRunsOnceAndNeverOverwritesAChoice() {
-        let defaults = freshDefaults()
+        let defaults = scratchDefaults()
         let store = OpensInStore(defaults: defaults)
         store.migrateIfNeeded(workspaces: [])
         let a = Workspace(id: work, name: "Work", colorId: .ocean, items: [], browserProfiles: ["com.google.Chrome": "Profile 1"])

@@ -2,13 +2,6 @@ import XCTest
 import ServiceManagement
 @testable import StowCore
 
-private func freshDefaults(_ name: String = #function) -> UserDefaults {
-    let suite = "stow-tests-\(name)-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defaults.removePersistentDomain(forName: suite)
-    return defaults
-}
-
 @MainActor
 private final class FakeLoginItem: LoginItemControlling {
     var status: SMAppService.Status = .notRegistered
@@ -43,7 +36,7 @@ final class AppPreferencesTests: XCTestCase {
 
     override func setUp() async throws {
         do {
-            defaults = freshDefaults()
+            defaults = scratchDefaults()
             login = FakeLoginItem()
             tablineApplied = []
             accessibility = true
