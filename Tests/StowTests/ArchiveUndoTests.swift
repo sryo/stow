@@ -176,6 +176,21 @@ final class ArchiveUndoTests: XCTestCase {
         XCTAssertEqual(Toast.currentMessage, "Copied")
     }
 
+    func testTheToastShowsItsWholeMessage() throws {
+        let window = NSWindow(contentRect: NSRect(x: 300, y: 300, width: 52, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { Toast.dismiss(expired: false); window.orderOut(nil) }
+        for message in ["Copied", "Archived “Lisbon”", "Already in Research"] {
+            Toast.show(message, in: window, duration: Toast.briefDuration)
+            let panel = try XCTUnwrap(window.childWindows?.last)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            let label = try XCTUnwrap(panel.contentView?.subviews.compactMap { $0 as? NSTextField }.first)
+            let needed = ceil(label.attributedStringValue.size().width)
+            XCTAssertGreaterThanOrEqual(label.frame.width, needed + 4, "“\(message)” is cut off in its toast")
+        }
+    }
+
     func testStowingAPageThatsAlreadySavedSaysWhere() throws {
         let workspaceName = model.currentWorkspace.name
         _ = model.addLink(urlString: "https://example.com/page", title: "Page", parentId: nil)

@@ -161,7 +161,9 @@ private final class ToastView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override var fittingSize: NSSize {
-        let text = ceil(label.intrinsicContentSize.width)
+        // The label draws its text 2pt in from each side; its intrinsic width can come up
+        // short of that, which cut "Copied" to "Copi…" in the rail.
+        let text = ceil(max(label.intrinsicContentSize.width, label.attributedStringValue.size().width + 4))
         guard let button else { return NSSize(width: 14 + text + 14, height: 36) }
         return NSSize(width: 14 + text + 6 + 12 + button.fittingWidth + 8, height: 36)
     }
