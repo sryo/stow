@@ -213,7 +213,7 @@ final class MainViewController: NSViewController {
             self?.model.reorderWorkspace(id: workspaceId, toIndex: index)
         }
         for (button, symbol, label, action) in [
-            (titleSettingsButton, "gearshape", "Settings", #selector(titleSettingsTapped)),
+            (titleSettingsButton, StowSymbols.settings, "Settings", #selector(titleSettingsTapped)),
             (titleAddButton, "plus", "New", #selector(showNewItemMenu)),
         ] {
             button.translatesAutoresizingMaskIntoConstraints = false

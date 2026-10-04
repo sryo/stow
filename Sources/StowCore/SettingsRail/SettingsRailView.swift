@@ -627,8 +627,13 @@ final class RailGlyphButton: FocusableControl {
         }
     }
 
+    /// The system symbol a glyph draws, when it's one (the gear matches the title row's).
+    static func symbolName(for glyph: Glyph) -> String? {
+        glyph == .gear ? StowSymbols.settings : nil
+    }
+
     private func drawGear() {
-        // 14pt circle centered in the button; "on" adds a 2pt gap and a 1.5pt ink ring.
+        // The settings symbol centered in the button; "on" adds a 2pt gap and a 1.5pt ink ring.
         let c = NSPoint(x: bounds.midX, y: bounds.midY)
         if isOn {
             colors.inkPrimary.setFill()
@@ -636,23 +641,19 @@ final class RailGlyphButton: FocusableControl {
             colors.surface.setFill()
             NSBezierPath(ovalIn: NSRect(x: c.x - 9, y: c.y - 9, width: 18, height: 18)).fill()
         }
-        let scale: CGFloat = (isHovered ? 1.2 : 1) * 12 / 16
+        let pointSize: CGFloat = isHovered ? 13 : 11
         let ink = isOn || isHovered ? colors.inkPrimary : colors.inkSecondary
-        ink.setStroke()
-        let path = NSBezierPath()
-        func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: c.x + (x - 8) * scale, y: c.y + (y - 8) * scale) }
-        path.appendOval(in: NSRect(x: c.x - 2.2 * scale, y: c.y - 2.2 * scale, width: 4.4 * scale, height: 4.4 * scale))
-        let rays: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (8, 1.6, 8, 3.4), (8, 12.6, 8, 14.4), (1.6, 8, 3.4, 8), (12.6, 8, 14.4, 8),
-            (3.5, 3.5, 4.8, 4.8), (11.2, 11.2, 12.5, 12.5), (3.5, 12.5, 4.8, 11.2), (11.2, 4.8, 12.5, 3.5),
-        ]
-        for r in rays {
-            path.move(to: p(r.0, r.1))
-            path.line(to: p(r.2, r.3))
+        guard let name = Self.symbolName(for: .gear),
+              let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: pointSize, weight: .medium)) else { return }
+        let tinted = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            ink.set()
+            rect.fill(using: .sourceAtop)
+            return true
         }
-        path.lineWidth = 1.5 * scale
-        path.lineCapStyle = .round
-        path.stroke()
+        tinted.draw(in: NSRect(x: c.x - symbol.size.width / 2, y: c.y - symbol.size.height / 2,
+                               width: symbol.size.width, height: symbol.size.height))
     }
 
     private func drawAddTile() {
