@@ -775,10 +775,18 @@ final class TablineController {
 
     private func frontWindow(of app: NSRunningApplication) -> FrontWindow? {
         let appElement = AXHelper.application(app.processIdentifier)
-        var windowRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
-              let windowRef, CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
-        let element = AXHelper.bounded(windowRef as! AXUIElement)
+        func window(_ attribute: String) -> AXUIElement? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(appElement, attribute as CFString, &ref) == .success,
+                  let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+            return (ref as! AXUIElement)
+        }
+        var listRef: CFTypeRef?
+        let windows = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &listRef) == .success
+            ? (listRef as? [AXUIElement] ?? []) : []
+        guard let chosen = FrontWindowChoice.pick(focused: window(kAXFocusedWindowAttribute),
+                                                  main: window(kAXMainWindowAttribute), windows: windows) else { return nil }
+        let element = AXHelper.bounded(chosen)
         guard let rect = axFrame(element) else { return nil }
         var fullRef: CFTypeRef?
         let isFullScreen = AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &fullRef) == .success
@@ -833,5 +841,14 @@ final class TablineController {
             _ = setAXFrame(nudge.window, nudge.original)
         }
         nudges.removeAll()
+    }
+}
+
+/// Which window of the front browser the Tabline rides. Arc reports no focused or main
+/// window to Accessibility while its window is plainly in front, so the front-most of its
+/// windows (Accessibility lists them front to back) stands in.
+enum FrontWindowChoice {
+    static func pick<Window>(focused: Window?, main: Window?, windows: [Window]) -> Window? {
+        focused ?? main ?? windows.first
     }
 }
