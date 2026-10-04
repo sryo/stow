@@ -985,6 +985,17 @@ final class NodeListViewController: NSViewController {
         let index = cursorIndex
         let row = index.flatMap { visibleRows.indices.contains($0) ? visibleRows[$0] : nil }
 
+        // In the mosaic the arrows follow the grid. ←/→ fall through to collapse/expand
+        // below when there's no tile beside the cursor.
+        if elasticMode == .mosaic, flags.isEmpty, let index,
+           let direction: ElasticLayout.Direction = [125: .down, 126: .up, 123: .left, 124: .right][event.keyCode] {
+            if let target = mosaicNeighbor(of: index, direction: direction) {
+                moveCursor(to: target)
+                return true
+            }
+            if direction == .up || direction == .down { return true }
+        }
+
         switch (event.keyCode, flags) {
         case (125, []): // down
             moveCursor(to: (index ?? -1) + 1)
@@ -1053,6 +1064,11 @@ final class NodeListViewController: NSViewController {
             return false
         }
         return true
+    }
+
+    private func mosaicNeighbor(of index: Int, direction: ElasticLayout.Direction) -> Int? {
+        let frames = visibleRows.indices.map { frameForItem(at: IndexPath(item: $0, section: 0)) ?? .zero }
+        return ElasticLayout.neighbor(of: index, direction: direction, in: frames) { isFocusable(visibleRows[$0]) }
     }
 
     private func showContextMenu(forRowAt index: Int) {

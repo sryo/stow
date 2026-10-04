@@ -47,4 +47,45 @@ final class ElasticLayoutTests: XCTestCase {
         XCTAssertEqual(f[1].height, 26)
         XCTAssertEqual(f[3].minY, f[2].maxY + 6)
     }
+
+    // MARK: - Keyboard neighbours
+
+    /// Two lines of three tiles under a header, then a wide tile on its own line:
+    /// 0 header, 1 2 3 / 4 5 6 / 7 (wide, spans the first two columns).
+    private let grid: [NSRect] = [
+        NSRect(x: 0, y: 0, width: 300, height: 24),
+        NSRect(x: 0, y: 30, width: 90, height: 80), NSRect(x: 100, y: 30, width: 90, height: 80), NSRect(x: 200, y: 30, width: 90, height: 80),
+        NSRect(x: 0, y: 120, width: 90, height: 80), NSRect(x: 100, y: 120, width: 90, height: 80), NSRect(x: 200, y: 120, width: 90, height: 80),
+        NSRect(x: 0, y: 210, width: 190, height: 38),
+    ]
+
+    func testDownAndUpMoveToTheNearestTileOnTheNextLine() {
+        XCTAssertEqual(ElasticLayout.neighbor(of: 2, direction: .down, in: grid), 5)
+        XCTAssertEqual(ElasticLayout.neighbor(of: 6, direction: .up, in: grid), 3)
+        XCTAssertEqual(ElasticLayout.neighbor(of: 6, direction: .down, in: grid), 7, "nearest by midX on a shorter line")
+        XCTAssertEqual(ElasticLayout.neighbor(of: 7, direction: .up, in: grid), 4, "a wide tile midway between two columns goes to the earlier one")
+        XCTAssertNil(ElasticLayout.neighbor(of: 7, direction: .down, in: grid), "nothing below the last line")
+    }
+
+    func testLeftAndRightStayOnTheLine() {
+        XCTAssertEqual(ElasticLayout.neighbor(of: 2, direction: .right, in: grid), 3)
+        XCTAssertEqual(ElasticLayout.neighbor(of: 2, direction: .left, in: grid), 1)
+        XCTAssertNil(ElasticLayout.neighbor(of: 3, direction: .right, in: grid), "no wrapping onto the next line")
+        XCTAssertNil(ElasticLayout.neighbor(of: 4, direction: .left, in: grid))
+        XCTAssertNil(ElasticLayout.neighbor(of: 0, direction: .right, in: grid), "a header has no horizontal neighbour")
+    }
+
+    func testIneligibleItemsAreSkipped() {
+        let tiles: (Int) -> Bool = { $0 != 0 }
+        XCTAssertNil(ElasticLayout.neighbor(of: 2, direction: .up, in: grid, eligible: tiles), "the header line is not a stop")
+        XCTAssertEqual(ElasticLayout.neighbor(of: 2, direction: .up, in: grid), 0)
+        XCTAssertEqual(ElasticLayout.neighbor(of: 4, direction: .down, in: grid, eligible: { $0 != 7 }), nil)
+    }
+
+    func testTilesOfDifferentHeightsShareALine() {
+        let mixed = [NSRect(x: 0, y: 0, width: 90, height: 80), NSRect(x: 100, y: 0, width: 190, height: 38),
+                     NSRect(x: 0, y: 90, width: 90, height: 80)]
+        XCTAssertEqual(ElasticLayout.neighbor(of: 0, direction: .right, in: mixed), 1)
+        XCTAssertEqual(ElasticLayout.neighbor(of: 1, direction: .down, in: mixed), 2)
+    }
 }
