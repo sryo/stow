@@ -39,7 +39,6 @@ struct TablineStripModel {
     var liveIndices: Set<Int> = []
     var ghost: TablineGhost?
     var pocketCount = 0
-    var showsSearch = false
 }
 
 /// Strip colors: the workspace color mixed into a near-white (light) or near-black (dark)
@@ -139,7 +138,7 @@ extension SiteGlyph {
 /// 32pt strip, 24pt items, 14pt glyphs, and three width tiers (full names, short names,
 /// icons only) before the trailing tabs fold into a "+n" overflow.
 final class TablineStripView: NSView {
-    enum Kind: Equatable { case chip, tab(Int), group(Int), ghost, overflow, search, pocket }
+    enum Kind: Equatable { case chip, tab(Int), group(Int), ghost, overflow, pocket }
     enum Tier { case full, short, icon }
 
     /// Called on click with the clicked part and its rect in this view's (flipped) coordinates.
@@ -233,8 +232,6 @@ final class TablineStripView: NSView {
         return base + 5 + min(M.ghostTitleMax, Self.width(ghost.label, Self.font(.semibold))) + 8 + 1
     }
 
-    private var searchWidth: CGFloat { model.showsSearch ? 6 + Self.width("⌕", Self.font(.regular)) + 6 : 0 }
-
     private func pocketWidth(_ tier: Tier) -> CGFloat {
         guard model.pocketCount > 0 else { return 0 }
         let glyph = 6 + Self.width("◫", Self.font(.regular)) + 6
@@ -258,7 +255,6 @@ final class TablineStripView: NSView {
         func trailing(_ t: Tier) -> CGFloat {
             var total = M.gap + 4 + M.pad   // gap to spacer, spacer's minimum, right padding
             if model.ghost != nil { total += M.gap + ghostWidth(t) }
-            if model.showsSearch { total += M.gap + searchWidth }
             if model.pocketCount > 0 { total += M.gap + pocketWidth(t) }
             return total
         }
@@ -314,16 +310,9 @@ final class TablineStripView: NSView {
         if model.ghost != nil {
             items.append((.ghost, rect(x, ghostWidth(tier))))
         }
-        var right = w - M.pad
         if model.pocketCount > 0 {
             let width = pocketWidth(tier)
-            right -= width
-            items.append((.pocket, rect(right, width)))
-            right -= M.gap
-        }
-        if model.showsSearch {
-            right -= searchWidth
-            items.append((.search, rect(right, searchWidth)))
+            items.append((.pocket, rect(w - M.pad - width, width)))
         }
         needsDisplay = true
     }
@@ -371,7 +360,6 @@ final class TablineStripView: NSView {
             return "\(folder.name), folder, \(links.count) sites\(open(i))"
         case .ghost: return model.ghost.map { "Stow this page, \($0.host), to \(model.name)" } ?? ""
         case .overflow: return "\(hiddenEntryIndices.count) more"
-        case .search: return "Search all workspaces"
         case .pocket: return "Tasks and snippets, \(model.pocketCount)"
         }
     }
@@ -404,7 +392,6 @@ final class TablineStripView: NSView {
             case .group(let i): drawGroup(i, item.rect, p)
             case .ghost: drawGhost(item.rect, p)
             case .overflow: drawOverflow(item.rect, p)
-            case .search: drawTool("⌕", count: nil, item.rect, p, kind: .search)
             case .pocket: drawTool("◫", count: tier == .icon ? nil : model.pocketCount, item.rect, p, kind: .pocket)
             }
         }
@@ -599,7 +586,6 @@ final class TablineStripView: NSView {
             return "\(folder.name) · \(links.count) sites"
         case .ghost: return model.ghost.map { "Stow this page\n\($0.host) → \(model.name)" }
         case .overflow: return "\(hiddenEntryIndices.count) more"
-        case .search: return "Search all workspaces"
         case .pocket: return "Tasks & snippets in \(model.name)"
         }
     }

@@ -25,7 +25,6 @@ final class TablineStripViewTests: XCTestCase {
         model.ghost = TablineGhost(url: URL(string: "https://developer.mozilla.org/en-US/docs/Web/API/Popover_API")!,
                                    title: "MDN · Popover API", host: "developer.mozilla.org")
         model.pocketCount = 3
-        model.showsSearch = true
         return model
     }
 
@@ -64,8 +63,8 @@ final class TablineStripViewTests: XCTestCase {
     func testEveryStripPartIsAVoiceOverButton() {
         let view = strip(width: 1100)
         let children = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
-        // chip, five entries, ghost, search, pocket
-        XCTAssertEqual(children.count, 9)
+        // chip, five entries, ghost, pocket
+        XCTAssertEqual(children.count, 8)
         XCTAssertTrue(children.allSatisfy { $0.accessibilityRole() == .button })
         let labels = children.compactMap { $0.accessibilityLabel() }
         XCTAssertTrue(labels.contains { $0.hasPrefix("GitHub") }, "labels: \(labels)")
@@ -78,6 +77,12 @@ final class TablineStripViewTests: XCTestCase {
             return XCTFail("no GitHub element")
         }
         XCTAssertEqual(github.accessibilityFrameInParentSpace(), tab)
+    }
+
+    func testStripHasNoSearchTool() {
+        let view = strip(width: 1100)
+        let labels = (view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
+        XCTAssertFalse(labels.contains { $0.hasPrefix("Search") }, "labels: \(labels)")
     }
 
     func testPressingAStripElementActivatesThatPart() {
