@@ -430,39 +430,6 @@ enum PermissionNeed: Equatable {
     }
 }
 
-// MARK: - Tile identity
-
-/// What a workspace tile shows: its favicon mosaic, a letter, or a symbol.
-enum WorkspaceTileIdentity: Equatable {
-    case mosaic([Link]), letter(String), symbol(String)
-
-    /// The eight symbols the editor offers, as SF Symbols.
-    static let symbols = ["house", "hammer", "book", "flask", "paperplane", "star", "music.note", "cart"]
-
-    static func resolve(_ workspaces: [Workspace]) -> [UUID: WorkspaceTileIdentity] {
-        var result: [UUID: WorkspaceTileIdentity] = [:]
-        var letterItems: [(id: UUID, name: String)] = []
-        for workspace in workspaces {
-            switch workspace.icon {
-            case .symbol(let name):
-                result[workspace.id] = .symbol(name)
-            case .favicons:
-                let links = WorkspaceIconSites.pick(from: workspace.items)
-                if links.isEmpty {
-                    letterItems.append((workspace.id, workspace.name))
-                } else {
-                    result[workspace.id] = .mosaic(links)
-                }
-            case .letter:
-                letterItems.append((workspace.id, workspace.name))
-            }
-        }
-        // Letters only need to differ from the other letter tiles.
-        for (id, letters) in WorkspaceMonogram.assign(letterItems) { result[id] = .letter(letters) }
-        return result
-    }
-}
-
 // MARK: - New workspace
 
 /// The dashed tile's new workspace takes the next palette color nobody uses, and a

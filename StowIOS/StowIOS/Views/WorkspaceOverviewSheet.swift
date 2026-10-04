@@ -247,10 +247,13 @@ private struct WorkspaceCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(workspace.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    WorkspaceBadge(colorId: workspace.colorId, identity: viewModel.workspaceIdentities[workspace.id], size: 28)
+                    Text(workspace.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
 
                 Divider()
 

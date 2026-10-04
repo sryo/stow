@@ -9,7 +9,7 @@ import os
 public final class FaviconService {
     public static let shared = FaviconService()
 
-    private let store = DataStore()
+    private var store = DataStore()
     private let session: URLSession
     private let logger = Logger(subsystem: "com.stow.app", category: "favicon")
     private let failureCooldown: TimeInterval = 300
@@ -24,6 +24,14 @@ public final class FaviconService {
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 8
         self.session = URLSession(configuration: config)
+    }
+
+    /// Keeps icons under `baseDirectory`'s Icons folder from now on. The iPhone points
+    /// this at the App Group so the widget and the Live Activity can draw the same files.
+    public func useIcons(in baseDirectory: URL) {
+        store = DataStore(baseDirectory: baseDirectory)
+        cache.removeAll()
+        cachedPaths.removeAll()
     }
 
     public func favicon(for url: URL, cachedPath: String?, completion: @escaping (PlatformImage?, String?) -> Void) {
@@ -51,7 +59,7 @@ public final class FaviconService {
         }
 
         let iconsDir = store.iconsDirectory()
-        let fileName = key.replacingOccurrences(of: ":", with: "_") + ".ico"
+        let fileName = FaviconStorage.fileName(forHost: key)
         let fileURL = iconsDir.appendingPathComponent(fileName)
 
         if let cachedPath, FileManager.default.fileExists(atPath: cachedPath),
@@ -166,5 +174,51 @@ public final class FaviconService {
             logger.debug("Favicon fetch error \(url.absoluteString, privacy: .public)")
         }
         return nil
+    }
+}
+
+/// How favicon files are named and found on disk, for every process that draws them.
+public enum FaviconStorage {
+    /// Icons are cached once per host: `example.com.ico`, `localhost_8080.ico`.
+    public static func fileName(forHost host: String) -> String {
+        host.lowercased().replacingOccurrences(of: ":", with: "_") + ".ico"
+    }
+
+    /// The name of `link`'s icon inside `iconsDirectory`, or nil when none is on disk.
+    /// The host file comes first because `faviconPath` is absolute and may point into
+    /// another process's container.
+    public static func fileName(for link: Link, in iconsDirectory: URL) -> String? {
+        var candidates: [String] = []
+        let urlString = link.url.contains("://") ? link.url : "https://\(link.url)"
+        if let host = URL(string: urlString)?.host, !host.isEmpty {
+            candidates.append(fileName(forHost: host))
+        }
+        if let path = link.faviconPath {
+            candidates.append((path as NSString).lastPathComponent)
+        }
+        return candidates.first { name in
+            !name.isEmpty && FileManager.default.fileExists(atPath: iconsDirectory.appendingPathComponent(name).path)
+        }
+    }
+
+    /// Moves every icon from `source` into `destination`, keeping a destination file
+    /// that already exists. Returns how many files were moved.
+    @discardableResult
+    public static func moveIcons(from source: URL, to destination: URL) -> Int {
+        let fileManager = FileManager.default
+        guard source.standardizedFileURL != destination.standardizedFileURL,
+              let files = try? fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil),
+              !files.isEmpty else { return 0 }
+        try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        var moved = 0
+        for file in files {
+            let target = destination.appendingPathComponent(file.lastPathComponent)
+            if fileManager.fileExists(atPath: target.path) {
+                try? fileManager.removeItem(at: file)
+            } else if (try? fileManager.moveItem(at: file, to: target)) != nil {
+                moved += 1
+            }
+        }
+        return moved
     }
 }

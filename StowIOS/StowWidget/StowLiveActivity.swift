@@ -1,5 +1,6 @@
 import ActivityKit
 import SwiftUI
+import UIKit
 import WidgetKit
 import StowShared
 
@@ -7,15 +8,17 @@ import StowShared
 struct StowLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: StowActivityAttributes.self) { context in
-            LockScreenView(state: context.state)
-                .activityBackgroundTint(Color(context.state.colors.surface))
-                .activitySystemActionForegroundColor(Color(context.state.colors.inkPrimary))
+            let style = StowActivityAttributes.LockScreenStyle(colorHex: context.state.colorHex)
+            LockScreenView(state: context.state, style: style)
+                .activityBackgroundTint(Color(rgb: style.background))
+                .activitySystemActionForegroundColor(Color(rgb: style.name))
         } dynamicIsland: { context in
             let state = context.state
             let island = state.colors.dark
+            let light = state.colors.light
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    MonogramDisc(state: state, size: 36)
+                    MonogramDisc(state: state, size: 36, fill: Color(rgb: light.surface), ink: Color(rgb: light.inkPrimary))
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
@@ -38,17 +41,17 @@ struct StowLiveActivity: Widget {
                     .padding(.top, 6)
                 }
             } compactLeading: {
-                MonogramDisc(state: state, size: 22)
+                MonogramDisc(state: state, size: 22, fill: Color(rgb: light.surface), ink: Color(rgb: light.inkPrimary))
             } compactTrailing: {
                 Text("\(state.linkCount)")
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(Color(rgb: state.colors.light.surface))
+                    .foregroundStyle(Color(rgb: light.surface))
                     .accessibilityLabel(linkCountLabel(state.linkCount))
             } minimal: {
-                MonogramDisc(state: state, size: 22)
+                MonogramDisc(state: state, size: 22, fill: Color(rgb: light.surface), ink: Color(rgb: light.inkPrimary))
             }
-            .keylineTint(Color(rgb: state.colors.light.surface))
+            .keylineTint(Color(rgb: light.surface))
         }
     }
 }
@@ -57,54 +60,92 @@ private func linkCountLabel(_ count: Int) -> String {
     count == 1 ? "1 link" : "\(count) links"
 }
 
+/// Drawn entirely from `style`, one palette, so the text always matches the card.
 private struct LockScreenView: View {
     let state: StowActivityAttributes.ContentState
+    let style: StowActivityAttributes.LockScreenStyle
 
     var body: some View {
-        let colors = state.colors
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                MonogramDisc(state: state, size: 28)
+                MonogramDisc(state: state, size: 28, fill: Color(rgb: style.monogramFill), ink: Color(rgb: style.monogramInk))
                 Text(state.name)
                     .font(.headline)
+                    .foregroundStyle(Color(rgb: style.name))
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text(linkCountLabel(state.linkCount))
                     .font(.caption)
-                    .foregroundStyle(Color(colors.inkSecondary))
+                    .foregroundStyle(Color(rgb: style.caption))
             }
             LinkRow(
                 links: state.links,
-                tileFill: Color(colors.paper),
-                tileInk: Color(colors.inkPrimary),
-                titleColor: Color(colors.inkSecondary)
+                tileFill: Color(rgb: style.tileFill),
+                tileInk: Color(rgb: style.tileInk),
+                titleColor: Color(rgb: style.caption)
             )
         }
-        .foregroundStyle(Color(colors.inkPrimary))
         .padding(14)
     }
 }
 
-/// The workspace's color with its monogram, drawn from the light palette so the letters
-/// keep their contrast against the pastel fill on the black island.
+/// The workspace's badge as the Mac's workspace tile draws it: its favicon mosaic, its
+/// symbol, or its letters.
 private struct MonogramDisc: View {
     let state: StowActivityAttributes.ContentState
     let size: CGFloat
+    let fill: Color
+    let ink: Color
+
+    private var scale: CGFloat { size / 36 }
 
     var body: some View {
-        let palette = state.colors.light
-        Circle()
-            .fill(Color(rgb: palette.surface))
-            .overlay {
-                Text(state.monogram)
-                    .font(.system(size: size * (state.monogram.count > 1 ? 0.4 : 0.5), weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(rgb: palette.inkPrimary))
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
-                    .padding(size * 0.12)
-            }
+        let shape = RoundedRectangle(cornerRadius: size * 11 / 36, style: .continuous)
+        shape
+            .fill(fill)
+            .overlay { content }
+            .clipShape(shape)
             .frame(width: size, height: size)
             .accessibilityLabel(state.name)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let icons = state.badgeIcons, !icons.isEmpty {
+            let inset = 4 * scale, gap = 2 * scale
+            let cell = (size - inset * 2 - gap) / 2
+            VStack(spacing: gap) {
+                ForEach(0..<2, id: \.self) { row in
+                    HStack(spacing: gap) {
+                        ForEach(0..<2, id: \.self) { column in
+                            let index = row * 2 + column
+                            let shape = RoundedRectangle(cornerRadius: 4 * scale, style: .continuous)
+                            if index < icons.count, let image = FaviconImage.load(icons[index]) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: cell, height: cell)
+                                    .clipShape(shape)
+                            } else {
+                                shape.fill(Color.black.opacity(0.12)).frame(width: cell, height: cell)
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let symbol = state.badgeSymbol {
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(ink)
+        } else {
+            Text(state.monogram)
+                .font(.system(size: size * (state.monogram.count > 1 ? 0.4 : 0.48), weight: .heavy))
+                .foregroundStyle(ink)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+                .padding(size * 0.1)
+        }
     }
 }
 
@@ -145,9 +186,18 @@ private struct LinkRow: View {
                 .fill(tileFill)
                 .frame(width: 34, height: 34)
                 .overlay {
-                    Text(link.tileLetter)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(tileInk)
+                    if let favicon = FaviconImage.load(link.iconFile) {
+                        Image(uiImage: favicon)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 20, height: 20)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    } else {
+                        Text(link.tileLetter)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(tileInk)
+                    }
                 }
             Text(link.title)
                 .font(.system(size: 10))
@@ -167,7 +217,7 @@ private extension StowActivityAttributes.ContentState {
     }
 }
 
-private extension Color {
+extension Color {
     init(rgb: StowTheme.RGB) {
         self.init(red: rgb.r, green: rgb.g, blue: rgb.b)
     }

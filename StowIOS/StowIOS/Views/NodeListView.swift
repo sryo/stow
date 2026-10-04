@@ -88,7 +88,7 @@ struct NodeListView: View {
                 } else {
                     ForEach(displayedItems, id: \.id) { node in
                         selectableRow(for: node)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            .swipeActions(edge: .trailing, allowsFullSwipe: RowSwipe.allowsFullSwipe) {
                                 Button {
                                     viewModel.archive([node.id], undoManager: undoManager)
                                 } label: {
@@ -96,7 +96,7 @@ struct NodeListView: View {
                                 }
                                 .tint(StowTheme.Colors.actionArchiveColor)
                             }
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            .swipeActions(edge: .leading, allowsFullSwipe: RowSwipe.allowsFullSwipe) {
                                 leadingSwipeAction(for: node)
                             }
                             .listRowBackground(Color.clear)
@@ -117,14 +117,14 @@ struct NodeListView: View {
                         ForEach(archivedItems, id: \.id) { node in
                             NodeRowView(node: node, parentId: nil, isArchived: true)
                                 // Deleting for good takes a deliberate tap, not a full swipe.
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                .swipeActions(edge: .trailing, allowsFullSwipe: RowSwipe.allowsFullSwipe) {
                                     Button(role: .destructive) {
                                         viewModel.deletePermanently(node.id, undoManager: undoManager)
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
-                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                .swipeActions(edge: .leading, allowsFullSwipe: RowSwipe.allowsFullSwipe) {
                                     Button {
                                         viewModel.model.unarchiveNode(id: node.id)
                                     } label: {
@@ -251,6 +251,13 @@ struct NodeListView: View {
             EmptyView()
         }
     }
+}
+
+/// Row swipe actions share the horizontal drag with workspace paging, so none of them
+/// fire on a full swipe: a swipe meant to page could otherwise archive or open the row.
+/// The revealed button still takes a tap.
+enum RowSwipe {
+    static let allowsFullSwipe = false
 }
 
 /// Applies a SwiftUI `.onMove` to the model. `destination` is a gap among the rows the

@@ -105,7 +105,7 @@ public final class DataStore {
                     referenced.insert((path as NSString).lastPathComponent)
                 }
                 if let host = URL(string: link.url)?.host {
-                    referenced.insert(host.lowercased().replacingOccurrences(of: ":", with: "_") + ".ico")
+                    referenced.insert(FaviconStorage.fileName(forHost: host))
                 }
             }
         }

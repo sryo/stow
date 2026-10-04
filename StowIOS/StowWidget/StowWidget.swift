@@ -48,13 +48,24 @@ struct StowWidgetEntryView: View {
                 let maxLinks = family == .systemSmall ? 4 : 8
                 let links = Array(entry.links.prefix(maxLinks))
 
+                let icons = AppGroup.iconsDirectory
+
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: family == .systemSmall ? 2 : 4), spacing: 6) {
                     ForEach(links) { link in
                         if let url = URL(string: link.url) {
                             SwiftUI.Link(destination: url) {
                                 VStack(spacing: 2) {
-                                    Image(systemName: "globe")
-                                        .font(.title3)
+                                    if let favicon = FaviconImage.load(FaviconStorage.fileName(for: link, in: icons)) {
+                                        Image(uiImage: favicon)
+                                            .resizable()
+                                            .interpolation(.high)
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 22, height: 22)
+                                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                    } else {
+                                        Image(systemName: "globe")
+                                            .font(.title3)
+                                    }
                                     Text(link.title)
                                         .font(.system(size: 9))
                                         .lineLimit(1)
