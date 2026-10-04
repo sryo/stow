@@ -46,10 +46,10 @@ final class StateAndSyncMacTests: XCTestCase {
         model.selectWorkspace(id: model.workspaces[0].id)
         harness.host(width: 400)
         let controller = harness.controller!
-        controller.pagerDidUpdateOffset(1.3)          // toward the second workspace
+        controller.pageSwipe.pagerDidUpdateOffset(1.3)          // toward the second workspace
         let id = model.addLink(urlString: "https://late.test", title: "Late", parentId: nil)
         harness.spin()                                // the scheduled reload lands mid-swipe
-        controller.pagerDidSnapToPage(1)              // springs back to the first workspace
+        controller.pageSwipe.pagerDidSnapToPage(1)              // springs back to the first workspace
         XCTAssertEqual(harness.nodeList.visibleNode(at: 0)?.id, id,
                        "the reload skipped mid-swipe runs once the swipe ends")
     }

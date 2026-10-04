@@ -103,7 +103,11 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **WorkspaceImporter** - Imports workspace files and restores favicons
 
 **UI Components**:
-- **MainViewController** - Collection view-based hierarchical list with animations (~1240 lines)
+- **MainViewController** - The main window: elastic modes, the page chrome, data reload and the commands AppDelegate calls (~1400 lines). Its concerns live in:
+  - **RailCoordinator** - Rail wiring, reload, visibility and the dots↔tiles transition into the Settings rail
+  - **LinkActions** - Opening links and folders, stowing the front tab or a URL, title fetches
+  - **KeyboardRouter** - Key and modifier monitors, ⌘-hold jump letters, ⌘J jump mode, "/" and Esc
+  - **PageSwipeCoordinator** - Swipes between pages: snapshots, preloading, the `ScrollWheelPageDelegate`, reloads deferred to the snap
 - **NodeListViewController** - Manages collection view, drag-drop, context menus (~1150 lines, extracted from MainViewController)
 - **SearchCoordinator** - Handles search/filtering logic (extracted from MainViewController)
 - **SettingsContentViewController** - The Settings page at list and sidebar widths: workspace rows (a click opens the workspace editor) and the app sheet

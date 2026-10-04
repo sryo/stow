@@ -19,7 +19,7 @@ final class MainViewController: NSViewController {
     private(set) lazy var rail = RailCoordinator(main: self)
     /// Opening and stowing links.
     private(set) lazy var links = LinkActions(model: model, window: { [weak self] in self?.view.window })
-    private var railView: RailView { rail.railView }
+    var railView: RailView { rail.railView }
     /// Rename, Edit URL, due date and snippet flyouts, for the list, the mosaic and the rail.
     let itemFlyouts = ItemFlyouts()
     /// The one snippet editor, moved between snippets.
@@ -56,18 +56,9 @@ final class MainViewController: NSViewController {
     // Content containers (show/hide for page switching)
     let contentStack = NSStackView()
 
-    // Swipe state
-    private(set) var isSwiping = false
-    /// A reload asked for mid-swipe, run once the swipe ends.
-    private var needsReloadAfterSwipe = false
-    private var lastAddNewHapticTime: TimeInterval = 0
-    private var outgoingSnapshotView: NSImageView?
-    private var swipeStartPageIndex: Int = 0
-    private var preloadedPageIndex: Int?
-    private var swipeDirection: Int = 0 // -1 backward, 0 none, +1 forward
-    /// The rail's items as they were when a rail swipe began, sliding out with the finger.
-    private var railOutgoingSnapshot: NSImageView?
-    private var isRailSwipe: Bool { elasticMode == .rail && !railView.isHidden }
+    /// Swipes between pages.
+    private(set) lazy var pageSwipe = PageSwipeCoordinator(main: self)
+    var isSwiping: Bool { pageSwipe.isSwiping }
 
     /// Jump letters, ⌘-hold, "/" and Esc.
     private lazy var keyboard = KeyboardRouter(main: self)
@@ -388,7 +379,7 @@ final class MainViewController: NSViewController {
         wireEmptyState()
 
         // Setup page controller
-        pageController.delegate = self
+        pageController.delegate = pageSwipe
         pageController.excludedView = workspaceSwitcher
     }
 
@@ -659,12 +650,12 @@ final class MainViewController: NSViewController {
     // MARK: - Data Reload
 
     /// `animated: false` swaps the list without a diff, for content a swipe preview replaced.
-    private func reloadData(animated: Bool = true) {
+    func reloadData(animated: Bool = true) {
         if isSwiping {
-            needsReloadAfterSwipe = true
+            pageSwipe.needsReloadAfterSwipe = true
             return
         }
-        needsReloadAfterSwipe = false
+        pageSwipe.needsReloadAfterSwipe = false
 
         // Cancel any in-progress inline rename if node is deleted
         if let renameId = nodeListViewController.inlineRenameNodeId,
@@ -828,12 +819,12 @@ final class MainViewController: NSViewController {
     // MARK: - Page Navigation
 
     /// Returns the total number of pages: settings + workspaces + add-new.
-    private func totalPageCount() -> Int {
+    func totalPageCount() -> Int {
         model.workspaces.count + 2
     }
 
     /// Returns the current page index based on model state.
-    private func currentPageIndex() -> Int {
+    func currentPageIndex() -> Int {
         if model.state.isSettingsSelected { return 0 }
         if let idx = model.workspaces.firstIndex(where: { $0.id == model.currentWorkspace.id }) {
             return idx + 1
@@ -842,7 +833,7 @@ final class MainViewController: NSViewController {
     }
 
     /// Returns the color for a page index.
-    private func colorForPage(_ pageIndex: Int) -> WorkspaceColorId {
+    func colorForPage(_ pageIndex: Int) -> WorkspaceColorId {
         if pageIndex == 0 { return .settingsBackground }
         let workspaceIdx = pageIndex - 1
         if workspaceIdx < model.workspaces.count {
@@ -855,7 +846,7 @@ final class MainViewController: NSViewController {
     }
 
     /// Width of the content area (used as page width for swipe calculations).
-    private var contentAreaWidth: CGFloat {
+    var contentAreaWidth: CGFloat {
         view.bounds.width - 2 * LayoutConstants.windowPadding
     }
 
@@ -870,14 +861,14 @@ final class MainViewController: NSViewController {
 
     // MARK: - Content Show/Hide
 
-    private func showSettingsContent() {
+    func showSettingsContent() {
         contentStack.isHidden = true
         // In rail mode Settings is the rail of workspace tiles, not the page.
         settingsViewController.view.isHidden = elasticMode == .rail
         rail.updateRailVisibility()
     }
 
-    private func showWorkspaceContent() {
+    func showWorkspaceContent() {
         if !settingsViewController.view.isHidden { settingsViewController.closeFlyouts() }
         settingsViewController.view.isHidden = true
         contentStack.isHidden = false
@@ -1156,7 +1147,7 @@ final class MainViewController: NSViewController {
         links.stowFrontTab()
     }
 
-    private func updateSettingsConstraints() {
+    func updateSettingsConstraints() {
         // Only while Settings is on screen (or mid-swipe toward it) does its width matter.
         let needed = (model.state.isSettingsSelected || isSwiping) && elasticMode != .rail
         if needed {
@@ -1379,260 +1370,6 @@ final class MainViewController: NSViewController {
         let workspace = model.workspaces[index]
         model.selectWorkspace(id: workspace.id)
         pageController.jumpToPage(index + 1)
-    }
-
-    // MARK: - Swipe Transition Helpers
-
-    private func captureContentSnapshot() -> NSImageView? {
-        let sourceView: NSView
-        if model.state.isSettingsSelected {
-            sourceView = settingsViewController.view
-        } else {
-            sourceView = nodeListViewController.view
-        }
-        guard !sourceView.isHidden else { return nil }
-
-        let bounds = sourceView.bounds
-        guard bounds.width > 0, bounds.height > 0 else { return nil }
-
-        guard let bitmapRep = sourceView.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
-        sourceView.cacheDisplay(in: bounds, to: bitmapRep)
-
-        let image = NSImage(size: bounds.size)
-        image.addRepresentation(bitmapRep)
-
-        let imageView = NSImageView()
-        imageView.image = image
-        imageView.imageScaling = .scaleNone
-        imageView.wantsLayer = true
-
-        let frameInView = sourceView.convert(bounds, to: self.view)
-        imageView.frame = frameInView
-
-        return imageView
-    }
-
-    private func preloadIncomingPage(_ targetPageIndex: Int) {
-        guard targetPageIndex != preloadedPageIndex else { return }
-        preloadedPageIndex = targetPageIndex
-
-        let workspaceCount = model.workspaces.count
-
-        if isRailSwipe {
-            // The rail keeps its dots; only the items under them change to the incoming page's.
-            let index = RailSwipe.workspaceIndex(forPage: targetPageIndex, workspaceCount: model.workspaces.count)
-            railView.previewItems(index.map { model.workspaces[$0].items } ?? [])
-            return
-        }
-        if targetPageIndex == 0 {
-            showSettingsContent()
-        } else if targetPageIndex >= 1 && targetPageIndex <= workspaceCount {
-            showWorkspaceContent()
-            let workspaceIdx = targetPageIndex - 1
-            let workspace = model.workspaces[workspaceIdx]
-            let filteredNodes = searchCoordinator.filter(nodes: workspace.items)
-            nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
-            nodeListViewController.reloadData(with: filteredNodes, forceExpand: false, animated: false)
-        }
-        // Add-new page: no content to show
-    }
-
-    private func beginSwipeTransition() {
-        nodeListViewController.emptyStateOverlay.settle()
-        updateSettingsConstraints()
-        swipeStartPageIndex = currentPageIndex()
-        preloadedPageIndex = nil
-        swipeDirection = 0
-
-        if isRailSwipe {
-            railOutgoingSnapshot = railView.snapshotItems()
-            railView.setItemsOffset(view.bounds.width)
-        } else if let snapshot = captureContentSnapshot() {
-            outgoingSnapshotView = snapshot
-            view.addSubview(snapshot)
-        }
-    }
-
-    private func cleanupSwipeTransition() {
-        outgoingSnapshotView?.removeFromSuperview()
-        outgoingSnapshotView = nil
-        railOutgoingSnapshot?.removeFromSuperview()
-        railOutgoingSnapshot = nil
-        railView.setItemsOffset(0)
-        preloadedPageIndex = nil
-        swipeDirection = 0
-        nodeListViewController.view.layer?.transform = CATransform3DIdentity
-        nodeListViewController.view.alphaValue = 1.0
-    }
-
-    /// Whether the current swipe is between two workspace pages (not settings or add-new).
-    private var isWorkspaceToWorkspaceSwipe: Bool {
-        let target = swipeStartPageIndex + swipeDirection
-        let workspaceCount = model.workspaces.count
-        return swipeStartPageIndex >= 1 && swipeStartPageIndex <= workspaceCount
-            && target >= 1 && target <= workspaceCount
-    }
-}
-
-// MARK: - ScrollWheelPageDelegate
-
-extension MainViewController: ScrollWheelPageDelegate {
-
-    func pagerDidUpdateOffset(_ offset: CGFloat) {
-        // Swipe detection
-        if !isSwiping {
-            let isFractional = abs(offset - offset.rounded()) > 0.001
-            if isFractional {
-                isSwiping = true
-                beginSwipeTransition()
-            } else {
-                applyBackgroundColor(for: colorForPage(Int(offset.rounded())))
-                return
-            }
-        }
-
-        let startPage = CGFloat(swipeStartPageIndex)
-        let delta = offset - startPage
-        let width = contentAreaWidth
-
-        // Direction tracking — detect changes and preload incoming
-        let newDirection: Int = delta > 0.001 ? 1 : (delta < -0.001 ? -1 : 0)
-        if newDirection != 0 && newDirection != swipeDirection {
-            swipeDirection = newDirection
-            let targetPage = swipeStartPageIndex + newDirection
-            preloadIncomingPage(targetPage)
-        }
-
-        if isRailSwipe {
-            let t = RailSwipe.translations(delta: delta, direction: swipeDirection == 0 ? 1 : swipeDirection, width: view.bounds.width)
-            railOutgoingSnapshot?.layer?.transform = CATransform3DMakeTranslation(t.outgoing, 0, 0)
-            railView.setItemsOffset(t.incoming)
-        }
-
-        // Position outgoing snapshot (slides away from center)
-        let txOut = -delta * width
-        outgoingSnapshotView?.layer?.transform = CATransform3DMakeTranslation(txOut, 0, 0)
-        outgoingSnapshotView?.alphaValue = 1.0
-
-        // Position incoming content
-        let targetPage = swipeStartPageIndex + swipeDirection
-        let isAddNewPage = targetPage >= totalPageCount() - 1
-
-        if targetPage < 0 {
-            // Edge bounce past first page: hide source view so it doesn't
-            // show through behind the translating snapshot.
-            settingsViewController.view.isHidden = true
-        } else {
-            let swipeFromWorkspace = swipeStartPageIndex >= 1
-                && swipeStartPageIndex <= model.workspaces.count
-
-            if isAddNewPage {
-                // Add-new page: hide incoming content, just show background
-                if swipeFromWorkspace {
-                    nodeListViewController.view.alphaValue = 0
-                } else {
-                    contentStack.alphaValue = 0
-                }
-                settingsViewController.view.alphaValue = 0
-            } else if swipeDirection != 0 {
-                let incomingView: NSView
-                if targetPage == 0 {
-                    incomingView = settingsViewController.view
-                } else if isWorkspaceToWorkspaceSwipe {
-                    incomingView = nodeListViewController.view
-                } else {
-                    incomingView = contentStack
-                }
-                let txIn: CGFloat
-                if delta > 0 {
-                    txIn = (1.0 - delta) * width
-                } else {
-                    txIn = (-1.0 - delta) * width
-                }
-                incomingView.layer?.transform = CATransform3DMakeTranslation(txIn, 0, 0)
-                incomingView.alphaValue = 1.0
-            }
-        }
-
-        // Interpolate background color
-        let fromPage = max(0, Int(floor(offset)))
-        let toPage = min(totalPageCount() - 1, fromPage + 1)
-        let fraction = offset - CGFloat(fromPage)
-
-        let fromColor = resolvedColor(colorForPage(fromPage).adaptiveBackgroundColor)
-        let toColor = resolvedColor(colorForPage(toPage).adaptiveBackgroundColor)
-
-        if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
-            view.layer?.backgroundColor = blended.cgColor
-            view.window?.backgroundColor = blended
-        }
-
-        // Update workspace switcher sliding highlight
-        workspaceSwitcher.visualPageOffset = offset
-
-        // Continuous haptic while dragging into the add-new zone
-        let lastWorkspacePage = CGFloat(totalPageCount() - 2)
-        if offset > lastWorkspacePage + 0.01 {
-            let now = CACurrentMediaTime()
-            if now - lastAddNewHapticTime >= 0.05 {
-                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-                lastAddNewHapticTime = now
-            }
-        }
-    }
-
-    /// Flattens a dynamic color to a concrete sRGB color in the current appearance.
-    private func resolvedColor(_ color: NSColor) -> NSColor {
-        var result = color
-        view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            result = color.usingColorSpace(.sRGB) ?? color
-        }
-        return result
-    }
-
-    func pagerDidSnapToPage(_ pageIndex: Int) {
-        workspaceSwitcher.visualPageOffset = nil
-
-        cleanupSwipeTransition()
-
-        // Reset transforms and alpha on all content views
-        contentStack.layer?.transform = CATransform3DIdentity
-        settingsViewController.view.layer?.transform = CATransform3DIdentity
-        nodeListViewController.view.layer?.transform = CATransform3DIdentity
-        contentStack.alphaValue = 1.0
-        settingsViewController.view.alphaValue = 1.0
-        nodeListViewController.view.alphaValue = 1.0
-
-        let pageCount = totalPageCount()
-
-        if pageIndex == 0 {
-            model.selectSettings()
-        } else if pageIndex >= pageCount - 1 {
-            isSwiping = false
-            if needsReloadAfterSwipe { reloadData(animated: false) }
-            promptCreateWorkspace()
-            return
-        } else {
-            let workspaceIdx = pageIndex - 1
-            if workspaceIdx < model.workspaces.count {
-                model.selectWorkspace(id: model.workspaces[workspaceIdx].id)
-            }
-        }
-
-        // The swipe ends before reloading, or reloadData would skip it as mid-swipe. This
-        // reload also covers anything recorded in needsReloadAfterSwipe. The list holds the
-        // previewed page, so there's nothing meaningful to animate from.
-        isSwiping = false
-        reloadData(animated: false)
-        applyBackgroundColor(for: colorForPage(pageIndex))
-    }
-
-    func pagerPageCount() -> Int {
-        totalPageCount()
-    }
-
-    func pagerCurrentPage() -> Int {
-        currentPageIndex()
     }
 }
 

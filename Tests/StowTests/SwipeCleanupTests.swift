@@ -51,16 +51,16 @@ final class SwipeCleanupTests: XCTestCase {
     }
 
     func testSwipeTowardSettingsThenBackSnapsCleanly() {
-        controller.pagerDidUpdateOffset(0.7)   // from workspace 1 toward Settings
-        controller.pagerDidUpdateOffset(1.3)   // changes its mind, toward workspace 2
-        controller.pagerDidSnapToPage(1)       // lets go: springs back to workspace 1
+        controller.pageSwipe.pagerDidUpdateOffset(0.7)   // from workspace 1 toward Settings
+        controller.pageSwipe.pagerDidUpdateOffset(1.3)   // changes its mind, toward workspace 2
+        controller.pageSwipe.pagerDidSnapToPage(1)       // lets go: springs back to workspace 1
         assertOnlyWorkspacePageShowing()
     }
 
     func testSwipeTowardSettingsThenOnToNextWorkspaceSnapsCleanly() {
-        controller.pagerDidUpdateOffset(0.6)
-        controller.pagerDidUpdateOffset(1.6)
-        controller.pagerDidSnapToPage(2)
+        controller.pageSwipe.pagerDidUpdateOffset(0.6)
+        controller.pageSwipe.pagerDidUpdateOffset(1.6)
+        controller.pageSwipe.pagerDidSnapToPage(2)
         XCTAssertEqual(model.currentWorkspace.name, "Second")
         assertOnlyWorkspacePageShowing()
     }
@@ -68,28 +68,28 @@ final class SwipeCleanupTests: XCTestCase {
     func testOverswipeIntoAddNewPageLeavesNoSettingsOrSnapshot() {
         model.selectWorkspace(id: model.workspaces[1].id)
         settle()
-        controller.pagerDidUpdateOffset(1.6)   // from workspace 2 back toward workspace 1...
-        controller.pagerDidUpdateOffset(2.5)   // ...then past the last page
-        controller.pagerDidSnapToPage(3)       // the add-new page
+        controller.pageSwipe.pagerDidUpdateOffset(1.6)   // from workspace 2 back toward workspace 1...
+        controller.pageSwipe.pagerDidUpdateOffset(2.5)   // ...then past the last page
+        controller.pageSwipe.pagerDidSnapToPage(3)       // the add-new page
         assertOnlyWorkspacePageShowing()
     }
 
     func testTwoSwipesInARowLeaveNoSnapshotBehind() {
-        controller.pagerDidUpdateOffset(1.3)
-        controller.pagerDidSnapToPage(1)
-        controller.pagerDidUpdateOffset(1.4)
-        controller.pagerDidSnapToPage(1)
+        controller.pageSwipe.pagerDidUpdateOffset(1.3)
+        controller.pageSwipe.pagerDidSnapToPage(1)
+        controller.pageSwipe.pagerDidUpdateOffset(1.4)
+        controller.pageSwipe.pagerDidSnapToPage(1)
         assertOnlyWorkspacePageShowing()
     }
 
     /// Mid-swipe toward Settings, only the sliding Settings page and the outgoing picture
     /// of the list may show; the live list underneath must be hidden.
     func testMidSwipeTowardSettingsHidesTheLiveList() {
-        controller.pagerDidUpdateOffset(0.6)
+        controller.pageSwipe.pagerDidUpdateOffset(0.6)
         window.layoutIfNeeded()
         let contentStack = controller.view.subviews.first { $0 is NSStackView && $0.subviews.contains(listView) }
         XCTAssertFalse(settingsView.isHidden, "Settings should be sliding in")
         XCTAssertEqual(contentStack?.isHidden, true, "the live list shows through under the swipe")
-        controller.pagerDidSnapToPage(1)
+        controller.pageSwipe.pagerDidSnapToPage(1)
     }
 }
