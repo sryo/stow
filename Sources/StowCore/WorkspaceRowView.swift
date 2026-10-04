@@ -239,6 +239,10 @@ final class WorkspaceRowView: BaseView {
             onContextMenu?()
         case 51 where flags.contains(.command), 117 where flags.contains(.command): // ⌘⌫
             if content?.canDelete == true { onDelete?() } else { NSSound.beep() }
+        // Tab moves on through the page. Passed up the responder chain, the collection view
+        // that holds the rows eats it, and focus stays on the first row.
+        case 48 where flags.subtracting(.shift).isEmpty: // Tab, ⇧Tab
+            if flags.contains(.shift) { window?.selectKeyView(preceding: self) } else { window?.selectKeyView(following: self) }
         case 126 where flags.contains([.command, .option]): // ⌥⌘↑
             onMove?(.left)
         case 125 where flags.contains([.command, .option]): // ⌥⌘↓
