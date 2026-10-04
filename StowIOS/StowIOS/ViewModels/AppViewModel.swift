@@ -43,6 +43,14 @@ final class AppViewModel: ObservableObject {
         let store = DataStore(baseDirectory: baseDir)
         var isSeededRun = false
 
+        // Favicons used to live in the app's private Application Support, where the
+        // widget and the Live Activity can't read them.
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let privateIcons = appSupport.appendingPathComponent("Stow/Icons", isDirectory: true)
+            FaviconStorage.moveIcons(from: privateIcons, to: store.iconsDirectory())
+        }
+        FaviconService.shared.useIcons(in: baseDir)
+
         #if DEBUG
         // Seed the App Group container from a JSON fixture before AppModel loads.
         // Used by ios-simulator-skill scenarios to start each run from a known
@@ -134,11 +142,18 @@ final class AppViewModel: ObservableObject {
     /// Mirrors the current workspace into the Dynamic Island. Unchanged states are
     /// skipped unless `force` is set, which re-requests an expired or dismissed activity.
     func refreshLiveActivity(force: Bool = false) {
+        let workspace = liveActivitySettings.workspace(in: model)
         LiveActivityController.shared.sync(
-            workspace: liveActivitySettings.workspace(in: model),
+            workspace: workspace,
+            identity: workspaceIdentities[workspace.id],
             enabled: liveActivitySettings.isEnabled,
             force: force
         )
+    }
+
+    /// Every workspace's badge, resolved together so letters stay distinct.
+    var workspaceIdentities: [UUID: WorkspaceTileIdentity] {
+        WorkspaceBadge.identities(for: model.workspaces, iconsDirectory: AppGroup.iconsDirectory)
     }
 
     // MARK: - Page color

@@ -17,4 +17,9 @@ enum AppGroup {
     static func makeStore() -> DataStore {
         DataStore(baseDirectory: containerURL)
     }
+
+    /// Favicons, shared so the widget and the Live Activity draw what the app fetched.
+    static var iconsDirectory: URL {
+        makeStore().iconsDirectory()
+    }
 }

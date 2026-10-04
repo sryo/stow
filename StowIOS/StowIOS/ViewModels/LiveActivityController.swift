@@ -22,14 +22,14 @@ final class LiveActivityController {
     /// Brings the activity in line with `workspace`, the one Settings ▸ Shows picks. `force`
     /// pushes the state even when it matches the last one sent, which is how a dismissed or
     /// expired activity comes back. The system's Live Activities switch always wins.
-    func sync(workspace: Workspace, enabled: Bool, force: Bool = false) {
+    func sync(workspace: Workspace, identity: WorkspaceTileIdentity? = nil, enabled: Bool, force: Bool = false) {
         guard enabled, ActivityAuthorizationInfo().areActivitiesEnabled else {
             lastState = nil
             enqueue { await Self.endAll() }
             return
         }
 
-        let state = Self.state(for: workspace)
+        let state = Self.state(for: workspace, identity: identity)
         if !force, state == lastState { return }
         lastState = state
         enqueue { await Self.apply(state) }
@@ -74,13 +74,18 @@ final class LiveActivityController {
         }
     }
 
-    static func state(for workspace: Workspace) -> StowActivityAttributes.ContentState {
+    /// `iconsDirectory` is where the widget extension will look for each tile's favicon;
+    /// a tile only names a file that is already there. `identity` is the workspace's badge
+    /// as resolved among all workspaces; without it the workspace is resolved alone.
+    static func state(for workspace: Workspace, identity: WorkspaceTileIdentity? = nil,
+                      iconsDirectory: URL = AppGroup.iconsDirectory) -> StowActivityAttributes.ContentState {
         let links = workspace.items.flattenLinks().filter { !$0.isArchived }
         let top = links.prefix(StowActivityAttributes.maxLinks).map { link in
             StowActivityAttributes.TopLink(
                 title: String((link.title.isEmpty ? (link.displayDomain ?? link.url) : link.title).prefix(maxTitleLength)),
                 url: link.url,
-                host: String((link.displayDomain ?? "").prefix(maxTitleLength))
+                host: String((link.displayDomain ?? "").prefix(maxTitleLength)),
+                iconFile: FaviconStorage.fileName(for: link, in: iconsDirectory)
             )
         }
 
@@ -92,6 +97,17 @@ final class LiveActivityController {
             linkCount: links.count,
             links: Array(top)
         )
+        switch identity ?? WorkspaceBadge.identities(for: [workspace], iconsDirectory: iconsDirectory)[workspace.id] {
+        case .symbol(let name):
+            state.badgeSymbol = name
+        case .mosaic(let sites):
+            let files = sites.compactMap { FaviconStorage.fileName(for: $0, in: iconsDirectory) }
+            if !files.isEmpty { state.badgeIcons = files }
+        case .letter(let letters):
+            state.monogram = letters
+        case nil:
+            break
+        }
         // Long URLs can push the state past the limit; drop tiles from the end until it fits.
         let encoder = JSONEncoder()
         while !state.links.isEmpty,

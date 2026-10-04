@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "workspaces": [
+    {
+      "id": "66666666-6666-6666-6666-666666666601",
+      "name": "Personal",
+      "colorId": "tangerine",
+      "icon": "favicons",
+      "items": [
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777701", "title": "Feedly", "url": "https://feedly.com"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777702", "title": "Figma", "url": "https://www.figma.com"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777703", "title": "Wikipedia", "url": "https://www.wikipedia.org"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777704", "title": "Swift Forums", "url": "https://forums.swift.org"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777705", "title": "Hacker News", "url": "https://news.ycombinator.com"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777706", "title": "GitHub", "url": "https://github.com"}},
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777707", "title": "Apple", "url": "https://www.apple.com"}}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "66666666-6666-6666-6666-666666666602",
+      "name": "Work",
+      "colorId": "ocean",
+      "icon": "letter",
+      "items": [
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777711", "title": "Linear", "url": "https://linear.app"}}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "66666666-6666-6666-6666-666666666603",
+      "name": "Home",
+      "colorId": "moss",
+      "icon": "symbol:house",
+      "items": [
+        {"type": "link", "link": {"id": "77777777-7777-7777-7777-777777777721", "title": "Recipes", "url": "https://cooking.nytimes.com"}}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    }
+  ],
+  "selectedWorkspaceId": "66666666-6666-6666-6666-666666666601",
+  "isSettingsSelected": false
+}

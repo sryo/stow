@@ -103,13 +103,49 @@ public enum WorkspaceIconSites {
         "gmail.com", "calendar.google.com", "github.com", "x.com", "twitter.com",
     ]
 
-    public static func pick(from nodes: [Node], limit: Int = 4) -> [Link] {
+    /// `hasIcon` says whether a link's favicon can be drawn. The Mac trusts the stored
+    /// path; the iPhone looks in its own icon folder.
+    public static func pick(from nodes: [Node], limit: Int = 4,
+                            hasIcon: (Link) -> Bool = { $0.faviconPath != nil }) -> [Link] {
         var specific: [Link] = [], common: [Link] = []
         var seen = Set<String>()
         for link in nodes.flattenLinks() where !link.isArchived {
-            guard link.faviconPath != nil, let host = link.displayDomain, seen.insert(host).inserted else { continue }
+            guard hasIcon(link), let host = link.displayDomain, seen.insert(host).inserted else { continue }
             if generic.contains(host) { common.append(link) } else { specific.append(link) }
         }
         return Array((specific + common).prefix(limit))
+    }
+}
+
+/// What a workspace tile shows: its favicon mosaic, a letter, or a symbol. The Mac's
+/// tiles and every place the iPhone draws a workspace resolve it the same way.
+public enum WorkspaceTileIdentity: Equatable, Sendable {
+    case mosaic([Link]), letter(String), symbol(String)
+
+    /// The eight symbols the editor offers, as SF Symbols.
+    public static let symbols = ["house", "hammer", "book", "flask", "paperplane", "star", "music.note", "cart"]
+
+    public static func resolve(_ workspaces: [Workspace],
+                               hasIcon: (Link) -> Bool = { $0.faviconPath != nil }) -> [UUID: WorkspaceTileIdentity] {
+        var result: [UUID: WorkspaceTileIdentity] = [:]
+        var letterItems: [(id: UUID, name: String)] = []
+        for workspace in workspaces {
+            switch workspace.icon {
+            case .symbol(let name):
+                result[workspace.id] = .symbol(name)
+            case .favicons:
+                let links = WorkspaceIconSites.pick(from: workspace.items, hasIcon: hasIcon)
+                if links.isEmpty {
+                    letterItems.append((workspace.id, workspace.name))
+                } else {
+                    result[workspace.id] = .mosaic(links)
+                }
+            case .letter:
+                letterItems.append((workspace.id, workspace.name))
+            }
+        }
+        // Letters only need to differ from the other letter tiles.
+        for (id, letters) in WorkspaceMonogram.assign(letterItems) { result[id] = .letter(letters) }
+        return result
     }
 }

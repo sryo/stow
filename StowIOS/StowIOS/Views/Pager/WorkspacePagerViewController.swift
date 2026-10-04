@@ -2,6 +2,55 @@ import UIKit
 import SwiftUI
 import StowShared
 
+/// Who owns a horizontal drag that starts over the pager: the pager, which pages, or the
+/// row under the finger, which reveals its swipe actions.
+enum PagerSwipe {
+    /// A drag on a row slower than this (points per second) reveals the row's actions;
+    /// anything faster is a page swipe.
+    static let rowRevealMaxSpeed: CGFloat = 400
+
+    static func pages(velocity: CGPoint, startsOnRow: Bool) -> Bool {
+        guard startsOnRow else { return true }
+        return abs(velocity.x) >= rowRevealMaxSpeed
+    }
+}
+
+/// The pager's scroll view decides horizontal drags before the rows inside it do, so a
+/// page swipe across a row can't also open, or fire, the row's swipe actions.
+final class PagerScrollView: UIScrollView, UIGestureRecognizerDelegate {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard super.gestureRecognizerShouldBegin(gestureRecognizer) else { return false }
+        guard gestureRecognizer === panGestureRecognizer else { return true }
+        let velocity = panGestureRecognizer.velocity(in: self)
+        guard abs(velocity.x) > abs(velocity.y) else { return true }
+        let start = panGestureRecognizer.location(in: self)
+        return PagerSwipe.pages(velocity: velocity, startsOnRow: isOnRow(start))
+    }
+
+    /// Pans inside the pages (the rows' swipe-action recognizers) wait for the pager's
+    /// pan to fail. The pages' own vertical scrolling is left alone.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGestureRecognizer,
+              otherGestureRecognizer is UIPanGestureRecognizer,
+              let other = otherGestureRecognizer.view, other !== self, other.isDescendant(of: self)
+        else { return false }
+        if let scroll = other as? UIScrollView, scroll.panGestureRecognizer === otherGestureRecognizer {
+            return false
+        }
+        return true
+    }
+
+    private func isOnRow(_ point: CGPoint) -> Bool {
+        var view = hitTest(point, with: nil)
+        while let current = view, current !== self {
+            if current is UICollectionViewCell || current is UITableViewCell { return true }
+            view = current.superview
+        }
+        return false
+    }
+}
+
 final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate, UISearchResultsUpdating {
 
     // MARK: - Callbacks
@@ -19,7 +68,7 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
     // MARK: - UI
 
     private let scrollView: UIScrollView = {
-        let sv = UIScrollView()
+        let sv = PagerScrollView()
         sv.isPagingEnabled = false // custom snap logic
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false

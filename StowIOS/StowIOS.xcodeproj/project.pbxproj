@@ -60,6 +60,14 @@
 		XD0335ECCB5493E81EEAC370 /* PageColorPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA39A204B886B268AB398C7E /* PageColorPicker.swift */; };
 		XE74A1A437FBCF362FD1C909 /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XC326DF994AD21E40E619D0A /* ShareSheetView.swift */; };
 		XE37F82EA5005D259A6436FB /* LiveTourUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA003675434C260E19135454 /* LiveTourUITests.swift */; };
+		X7F2FB597657DCD873C86AAA /* LiveActivityLookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */; };
+		X4383FEFD9478E536D5BA38A /* RowSwipeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */; };
+		XF784B866B5060C3DD069927 /* PagingSwipeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */; };
+		XCD45F114419F554762DC0CE /* WorkspaceBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */; };
+		X254627CF316F4E45816EE80 /* WorkspaceBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = X188DEECD0CCEC201D022F61 /* WorkspaceBadge.swift */; };
+		XA1C0N00000000000000B001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = XA1C0N00000000000000F001 /* AppIcon.icon */; };
+		X29FE2B6E58A991027AEAF1D /* AppIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X81E573D97DC42E18A8201B3 /* AppIconTests.swift */; };
+		X075758981E08BED4384408D /* IdentityTourUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X1E13A6C046FBB3CDCCE6E64 /* IdentityTourUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -159,6 +167,14 @@
 		XA39A204B886B268AB398C7E /* PageColorPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageColorPicker.swift; sourceTree = "<group>"; };
 		XC326DF994AD21E40E619D0A /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
 		XA003675434C260E19135454 /* LiveTourUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTourUITests.swift; sourceTree = "<group>"; };
+		X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityLookTests.swift; sourceTree = "<group>"; };
+		X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowSwipeTests.swift; sourceTree = "<group>"; };
+		X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagingSwipeUITests.swift; sourceTree = "<group>"; };
+		X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBadgeTests.swift; sourceTree = "<group>"; };
+		X188DEECD0CCEC201D022F61 /* WorkspaceBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBadge.swift; sourceTree = "<group>"; };
+		XA1C0N00000000000000F001 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = ../Resources/AppIcon.icon; sourceTree = SOURCE_ROOT; };
+		X81E573D97DC42E18A8201B3 /* AppIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconTests.swift; sourceTree = "<group>"; };
+		X1E13A6C046FBB3CDCCE6E64 /* IdentityTourUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityTourUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -213,6 +229,7 @@
 				F1000005 /* Products */,
 				F5000001 /* StowIOSTests */,
 				F6000001 /* StowIOSUITests */,
+				XA1C0N00000000000000F001 /* AppIcon.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -255,6 +272,7 @@
 				B1000020 /* BulkActionBar.swift */,
 				B1000021 /* SettingsSheet.swift */,
 				XA39A204B886B268AB398C7E /* PageColorPicker.swift */,
+				X188DEECD0CCEC201D022F61 /* WorkspaceBadge.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -326,6 +344,10 @@
 				X759387879FFABF26212B51D /* ShareSheetModelTests.swift */,
 				X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */,
 				X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */,
+				X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */,
+				X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */,
+				X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */,
+				X81E573D97DC42E18A8201B3 /* AppIconTests.swift */,
 			);
 			path = StowIOSTests;
 			sourceTree = "<group>";
@@ -335,6 +357,8 @@
 			children = (
 				X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */,
 				XA003675434C260E19135454 /* LiveTourUITests.swift */,
+				X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */,
+				X1E13A6C046FBB3CDCCE6E64 /* IdentityTourUITests.swift */,
 			);
 			path = StowIOSUITests;
 			sourceTree = "<group>";
@@ -500,6 +524,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				XA1C0N00000000000000B001 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -565,6 +590,7 @@
 				X224A59C9BE9ED7411D5BE6E /* ICloudStatus.swift in Sources */,
 				XD6206FA9C062C8FEFC090B2 /* PageColor.swift in Sources */,
 				XD0335ECCB5493E81EEAC370 /* PageColorPicker.swift in Sources */,
+				X254627CF316F4E45816EE80 /* WorkspaceBadge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -605,6 +631,10 @@
 				X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */,
 				X539E6B7814724812428AF26 /* WidgetIntentTests.swift in Sources */,
 				XBD177B771BC281FB13C0301 /* SettingsLogicTests.swift in Sources */,
+				X7F2FB597657DCD873C86AAA /* LiveActivityLookTests.swift in Sources */,
+				X4383FEFD9478E536D5BA38A /* RowSwipeTests.swift in Sources */,
+				XCD45F114419F554762DC0CE /* WorkspaceBadgeTests.swift in Sources */,
+				X29FE2B6E58A991027AEAF1D /* AppIconTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -614,6 +644,8 @@
 			files = (
 				X12244C5330BE4BA9A00DD35 /* SettingsSheetUITests.swift in Sources */,
 				XE37F82EA5005D259A6436FB /* LiveTourUITests.swift in Sources */,
+				XF784B866B5060C3DD069927 /* PagingSwipeUITests.swift in Sources */,
+				X075758981E08BED4384408D /* IdentityTourUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -766,7 +798,6 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = StowIOS/StowIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -801,7 +832,6 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = StowIOS/StowIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
