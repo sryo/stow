@@ -296,8 +296,19 @@ public final class AppModel {
     @discardableResult
     public func addTask(title: String, parentId: UUID?) -> UUID {
         let task = TaskItem(id: UUID(), title: title, isCompleted: false, dueDate: nil, notes: nil, createdAt: Date())
-        let node = Node.task(task)
-        insertNode(node, parentId: parentId)
+        // Open tasks stay above done ones: the new task goes in before the first
+        // completed task among its siblings, or at the end when there is none.
+        let siblings: [Node]
+        if let parentId {
+            guard case .folder(let folder)? = nodeById(parentId) else { return task.id }
+            siblings = folder.children
+        } else {
+            siblings = currentWorkspace.items
+        }
+        let firstDone = siblings.firstIndex { if case .task(let t) = $0 { return t.isCompleted }; return false }
+        updateWorkspace(id: currentWorkspace.id) { workspace in
+            insertNode(.task(task), parentId: parentId, index: firstDone, nodes: &workspace.items)
+        }
         return task.id
     }
 
@@ -428,22 +439,43 @@ public final class AppModel {
         }
     }
 
-    public func permanentlyDeleteNode(id: UUID) {
-        // Collect child IDs before removal so folder children are also synced as deleted
-        let childIds: [UUID]
-        if let node = nodeById(id), case .folder(let folder) = node {
-            childIds = folder.children.flattenIds()
-        } else {
-            childIds = []
+    /// A node taken out of the library, and where it was, so an undo can put it back.
+    public struct RemovedNode {
+        public let node: Node
+        public let workspaceId: UUID
+        public let location: NodeLocation
+    }
+
+    /// Removes the node (and a folder's children) for good. `keepFavicons` leaves their
+    /// icon files on disk so `restoreNode` can bring it back whole; call
+    /// `cleanOrphanedFavicons()` once it can no longer be undone.
+    @discardableResult
+    public func permanentlyDeleteNode(id: UUID, keepFavicons: Bool = false) -> RemovedNode? {
+        guard let index = workspaceIndex(containing: id),
+              let location = findNodeLocation(id: id, nodes: state.workspaces[index].items) else { return nil }
+        let workspaceId = state.workspaces[index].id
+        var removed: Node?
+        updateWorkspace(id: workspaceId) { workspace in
+            removed = removeNode(id: id, nodes: &workspace.items)
         }
-        guard let index = workspaceIndex(containing: id) else { return }
-        updateWorkspace(id: state.workspaces[index].id) { workspace in
-            _ = removeNode(id: id, nodes: &workspace.items)
+        guard let removed else { return nil }
+        // A folder's children are synced as deleted too.
+        deletionScheduler?(Set([removed].flattenIds()))
+        if !keepFavicons { store.cleanOrphanedFavicons(state: state) }
+        return RemovedNode(node: removed, workspaceId: workspaceId, location: location)
+    }
+
+    /// Puts back a node removed by `permanentlyDeleteNode` (an undo), with the same IDs,
+    /// where it was. If its folder has gone since, it goes back at the top level; if its
+    /// workspace has gone, nothing happens. Does nothing if it's already there.
+    public func restoreNode(_ removed: RemovedNode) {
+        guard let index = state.workspaces.firstIndex(where: { $0.id == removed.workspaceId }),
+              nodeById(removed.node.id) == nil else { return }
+        var parentId = removed.location.parentId
+        if let id = parentId, case .folder? = nodeById(id, nodes: state.workspaces[index].items) {} else { parentId = nil }
+        updateWorkspace(id: removed.workspaceId) { workspace in
+            insertNode(removed.node, parentId: parentId, index: removed.location.index, nodes: &workspace.items)
         }
-        var scheduled: Set<UUID> = [id]
-        scheduled.formUnion(childIds)
-        deletionScheduler?(scheduled)
-        store.cleanOrphanedFavicons(state: state)
     }
 
     public func setArchiveExpanded(workspaceId: UUID, isExpanded: Bool) {

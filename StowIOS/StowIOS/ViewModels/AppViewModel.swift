@@ -211,4 +211,36 @@ final class AppViewModel: ObservableObject {
     func deleteWorkspace(id: UUID) {
         model.deleteWorkspace(id: id)
     }
+
+    // MARK: - Items
+
+    /// A row that should open in rename as soon as it appears (a new folder).
+    @Published var pendingRenameId: UUID?
+
+    /// Adds an "Untitled" folder (the Mac's default name) and starts its rename.
+    func addFolderAndBeginRename(parentId: UUID?) {
+        if let parentId { model.setFolderExpanded(id: parentId, isExpanded: true) }
+        pendingRenameId = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
+    }
+
+    /// Archives the items, undoable with shake or three-finger swipe.
+    func archive(_ ids: [UUID], undoManager: UndoManager?) {
+        let ids = ids.filter { model.nodeById($0)?.isArchived == false }
+        guard !ids.isEmpty else { return }
+        for id in ids { model.archiveNode(id: id) }
+        undoManager?.registerUndo(withTarget: self) { viewModel in
+            for id in ids { viewModel.model.unarchiveNode(id: id) }
+        }
+        undoManager?.setActionName("Archive")
+    }
+
+    /// Deletes the item for good, undoable while the app runs; its icon files stay on
+    /// disk until the next launch's cleanup so an undo brings it back whole.
+    func deletePermanently(_ id: UUID, undoManager: UndoManager?) {
+        guard let removed = model.permanentlyDeleteNode(id: id, keepFavicons: undoManager != nil) else { return }
+        undoManager?.registerUndo(withTarget: self) { viewModel in
+            viewModel.model.restoreNode(removed)
+        }
+        undoManager?.setActionName("Delete")
+    }
 }

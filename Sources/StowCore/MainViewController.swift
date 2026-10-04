@@ -249,6 +249,10 @@ final class MainViewController: NSViewController {
         titleSettingsButton.toolTip = "Settings (⌘,)"
         titleAddButton.toolTip = "New folder, task, snippet or workspace"
         titleAddButton.setAccessibilityLabel("New")
+        workspaceSwitcher.onDropNode = { [weak self] nodeId, workspaceId in
+            self?.model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
+        }
+
         workspaceSwitcher.onWorkspaceRename = { [weak self] workspaceId, newName in
             self?.model.renameWorkspace(id: workspaceId, newName: newName)
         }
@@ -453,7 +457,7 @@ final class MainViewController: NSViewController {
         }
 
         nodeListViewController.onNodeDeleted = { [weak self] nodeId in
-            self?.model.archiveNode(id: nodeId)
+            self?.archiveUndoably([nodeId])
         }
 
         nodeListViewController.onNodeUnarchived = { [weak self] nodeId in
@@ -461,7 +465,8 @@ final class MainViewController: NSViewController {
         }
 
         nodeListViewController.onNodePermanentlyDeleted = { [weak self] nodeId in
-            self?.model.permanentlyDeleteNode(id: nodeId)
+            guard let self else { return }
+            PendingChange.deletePermanently(nodeId, model: self.model)?.offer(in: self.view.window)
         }
 
         nodeListViewController.onArchiveToggled = { [weak self] isExpanded in
@@ -490,10 +495,7 @@ final class MainViewController: NSViewController {
         }
 
         nodeListViewController.onBulkNodesDeleted = { [weak self] nodeIds in
-            guard let self else { return }
-            for nodeId in nodeIds {
-                self.model.archiveNode(id: nodeId)
-            }
+            self?.archiveUndoably(nodeIds)
         }
 
         nodeListViewController.onLinkUrlEdited = { [weak self] nodeId, newUrl in
@@ -570,7 +572,7 @@ final class MainViewController: NSViewController {
 
         nodeListViewController.onMoveToNewFolder = { [weak self] nodeIds in
             guard let self, !nodeIds.isEmpty else { return }
-            let folderId = self.model.addFolder(name: "Untitled", parentId: nil)
+            let folderId = self.model.addFolder(name: NodeDefaults.folderName, parentId: nil)
             for nodeId in nodeIds {
                 self.model.moveNode(id: nodeId, toParentId: folderId, index: 0)
             }
@@ -654,9 +656,9 @@ final class MainViewController: NSViewController {
             let forceExpand = searchCoordinator.isSearchActive
             nodeListViewController.isSearchActive = searchCoordinator.isSearchActive
 
-            // Partition items into active and archived
-            let activeItems = workspace.items.filter { !$0.isArchived }
-            let archivedItems = workspace.items.filter { $0.isArchived }
+            // Partition items into active and archived, at every depth
+            let activeItems = workspace.items.unarchived()
+            let archivedItems = workspace.items.archivedLeaves()
             let filteredNodes = searchCoordinator.filter(nodes: activeItems)
             let isSearching = searchCoordinator.isSearchActive
             let archivedMatches = isSearching ? searchCoordinator.filter(nodes: archivedItems, includeArchived: true) : []
@@ -864,6 +866,11 @@ final class MainViewController: NSViewController {
 
     // MARK: - Node Management
 
+    /// Archives the items with an undo (⌘Z and the toast).
+    private func archiveUndoably(_ ids: [UUID]) {
+        PendingChange.archive(ids, model: model)?.offer(in: view.window)
+    }
+
     func createTaskAndBeginRename(parentId: UUID?) {
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
@@ -884,7 +891,7 @@ final class MainViewController: NSViewController {
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
-        let newId = model.addFolder(name: "Untitled", parentId: parentId)
+        let newId = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
@@ -1137,6 +1144,7 @@ final class MainViewController: NSViewController {
             guard let self, case .snippet(let snippet)? = self.model.nodeById(id) else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(snippet.content, forType: .string)
+            Toast.show("Copied", in: self.view.window, duration: Toast.briefDuration)
         }
         railView.onStowTab = { [weak self] in self?.stowFrontTab() }
         railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
@@ -1199,19 +1207,32 @@ final class MainViewController: NSViewController {
         Task.detached(priority: .userInitiated) { [weak self] in
             let tab = BrowserTabService.frontTab(bundleId: bundleId)
             await MainActor.run {
-                guard let self, let tab else { NSSound.beep(); return }
+                guard let self else { return }
+                guard let tab else { self.reportFrontTabUnavailable(); return }
                 self.stow(url: tab.url, title: tab.title, into: workspaceId)
             }
         }
     }
 
+    /// The front tab couldn't be read: say so when it's Automation permission (with a
+    /// way to fix it), otherwise just beep.
+    func reportFrontTabUnavailable() {
+        guard let browser = AppPreferences.shared.automationDeniedBrowser() else { NSSound.beep(); return }
+        Toast.show("Allow Stow to control \(browser)", action: Toast.Action(title: "Fix") {
+            AppPreferences.shared.openAutomationSettings()
+        }, in: view.window)
+    }
+
     /// The one stow path: top of the workspace, once per page, then a title fetch.
     @discardableResult
-    private func stow(url: URL, title: String, into workspaceId: UUID?) -> AppModel.StowResult {
+    func stow(url: URL, title: String, into workspaceId: UUID?) -> AppModel.StowResult {
         let result = model.stowLink(url: url, title: title, workspaceId: workspaceId)
         switch result {
-        case .added(let id): fetchTitleForNewLink(id: id, url: url)
-        case .alreadyPresent: NSSound.beep()
+        case .added(let id):
+            fetchTitleForNewLink(id: id, url: url)
+        case .alreadyPresent(let id):
+            let name = model.workspaces.first { ws in ws.items.flattenIds().contains(id) }?.name ?? model.activeWorkspace.name
+            Toast.show("Already in \(name)", in: view.window, duration: Toast.briefDuration * 2)
         }
         return result
     }

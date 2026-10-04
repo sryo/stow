@@ -584,6 +584,12 @@ final class NodeListViewController: NSViewController {
         return visibleRows[index].node
     }
 
+    /// True for a row in the Archive section.
+    func isArchivedRow(at index: Int) -> Bool {
+        guard index >= 0, index < visibleRows.count, case .archived = visibleRows[index].kind else { return false }
+        return true
+    }
+
     /// Returns the number of regular (non-archive) rows
     var regularRowCount: Int {
         visibleRows.filter { if case .regular = $0.kind { return true }; return false }.count

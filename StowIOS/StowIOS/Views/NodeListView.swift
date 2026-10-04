@@ -3,6 +3,7 @@ import StowShared
 
 struct NodeListView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @Environment(\.undoManager) private var undoManager
     let workspaceId: UUID
     var showHeader: Bool = false
 
@@ -14,31 +15,18 @@ struct NodeListView: View {
 
     private var displayedItems: [Node] {
         guard let workspace else { return [] }
-        let activeItems = workspace.items.filter { !$0.isArchived }
+        let activeItems = workspace.items.unarchived()
         if searchQuery.isEmpty {
             return activeItems
         }
         return NodeFiltering.filter(nodes: activeItems, query: searchQuery)
     }
 
+    /// Everything archived, wherever it was archived; an archived folder shows its
+    /// children inside its own disclosure.
     private var archivedItems: [Node] {
         guard let workspace else { return [] }
-        return workspace.items.filter { $0.isArchived }
-    }
-
-    private var flattenedArchivedItems: [FlatNode] {
-        Self.flattenNodes(archivedItems, depth: 0)
-    }
-
-    private static func flattenNodes(_ nodes: [Node], depth: Int) -> [FlatNode] {
-        var result: [FlatNode] = []
-        for node in nodes {
-            result.append(FlatNode(node: node, depth: depth))
-            if case .folder(let folder) = node {
-                result.append(contentsOf: flattenNodes(folder.children, depth: depth + 1))
-            }
-        }
-        return result
+        return workspace.items.archivedLeaves()
     }
 
     var body: some View {
@@ -102,7 +90,7 @@ struct NodeListView: View {
                         selectableRow(for: node)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button {
-                                    viewModel.model.archiveNode(id: node.id)
+                                    viewModel.archive([node.id], undoManager: undoManager)
                                 } label: {
                                     Label("Archive", systemImage: "archivebox")
                                 }
@@ -126,19 +114,19 @@ struct NodeListView: View {
                         get: { workspace.isArchiveExpanded },
                         set: { viewModel.model.setArchiveExpanded(workspaceId: workspaceId, isExpanded: $0) }
                     )) {
-                        ForEach(flattenedArchivedItems, id: \.node.id) { entry in
-                            NodeRowView(node: entry.node, parentId: nil, isArchived: true)
-                                .padding(.leading, CGFloat(entry.depth) * 20)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        ForEach(archivedItems, id: \.id) { node in
+                            NodeRowView(node: node, parentId: nil, isArchived: true)
+                                // Deleting for good takes a deliberate tap, not a full swipe.
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) {
-                                        viewModel.model.permanentlyDeleteNode(id: entry.node.id)
+                                        viewModel.deletePermanently(node.id, undoManager: undoManager)
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
-                                        viewModel.model.unarchiveNode(id: entry.node.id)
+                                        viewModel.model.unarchiveNode(id: node.id)
                                     } label: {
                                         Label("Unarchive", systemImage: "arrow.uturn.backward")
                                     }
@@ -164,7 +152,7 @@ struct NodeListView: View {
     // MARK: - Empty State
 
     private func emptyStateCopy(for workspace: Workspace) -> EmptyStateCopy? {
-        let active = workspace.items.filter { !$0.isArchived }
+        let active = workspace.items.unarchived()
         let archivedMatches = searchQuery.isEmpty ? [] : NodeFiltering.filter(nodes: archivedItems, query: searchQuery, includeArchived: true)
         let kind = EmptyStateKind.resolve(
             activeCount: active.count,
@@ -263,11 +251,6 @@ struct NodeListView: View {
             EmptyView()
         }
     }
-}
-
-private struct FlatNode {
-    let node: Node
-    let depth: Int
 }
 
 /// Applies a SwiftUI `.onMove` to the model. `destination` is a gap among the rows the

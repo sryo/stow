@@ -31,6 +31,8 @@ final class WorkspaceStripView: NSView {
     var onWorkspaceRightClick: ((UUID, NSPoint) -> Void)?
     var onWorkspaceRename: ((UUID, String) -> Void)?
     var onWorkspaceReorder: ((UUID, Int) -> Void)?
+    /// An item (node id) dropped on a workspace's tab (workspace id).
+    var onDropNode: ((UUID, UUID) -> Void)?
 
     private var items: [WorkspaceStripLayout.Item] = []
     private var metrics: [WorkspaceStripLayout.Metrics] = []
