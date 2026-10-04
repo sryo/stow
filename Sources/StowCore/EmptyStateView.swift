@@ -59,13 +59,14 @@ final class EmptyStateView: NSView {
         addSubview(stack)
 
         // Margins and Notch's size yield in rail-width windows instead of setting a minimum.
+        // Below the window-drag priority (510), or the copy's own width stops a live resize.
         let yielding: [NSLayoutConstraint] = [
             notch.widthAnchor.constraint(equalToConstant: 96),
             notch.heightAnchor.constraint(equalToConstant: 80),
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
         ]
-        yielding.forEach { $0.priority = .defaultHigh }
+        yielding.forEach { $0.priority = .dragThatCannotResizeWindow }
         NSLayoutConstraint.activate(yielding + [
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -16),
