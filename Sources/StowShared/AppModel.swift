@@ -104,6 +104,14 @@ public final class AppModel {
         return try ShareService.createShareURL(workspace: workspace, schemaVersion: state.schemaVersion)
     }
 
+    /// Imports the workspace in a shared link (stow://import#… or the share page's URL)
+    /// and returns its id; nil when `url` isn't a share link.
+    @discardableResult
+    public func importSharedLink(_ url: URL) throws -> UUID? {
+        guard let fragment = ShareService.importFragment(from: url) else { return nil }
+        return try importWorkspaceFromShareURL(fragment: fragment)
+    }
+
     @discardableResult
     public func importWorkspaceFromShareURL(fragment: String) throws -> UUID {
         let data = try ShareService.decodeShareData(from: fragment)

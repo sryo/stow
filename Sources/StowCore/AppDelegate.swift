@@ -389,12 +389,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func handleIncomingURL(_ url: URL) {
-        guard url.scheme == "stow", url.host == "import" else { return }
-        guard let fragment = url.fragment, !fragment.isEmpty else { return }
-        guard let model = mainViewController?.model else { return }
+        guard ShareService.importFragment(from: url) != nil,
+              let model = mainViewController?.model else { return }
 
         do {
-            let workspaceId = try model.importWorkspaceFromShareURL(fragment: fragment)
+            guard let workspaceId = try model.importSharedLink(url) else { return }
             model.selectWorkspace(id: workspaceId)
             showMainWindow(nil)
 

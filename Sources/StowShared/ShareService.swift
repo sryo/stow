@@ -28,7 +28,9 @@ public enum ShareError: Error, LocalizedError {
 }
 
 public enum ShareService {
-    public static let baseURL = "https://stow.app/share"
+    /// Stow's share page (web/share on the GitHub Pages site). It previews the workspace
+    /// and hands it to the app with stow://import#<fragment>.
+    public static let baseURL = "https://sryo.github.io/stow/web/share/"
     private static let maxURLSize = 32 * 1024 // 32KB
 
     public static func createShareURL(workspace: Workspace, schemaVersion: Int) throws -> String {
@@ -52,6 +54,18 @@ public enum ShareService {
         }
 
         return url
+    }
+
+    /// The shared workspace in an incoming link: the app's stow://import#… or the share
+    /// page's own URL. Nil for anything else.
+    public static func importFragment(from url: URL) -> String? {
+        guard let fragment = url.fragment, !fragment.isEmpty else { return nil }
+        if url.scheme == "stow", url.host == "import" { return fragment }
+        if let page = URL(string: baseURL), url.scheme == page.scheme, url.host == page.host,
+           url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == page.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+            return fragment
+        }
+        return nil
     }
 
     public static func decodeShareData(from fragment: String) throws -> Data {

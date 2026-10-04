@@ -43,6 +43,8 @@ struct StowApp: App {
                 .onOpenURL { url in
                     if let target = StowActivityAttributes.target(ofDeepLink: url) {
                         UIApplication.shared.open(target)
+                    } else if let id = try? viewModel.model.importSharedLink(url) {
+                        viewModel.model.selectWorkspace(id: id)
                     }
                 }
         }

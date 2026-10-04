@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Arcmark - Shared Workspace</title>
+<title>Stow - Shared Workspace</title>
 <style>
   :root {
     --bg: #f0f0f0;
@@ -219,7 +219,7 @@
     const compressed = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 
     // decompress (raw deflate via DecompressionStream)
-    const ds = new DecompressionStream('raw');
+    const ds = new DecompressionStream('deflate-raw');
     const writer = ds.writable.getWriter();
     writer.write(compressed);
     writer.close();
@@ -276,7 +276,7 @@
 
     let html = '<div class="header">';
     html += '<h1>' + escapeHtml(ws.name) + '</h1>';
-    html += '<p class="subtitle">Shared Arcmark workspace</p>';
+    html += '<p class="subtitle">Shared Stow workspace</p>';
     html += '</div>';
 
     html += '<div class="tree">';
@@ -284,11 +284,11 @@
     html += '</div>';
 
     html += '<div class="actions">';
-    html += '<a class="btn btn-primary" href="arcmark://import#' + fragment + '">Open in Arcmark</a>';
-    html += '<a class="btn btn-secondary" href="https://arcmark.app">Get Arcmark</a>';
+    html += '<a class="btn btn-primary" href="stow://import#' + fragment + '">Open in Stow</a>';
+    html += '<a class="btn btn-secondary" href="https://sryo.github.io/stow/">Get Stow</a>';
     html += '</div>';
 
-    html += '<div class="branding">Shared via <a href="https://arcmark.app">Arcmark</a></div>';
+    html += '<div class="branding">Shared via <a href="https://sryo.github.io/stow/">Stow</a></div>';
 
     container.innerHTML = html;
 

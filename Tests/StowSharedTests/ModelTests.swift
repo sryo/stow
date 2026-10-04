@@ -249,10 +249,10 @@ final class ModelTests: XCTestCase {
 
         // Generate share URL
         let shareURL = try model.shareWorkspace(id: wsId)
-        XCTAssertTrue(shareURL.hasPrefix("https://stow.app/share#"))
+        XCTAssertTrue(shareURL.hasPrefix(ShareService.baseURL + "#"))
 
         // Extract fragment and import
-        let fragment = String(shareURL.dropFirst("https://stow.app/share#".count))
+        let fragment = try XCTUnwrap(ShareService.importFragment(from: URL(string: shareURL)!))
         let importedId = try model.importWorkspaceFromShareURL(fragment: fragment)
 
         // Verify imported workspace
