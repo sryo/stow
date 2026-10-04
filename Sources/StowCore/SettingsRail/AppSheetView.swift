@@ -575,7 +575,8 @@ enum AllShortcuts {
     static let listKeys: [Row] = [
         Row(title: "Search", keys: "/"),
         Row(title: "Rename", keys: "F2"),
-        Row(title: "Row actions", keys: "⌥↩"),
+        Row(title: "Open all, or in a new tab", keys: "⌥↩"),
+        Row(title: "Row actions", keys: "⌃↩  ⇧F10"),
         Row(title: "Archive", keys: "⌘⌫"),
         Row(title: "Add to selection", keys: "⌥Space"),
         Row(title: "Open by letter, after ⌘J", keys: "a–z"),

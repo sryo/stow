@@ -127,8 +127,12 @@ final class TablineController {
 
     var onOpenLink: ((Link) -> Void)?
     var onSelectWorkspace: ((UUID) -> Void)?
-    /// Stows the ghost tab; the result says whether it was new or already saved.
-    var onStowURL: ((URL, String) -> AppModel.StowResult?)?
+    /// Stows the ghost tab, showing its one toast through the presenter it's handed.
+    var onStowURL: ((URL, String, @escaping LinkActions.ToastPresenter) -> Void)?
+    /// Puts a toast under the strip. Tests record instead.
+    lazy var presentToast: LinkActions.ToastPresenter = { message, duration in
+        TablineController.shared.showToast(message, duration: duration)
+    }
     var onToggleTask: ((UUID) -> Void)?
     /// When nil, clicking a snippet copies its content to the general pasteboard.
     var onCopySnippet: ((Snippet) -> Void)?
@@ -451,11 +455,15 @@ final class TablineController {
         case .ghost:
             flyout.closeAll()
             guard let ghost = strip.model.ghost else { return }
-            let result = onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title)
-            if let message = result.flatMap(stowMessage) { showToast(message, duration: Toast.briefDuration * 2) }
+            stowGhost(ghost)
         case .overflow: showList(.overflow, under: rect)
         case .pocket: showList(.pocket, under: rect)
         }
+    }
+
+    /// The stow path owns the toast; the Tabline only says where it goes: under the strip.
+    func stowGhost(_ ghost: TablineGhost) {
+        onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title, presentToast)
     }
 
     /// The chip is the Tabline's workspace: its right-click opens the workspace editor on it.
@@ -475,17 +483,6 @@ final class TablineController {
         }
         flyout.closeAll()
         onEditWorkspace?(id, strip, rowRect ?? strip.rect(of: .chip) ?? .zero)
-    }
-
-    /// "Stowed in Research" or "Already in Research", for the toast under the strip.
-    private func stowMessage(_ result: AppModel.StowResult) -> String? {
-        switch result {
-        case .added:
-            return "Stowed in \(content.name)"
-        case .alreadyPresent(let id):
-            let name = model?.workspaces.first { $0.items.flattenIds().contains(id) }?.name ?? content.name
-            return "Already in \(name)"
-        }
     }
 
     /// The toast floats under the strip, since Stow's own window may be hidden.
@@ -531,12 +528,12 @@ final class TablineController {
                 return nil
             }).first else { return nil }
             let rows = FlyoutListModel.rows(for: folder, openKeys: openKeys)
-            let openAll = FlyoutListView.FooterButton(title: "Open all  ⌥↩", style: .primary) {
+            let openAll = FlyoutListView.FooterButton.openAll {
                 TablineController.shared.openAll(folder)
                 TablineController.shared.flyout.closeAll()
             }
             return ListContent(title: folder.name, detail: "\(rows.count)", sections: [FlyoutListSection(title: nil, rows: rows)],
-                               footer: folder.children.flattenLinks().isEmpty ? [] : [openAll])
+                               footer: folder.openableLinks.isEmpty ? [] : [openAll])
         case .overflow:
             let nodes: [Node] = strip.hiddenEntryIndices.filter(entries.indices.contains).map { i in
                 switch entries[i] {
@@ -616,11 +613,11 @@ final class TablineController {
         flyout.refreshRoot(title: content.title, detail: content.detail, sections: content.sections)
     }
 
-    private func openAll(_ folder: Folder) {
+    func openAll(_ folder: Folder) {
         if let onOpenFolder {
             onOpenFolder(folder)
         } else {
-            folder.children.unarchived().flattenLinks().forEach { onOpenLink?($0) }
+            folder.openableLinks.forEach { onOpenLink?($0) }
         }
     }
 

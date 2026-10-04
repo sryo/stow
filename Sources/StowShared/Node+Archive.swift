@@ -33,9 +33,20 @@ extension Array where Element == Node {
         }
     }
 
+    /// What "Open all" opens: every link the sidebar shows, at any depth. Archived links,
+    /// and everything inside an archived folder, stay closed.
+    public func openableLinks() -> [Link] {
+        unarchived().flattenLinks()
+    }
+
     /// The item count Stow shows for a workspace (Settings, the rail tip, the editor and
     /// search): only what isn't archived, at any depth.
     public func activeItemCount() -> Int {
         unarchived().leafCount()
     }
+}
+
+extension Folder {
+    /// The folder's "Open all" set: its links that aren't archived, at any depth.
+    public var openableLinks: [Link] { children.openableLinks() }
 }

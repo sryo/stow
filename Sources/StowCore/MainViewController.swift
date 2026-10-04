@@ -123,9 +123,8 @@ final class MainViewController: NSViewController {
         tabline.onOpenLink = { [weak self] link in self?.links.openLink(link) }
         tabline.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         // The Tabline shows the active workspace, so that's where its ghost tab is stowed.
-        tabline.onStowURL = { [weak self] url, title in
-            guard let self else { return nil }
-            return self.links.stow(url: url, title: title, into: tabline.content.workspaceId)
+        tabline.onStowURL = { [weak self] url, title, toast in
+            self?.links.stow(url: url, title: title, into: tabline.content.workspaceId, toast: toast)
         }
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
@@ -487,6 +486,11 @@ final class MainViewController: NSViewController {
             self.links.openLinksInFolder(folder)
         }
 
+        nodeListViewController.onOpenLinkInNewTab = { [weak self] linkId in
+            guard let self, case .link(let link)? = self.model.nodeById(linkId) else { return }
+            self.links.openLink(link, newTab: true)
+        }
+
         nodeListViewController.onBulkOpenLinks = { [weak self] nodeIds in
             guard let self else { return }
             for nodeId in nodeIds {
@@ -659,7 +663,7 @@ final class MainViewController: NSViewController {
 
         // Skip workspace menu rebuild if mid-rename to preserve text field focus
         if !isWorkspaceRenaming {
-            reloadWorkspaceMenu()
+            reloadWorkspaceStrip()
         }
 
         settingsViewController.notifyWorkspacesChanged()
@@ -760,7 +764,7 @@ final class MainViewController: NSViewController {
         hasLoaded = true
     }
 
-    private func reloadWorkspaceMenu() {
+    private func reloadWorkspaceStrip() {
         let workspaces = model.workspaces
 
         workspaceSwitcher.workspaces = workspaces.map { workspace in

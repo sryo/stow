@@ -290,7 +290,7 @@ final class TablineStripView: NSView {
 
     /// Called on click with the clicked part and its rect in this view's (flipped) coordinates.
     var onActivate: ((Kind, NSRect) -> Void)?
-    /// A right-click on a part (the chip's WorkspaceMenu), with that part's rect.
+    /// A right-click on a part (the chip opens the workspace editor), with that part's rect.
     var onContextMenu: ((Kind, NSRect) -> Void)?
 
     private(set) var model = TablineStripModel()

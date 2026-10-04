@@ -595,12 +595,12 @@ final class RailView: NSView {
         case .folder(let folderId):
             guard let folder = topLevelFolder(folderId) else { return nil }
             let rows = FlyoutListModel.rows(for: folder, openKeys: openKeys)
-            let openAll = FlyoutListView.FooterButton(title: "Open all  ⌥↩", style: .primary) { [weak self] in
+            let openAll = FlyoutListView.FooterButton.openAll { [weak self] in
                 self?.onOpenFolder?(folder)
                 self?.flyout.closeAll()
             }
             return ListContent(title: folder.name, detail: "\(rows.count)", sections: [FlyoutListSection(title: nil, rows: rows)],
-                               footer: folder.children.flattenLinks().isEmpty ? [] : [openAll])
+                               footer: folder.openableLinks.isEmpty ? [] : [openAll])
         case .tasks:
             guard !pocket.tasks.isEmpty else { return nil }
             let open = pocket.tasks.filter { !$0.isCompleted }.count
