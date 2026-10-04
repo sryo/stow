@@ -176,6 +176,16 @@ final class WorkspaceEditorControllerTests: XCTestCase {
         XCTAssertEqual(Set(buttons.compactMap { $0.accessibilityLabel() }), ["+ Stow this tab", "Paste"], "VoiceOver keeps the names")
     }
 
+    func testTheFooterCollapsesWhenTheWindowNarrowsAfterLaunch() throws {
+        harness.host(width: 320)
+        let buttons = harness.controller.view.descendants(of: FooterButton.self)
+        XCTAssertTrue(buttons.allSatisfy { $0.fit != .icon })
+        harness.window.setContentSize(NSSize(width: 150, height: 620))
+        harness.window.contentView?.layoutSubtreeIfNeeded()
+        harness.spin()
+        XCTAssertTrue(buttons.allSatisfy { $0.fit == .icon }, "the fit follows the new width, not the footer's width before this layout pass")
+    }
+
     func testTheFooterKeepsItsTitlesInASidebar() {
         harness.host(width: 320)
         let buttons = harness.controller.view.descendants(of: FooterButton.self)

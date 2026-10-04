@@ -1130,10 +1130,14 @@ final class MainViewController: NSViewController {
     /// Drops the keycap from "+ Stow this tab" when the footer is too narrow for it and
     /// Paste, then shows only the two icons, rather than clipping either.
     private func updateFooterFit() {
-        guard let bottomBar, !contentStack.isHidden, bottomBar.bounds.width > 0 else { return }
+        guard bottomBar != nil, !contentStack.isHidden else { return }
+        // The bar spans the content stack, inset by the window padding. Its own bounds still
+        // hold the previous width here: viewDidLayout runs before the stack lays it out.
+        let width = view.bounds.width - 2 * LayoutConstants.windowPadding
+        guard width > 0 else { return }
         // Measured without changing what the buttons show; toggling them here to re-measure
         // would invalidate layout from inside viewDidLayout and loop.
-        let fit = FooterButton.footerFit(width: bottomBar.bounds.width, stowFull: stowTabButton.fittingWidth(.full),
+        let fit = FooterButton.footerFit(width: width, stowFull: stowTabButton.fittingWidth(.full),
                                          stowTitle: stowTabButton.fittingWidth(.noKeycap), paste: pasteButton.fittingWidth(.noKeycap))
         if stowTabButton.fit != fit { stowTabButton.fit = fit }
         let pasteFit: FooterButton.Fit = fit == .icon ? .icon : .noKeycap
