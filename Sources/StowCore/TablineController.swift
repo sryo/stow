@@ -136,6 +136,9 @@ final class TablineController {
     var onOpenFolder: ((Folder) -> Void)?
     /// A right-click on the chip: the workspace's WorkspaceMenu, shown in `view` at `rect`.
     var onWorkspaceContextMenu: ((UUID, NSView, NSRect) -> Void)?
+    /// "Edit Workspace…" from the chip's list: the shared workspace editor, anchored on
+    /// the chip (`rect` in `view`).
+    var onEditWorkspace: ((UUID, NSView, NSRect) -> Void)?
 
     private var panel: NSPanel?
     private let strip = TablineStripView()
@@ -157,6 +160,14 @@ final class TablineController {
     private var pocket = Pocket.Contents()
     /// The group, overflow, pocket and workspace lists, below the strip.
     private let flyout = FlyoutListPresenter(takesKey: false)
+    /// The gear's app sheet.
+    private lazy var settings: TablineSettingsFlyout = {
+        let settings = TablineSettingsFlyout()
+        settings.onClose = { TablineController.shared.flyoutsClosed() }
+        return settings
+    }()
+    private var isSettingsOpen: Bool { settingsLoaded && settings.isOpen }
+    private var settingsLoaded = false
     private var outsideClickMonitor: Any?
 
     private enum OpenList: Hashable { case chip, group(UUID), overflow, pocket }
@@ -166,6 +177,14 @@ final class TablineController {
 
     private var dock: TablineDock = .above
     private var edge: TablineEdge = .top
+
+    /// Where the strip's flyouts open: away from the edge it rides.
+    static func flyoutEdge(for edge: TablineEdge) -> FlyoutPanel.Edge {
+        edge == .top ? .below : .above
+    }
+
+    /// The edge the strip's flyouts and the workspace editor open toward right now.
+    var flyoutEdge: FlyoutPanel.Edge { Self.flyoutEdge(for: edge) }
     private var lipFrame: NSRect = .zero
     private var peekFrame: NSRect = .zero
 
@@ -202,6 +221,7 @@ final class TablineController {
     func setRunning(edge: TablineEdge?) {
         guard let edge else { return stop() }
         if edge != self.edge {
+            closeFlyouts()
             self.edge = edge
             restoreNudgedWindows()
             dock = .above
@@ -232,6 +252,7 @@ final class TablineController {
     }
 
     private func stop() {
+        closeFlyouts()
         isRunning = false
         for observer in workspaceObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -253,6 +274,7 @@ final class TablineController {
     }
 
     private func hidePanel() {
+        closeFlyouts()
         if panel?.isVisible == true { panel?.orderOut(nil) }
         lastFrontBundleId = nil
         monitor.setDemand(.tabline, false)
@@ -419,7 +441,9 @@ final class TablineController {
     // MARK: - Clicks and flyouts
 
     private func activate(_ kind: TablineStripView.Kind, rect: NSRect) {
+        if kind != .gear, isSettingsOpen { settings.close() }
         switch kind {
+        case .gear: toggleSettings(from: rect)
         case .chip: showList(.chip, under: rect)
         case .tab(let i):
             flyout.closeAll()
@@ -440,7 +464,7 @@ final class TablineController {
     /// the Tabline shows.
     private func showContextMenu(_ kind: TablineStripView.Kind, rect: NSRect) {
         guard kind == .chip, let id = content.workspaceId else { return }
-        flyout.closeAll()
+        closeFlyouts()
         onWorkspaceContextMenu?(id, strip, rect)
     }
 
@@ -468,7 +492,7 @@ final class TablineController {
                                       footer: content.footer)
             let anchor = panel.convertToScreen(strip.convert(rect, to: nil))
             // The Tabline never takes focus from the browser: its lists are for the pointer.
-            flyout.show(list, id: id, anchor: anchor, edge: .below, topInset: 0, parent: panel, takeKeyboard: false)
+            flyout.show(list, id: id, anchor: anchor, edge: flyoutEdge, topInset: 0, parent: panel, takeKeyboard: false)
             installOutsideClickMonitor()
         }
     }
@@ -490,7 +514,8 @@ final class TablineController {
             let rows = FlyoutListModel.rows(forWorkspaces: list.map { ($0.id, $0.name, $0.colorId) },
                                             current: content.workspaceId ?? list.first?.id,
                                             shortcut: { WorkspaceShortcut.label(position: $0) })
-            return ListContent(title: "Workspaces", detail: nil, sections: [FlyoutListSection(title: nil, rows: rows)])
+            return ListContent(title: "Workspaces", detail: nil, sections: [FlyoutListSection(title: nil, rows: rows)],
+                               footer: Self.chipFooter { TablineController.shared.editWorkspace() })
         case .group(let folderId):
             guard let folder = entries.lazy.compactMap({ entry -> Folder? in
                 if case .group(let f, _) = entry, f.id == folderId { return f }
@@ -517,6 +542,40 @@ final class TablineController {
             guard !pocket.isEmpty else { return nil }
             return ListContent(title: "Pocket", detail: content.name, sections: Self.pocketSections(pocket))
         }
+    }
+
+    /// The chip's list ends with a way into the workspace editor, as the rail's dots have.
+    static func chipFooter(edit: @escaping () -> Void) -> [FlyoutListView.FooterButton] {
+        [FlyoutListView.FooterButton(title: "Edit Workspace…", action: edit)]
+    }
+
+    private func editWorkspace() {
+        flyout.closeAll()
+        guard let id = content.workspaceId, let rect = strip.rect(of: .chip) else { return }
+        onEditWorkspace?(id, strip, rect)
+    }
+
+    // MARK: - Settings
+
+    /// The gear opens the app sheet under it (over it on the bottom edge), or closes it.
+    private func toggleSettings(from rect: NSRect) {
+        guard let panel else { return }
+        flyout.closeAll()
+        settingsLoaded = true
+        let anchor = panel.convertToScreen(strip.convert(rect, to: nil))
+        settings.toggle(anchor: anchor, edge: edge, parent: panel, colorId: content.colorId)
+        if settings.isOpen { installOutsideClickMonitor() }
+    }
+
+    private func closeFlyouts() {
+        flyout.closeAll()
+        if settingsLoaded { settings.close() }
+    }
+
+    private var anyFlyoutOpen: Bool { flyout.isOpen || isSettingsOpen }
+
+    private func flyoutsClosed() {
+        if !anyFlyoutOpen { removeOutsideClickMonitor() }
     }
 
     /// Tasks, then snippets. The Tabline has no task or snippet editor, so rows carry no
@@ -558,7 +617,7 @@ final class TablineController {
 
     private func wireFlyout() {
         flyout.onOpenAll = { folder in TablineController.shared.openAll(folder) }
-        flyout.onClose = { TablineController.shared.removeOutsideClickMonitor() }
+        flyout.onClose = { TablineController.shared.flyoutsClosed() }
         flyout.onAction = { action, _, _ in
             let controller = TablineController.shared
             switch action {
@@ -587,7 +646,7 @@ final class TablineController {
     private func installOutsideClickMonitor() {
         guard outsideClickMonitor == nil else { return }
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
-            MainActor.assumeIsolated { TablineController.shared.flyout.closeAll() }
+            MainActor.assumeIsolated { TablineController.shared.closeFlyouts() }
         }
     }
 
@@ -670,7 +729,8 @@ final class TablineController {
     }
 
     private func checkLipHover() {
-        guard !flyout.isOpen, lipFrame != .zero else { return }
+        // The peek stays out while a list or the app sheet hangs off it.
+        guard !anyFlyoutOpen, lipFrame != .zero else { return }
         let mouse = NSEvent.mouseLocation
         switch dock {
         case .lip:

@@ -300,6 +300,7 @@ enum FlyoutPlacement {
     enum Side { case right, left }
     struct Vertical { var minY: CGFloat; var maxY: CGFloat; var arrowFromTop: CGFloat }
     struct Below { var minX: CGFloat; var maxY: CGFloat; var arrowFromLeft: CGFloat }
+    struct Above { var minX: CGFloat; var minY: CGFloat; var arrowFromLeft: CGFloat }
 
     static let gap: CGFloat = 8
     /// The arrow keeps this far from the flyout's rounded corners.
@@ -336,6 +337,13 @@ enum FlyoutPlacement {
         x = max(x, screen.minX + gap)
         let arrow = min(max(anchor.midX - x, arrowMargin), width - arrowMargin)
         return Below(minX: x, maxY: anchor.minY - gap, arrowFromLeft: arrow)
+    }
+
+    /// The mirror of `below`, for an anchor at the bottom of the screen (the Tabline on
+    /// the bottom edge): the card's bottom sits `gap` over the anchor.
+    static func above(width: CGFloat, anchor: NSRect, screen: NSRect) -> Above {
+        let b = below(width: width, anchor: anchor, screen: screen)
+        return Above(minX: b.minX, minY: anchor.maxY + gap, arrowFromLeft: b.arrowFromLeft)
     }
 }
 

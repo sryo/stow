@@ -125,9 +125,13 @@ final class MainViewController: NSViewController {
         }
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
+        // The editor opens away from the edge the strip rides, like its other flyouts.
         tabline.onWorkspaceContextMenu = { [weak self] id, view, rect in
             self?.showWorkspaceMenu(for: id, in: view, at: NSPoint(x: rect.minX, y: view.isFlipped ? rect.maxY + 2 : rect.minY - 2),
-                                    editorAnchor: rect, edge: .below)
+                                    editorAnchor: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
+        }
+        tabline.onEditWorkspace = { [weak self] id, view, rect in
+            self?.openWorkspaceEditor(id, from: view, rect: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
         }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
@@ -886,7 +890,7 @@ final class MainViewController: NSViewController {
     // MARK: - Workspace Management
 
     /// Where the workspace editor goes relative to what opened it.
-    enum WorkspaceEditorEdge { case below, besideWindow }
+    enum WorkspaceEditorEdge { case below, above, besideWindow }
 
     /// The native WorkspaceMenu at `point` in `view`, for a right-click on a title-bar tab,
     /// a rail dot or the Tabline chip. Its Edit… opens the workspace editor at
@@ -911,6 +915,7 @@ final class MainViewController: NSViewController {
             let anchor = window.convertToScreen(view.convert(rect, to: nil))
             switch edge {
             case .below: return .init(anchor: anchor, edge: .below, topInset: 0, parent: window)
+            case .above: return .init(anchor: anchor, edge: .above, topInset: 0, parent: window)
             case .besideWindow: return .init(anchor: anchor, edge: .beside(column: window.frame), topInset: 28, parent: window)
             }
         }, focusName: true)

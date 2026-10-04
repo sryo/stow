@@ -7,12 +7,14 @@ import AppKit
 @MainActor
 final class FlyoutPanel: NSPanel {
     /// Where the card goes relative to its anchor.
-    enum Edge {
+    enum Edge: Equatable {
         /// Beside a column (the rail, a parent flyout, or the whole window), arrow on the
         /// near side.
         case beside(column: NSRect)
         /// Under the anchor, arrow on top (Tabline items, title-bar buttons).
         case below
+        /// Over the anchor, arrow at the bottom (the Tabline on the bottom edge).
+        case above
     }
 
     static let arrowDepth: CGFloat = 7
@@ -68,13 +70,25 @@ final class FlyoutPanel: NSPanel {
             chrome.arrowEdge = side == .right ? .left : .right
             chrome.arrowOffset = v.arrowFromTop
             view.frame = NSRect(x: side == .right ? depth : 0, y: 0, width: size.width, height: size.height)
-        case .below:
+        case .below, .above:
             let screen = parent.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
             let b = FlyoutPlacement.below(width: size.width, anchor: anchor, screen: screen)
-            frame = NSRect(x: b.minX, y: b.maxY - size.height - depth, width: size.width, height: size.height + depth)
-            chrome.arrowEdge = .top
-            chrome.arrowOffset = b.arrowFromLeft
-            view.frame = NSRect(x: 0, y: depth, width: size.width, height: size.height)
+            let a = FlyoutPlacement.above(width: size.width, anchor: anchor, screen: screen)
+            let fitsBelow = b.maxY - size.height - depth >= screen.minY
+            let fitsAbove = a.minY + size.height + depth <= screen.maxY
+            // The asked-for side, unless only the other one has room.
+            let goesAbove = edge == .above ? (fitsAbove || !fitsBelow) : (!fitsBelow && fitsAbove)
+            if goesAbove {
+                frame = NSRect(x: a.minX, y: a.minY, width: size.width, height: size.height + depth)
+                chrome.arrowEdge = .bottom
+                chrome.arrowOffset = a.arrowFromLeft
+                view.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+            } else {
+                frame = NSRect(x: b.minX, y: b.maxY - size.height - depth, width: size.width, height: size.height + depth)
+                chrome.arrowEdge = .top
+                chrome.arrowOffset = b.arrowFromLeft
+                view.frame = NSRect(x: 0, y: depth, width: size.width, height: size.height)
+            }
         }
 
         if content !== view {
@@ -99,7 +113,7 @@ final class FlyoutPanel: NSPanel {
 
 /// Draws the card and its arrow in one outline, so the hairline runs around both.
 private final class FlyoutChromeView: NSView {
-    enum ArrowEdge { case left, right, top }
+    enum ArrowEdge { case left, right, top, bottom }
     var arrowEdge: ArrowEdge = .left { didSet { needsDisplay = true } }
     /// From the card's top for a side arrow, from its left for a top arrow.
     var arrowOffset: CGFloat = 18 { didSet { needsDisplay = true } }
@@ -115,6 +129,7 @@ private final class FlyoutChromeView: NSView {
         case .left: card.size.width -= depth; card.origin.x += depth
         case .right: card.size.width -= depth
         case .top: card.size.height -= depth; card.origin.y += depth
+        case .bottom: card.size.height -= depth
         }
         card = card.insetBy(dx: 0.5, dy: 0.5)
         let path = Self.outline(card: card, radius: cornerRadius, arrow: arrowEdge, offset: arrowOffset, depth: depth, half: 7)
@@ -125,7 +140,7 @@ private final class FlyoutChromeView: NSView {
         path.stroke()
     }
 
-    /// A rounded rect with an optional triangular arrow on its left, right or top edge.
+    /// A rounded rect with an optional triangular arrow on its left, right, top or bottom edge.
     static func outline(card r: NSRect, radius: CGFloat, arrow: ArrowEdge, offset: CGFloat, depth: CGFloat, half: CGFloat) -> NSBezierPath {
         let p = NSBezierPath()
         let y = min(max(r.minY + offset, r.minY + radius + half), r.maxY - radius - half)
@@ -145,6 +160,11 @@ private final class FlyoutChromeView: NSView {
         }
         p.line(to: NSPoint(x: r.maxX, y: r.maxY - radius))
         p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.maxY - radius), radius: radius, startAngle: 0, endAngle: 90)
+        if arrow == .bottom && depth > 0 {
+            p.line(to: NSPoint(x: x + half, y: r.maxY))
+            p.line(to: NSPoint(x: x, y: r.maxY + depth))
+            p.line(to: NSPoint(x: x - half, y: r.maxY))
+        }
         p.line(to: NSPoint(x: r.minX + radius, y: r.maxY))
         p.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.maxY - radius), radius: radius, startAngle: 90, endAngle: 180)
         if arrow == .left && depth > 0 {

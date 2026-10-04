@@ -132,11 +132,160 @@ extension SiteGlyph {
     }
 }
 
+/// Where every part of the strip goes, as a pure function of measured widths, so the
+/// tiers and the waterfills can be tested without drawing.
+///
+/// Left to right: the gear, the chip, a separator, the entries, "+n" when some don't fit,
+/// the ghost, and the pocket pinned to the right. The entries take the first tier that
+/// fits: full names, short names, or icons only. Whatever width the tier leaves goes back
+/// to the entries as titles: short names grow toward full ones, and in the icon tier the
+/// raised page and then the others in order get a short title while one fits.
+struct TablineLayout {
+    typealias Tier = TablineStripView.Tier
+    typealias Kind = TablineStripView.Kind
+
+    struct EntryWidths: Equatable {
+        var full: CGFloat
+        var short: CGFloat
+        var icon: CGFloat
+        /// A folder collapsed into a group, rather than a single site.
+        var isGroup = false
+
+        func at(_ tier: Tier) -> CGFloat {
+            switch tier {
+            case .full: return full
+            case .short: return short
+            case .icon: return icon
+            }
+        }
+    }
+
+    struct Input {
+        var width: CGFloat
+        var gearWidth: CGFloat
+        var chipWidth: CGFloat
+        var entries: [EntryWidths]
+        var raisedIndex: Int?
+        var ghost: EntryWidths?
+        var pocket: EntryWidths?
+        var overflowWidth: (Int) -> CGFloat
+    }
+
+    /// One part: its x and width along the strip, and the tier it draws in.
+    struct Item: Equatable {
+        var kind: Kind
+        var x: CGFloat
+        var width: CGFloat
+        var tier: Tier
+    }
+
+    static let pad: CGFloat = 5
+    static let gap: CGFloat = 2
+    /// The separator after the chip: 4pt either side of a 1pt rule.
+    static let separator: CGFloat = 9
+    /// The entries' leading inset after the separator.
+    static let tabsInset: CGFloat = 3
+
+    var tier: Tier = .full
+    var items: [Item] = []
+    var hiddenEntryIndices: [Int] = []
+
+    static func chipX(gearWidth: CGFloat) -> CGFloat { pad + gearWidth + gap }
+
+    static func make(_ input: Input) -> TablineLayout {
+        var result = TablineLayout()
+        let w = input.width
+        guard w > 0 else { return result }
+        let count = input.entries.count
+        let chipX = chipX(gearWidth: input.gearWidth)
+        let tabsStart = chipX + input.chipWidth + gap + separator + gap + tabsInset
+
+        func trailing(_ t: Tier) -> CGFloat {
+            var total = gap + 4 + pad   // gap to spacer, spacer's minimum, right padding
+            if let ghost = input.ghost { total += gap + ghost.at(t) }
+            if let pocket = input.pocket { total += gap + pocket.at(t) }
+            return total
+        }
+        func entriesWidth(_ t: Tier, count: Int) -> CGFloat {
+            guard count > 0 else { return 0 }
+            return input.entries.prefix(count).reduce(0) { $0 + $1.at(t) } + CGFloat(count - 1) * gap
+        }
+
+        var visible = count
+        var tier = Tier.icon
+        for t in [Tier.full, .short, .icon] where tabsStart + entriesWidth(t, count: visible) + trailing(t) <= w {
+            tier = t
+            break
+        }
+        if tier == .icon {
+            while visible > 0, tabsStart + entriesWidth(.icon, count: visible) + gap + input.overflowWidth(count - visible) + trailing(.icon) > w {
+                visible -= 1
+            }
+        }
+        result.tier = tier
+        result.hiddenEntryIndices = Array(visible..<count)
+
+        var widths = (0..<visible).map { input.entries[$0].at(tier) }
+        var tiers = Array(repeating: tier, count: visible)
+        var spare = w - (tabsStart + entriesWidth(tier, count: visible) + trailing(tier))
+
+        // Icons only, with everything visible: titles for the raised page, then the rest in order.
+        if tier == .icon, visible == count {
+            let raised = input.raisedIndex.flatMap { (0..<visible).contains($0) ? $0 : nil }
+            let order = (raised.map { [$0] } ?? []) + (0..<visible).filter { $0 != raised }
+            for i in order {
+                let grow = input.entries[i].short - widths[i]
+                guard grow > 0, grow <= spare else { continue }
+                widths[i] += grow
+                tiers[i] = .short
+                spare -= grow
+            }
+        }
+
+        // Titled entries grow toward their full names, the ones cut most first.
+        if tier != .full {
+            var open = Set((0..<visible).filter { tiers[$0] == .short && input.entries[$0].full > widths[$0] })
+            while spare > 0.5, !open.isEmpty {
+                let share = spare / CGFloat(open.count)
+                for i in open {
+                    let grow = min(share, input.entries[i].full - widths[i])
+                    widths[i] += grow
+                    spare -= grow
+                    if input.entries[i].full - widths[i] < 0.5 { open.remove(i) }
+                }
+            }
+            widths = widths.map { $0.rounded(.down) }
+        }
+
+        result.items.append(Item(kind: .gear, x: pad, width: input.gearWidth, tier: tier))
+        result.items.append(Item(kind: .chip, x: chipX, width: input.chipWidth, tier: tier))
+        var x = tabsStart
+        for i in 0..<visible {
+            result.items.append(Item(kind: input.entries[i].isGroup ? .group(i) : .tab(i), x: x, width: widths[i], tier: tiers[i]))
+            x += widths[i] + gap
+        }
+        if !result.hiddenEntryIndices.isEmpty {
+            let width = input.overflowWidth(result.hiddenEntryIndices.count)
+            result.items.append(Item(kind: .overflow, x: x, width: width, tier: tier))
+            x += width + gap
+        }
+        if let ghost = input.ghost {
+            result.items.append(Item(kind: .ghost, x: x, width: ghost.at(tier), tier: tier))
+        }
+        if let pocket = input.pocket {
+            let width = pocket.at(tier)
+            result.items.append(Item(kind: .pocket, x: w - pad - width, width: width, tier: tier))
+        }
+        return result
+    }
+}
+
 /// The tab row. It draws itself (no subviews) so every measurement can follow the mockup:
 /// 32pt strip, 24pt items, 14pt glyphs, and three width tiers (full names, short names,
-/// icons only) before the trailing tabs fold into a "+n" overflow.
+/// icons only) before the trailing tabs fold into a "+n" overflow. TablineLayout places
+/// the parts; a Settings gear leads the strip, as the gear sits above the rail's dots.
 final class TablineStripView: NSView {
-    enum Kind: Hashable { case chip, tab(Int), group(Int), ghost, overflow, pocket }
+    enum Kind: Hashable { case gear, chip, tab(Int), group(Int), ghost, overflow, pocket }
     enum Tier { case full, short, icon }
 
     /// Called on click with the clicked part and its rect in this view's (flipped) coordinates.
@@ -149,14 +298,15 @@ final class TablineStripView: NSView {
     /// A thin colored bar with nothing drawn on it: the full-screen "lip".
     var isLip = false { didSet { if isLip != oldValue { needsDisplay = true } } }
 
-    private var items: [(kind: Kind, rect: NSRect)] = []
+    private var items: [(kind: Kind, rect: NSRect, tier: Tier)] = []
     private var tier: Tier = .full
     private var hovered: Kind?
     private var pressed: Kind?
 
     private enum M {
-        static let pad: CGFloat = 5
-        static let gap: CGFloat = 2
+        static let pad = TablineLayout.pad
+        static let gap = TablineLayout.gap
+        static let gear: CGFloat = 24
         static let itemH: CGFloat = 24
         static let radius: CGFloat = 10
         static let itemRadius: CGFloat = 6
@@ -243,81 +393,32 @@ final class TablineStripView: NSView {
     // MARK: - Layout
 
     private func relayout() {
-        items = []
-        hiddenEntryIndices = []
-        let w = bounds.width, h = bounds.height
-        guard w > 0 else { return }
-        let y = ((h - M.itemH) / 2).rounded()
-        func rect(_ x: CGFloat, _ width: CGFloat) -> NSRect { NSRect(x: x, y: y, width: width, height: M.itemH) }
-
-        // chip, gap, sep (4 + 1 + 4), gap, tabs (3pt leading inset)
-        let tabsStart = M.pad + chipWidth + M.gap + 9 + M.gap + 3
-        func trailing(_ t: Tier) -> CGFloat {
-            var total = M.gap + 4 + M.pad   // gap to spacer, spacer's minimum, right padding
-            if model.ghost != nil { total += M.gap + ghostWidth(t) }
-            if model.pocketCount > 0 { total += M.gap + pocketWidth(t) }
-            return total
+        let measured = (0..<model.entries.count).map { i in
+            TablineLayout.EntryWidths(full: entryWidth(i, .full), short: entryWidth(i, .short), icon: entryWidth(i, .icon),
+                                      isGroup: model.entries[i].isGroup)
         }
-        func entriesWidth(_ t: Tier, count: Int) -> CGFloat {
-            guard count > 0 else { return 0 }
-            return (0..<count).reduce(0) { $0 + entryWidth($1, t) } + CGFloat(count - 1) * M.gap
+        let ghost = model.ghost.map { _ in
+            TablineLayout.EntryWidths(full: ghostWidth(.full), short: ghostWidth(.short), icon: ghostWidth(.icon))
         }
-
-        var visible = model.entries.count
-        tier = .icon
-        for t in [Tier.full, .short, .icon] where tabsStart + entriesWidth(t, count: visible) + trailing(t) <= w {
-            tier = t
-            break
-        }
-        if tier == .icon {
-            while visible > 0, tabsStart + entriesWidth(.icon, count: visible) + M.gap + overflowWidth(model.entries.count - visible) + trailing(.icon) > w {
-                visible -= 1
-            }
-        }
-        hiddenEntryIndices = Array(visible..<model.entries.count)
-
-        // Between full and short, hand the spare room back to the tabs that were cut most,
-        // so names only shorten as far as the width demands.
-        var widths = (0..<visible).map { entryWidth($0, tier) }
-        if tier == .short {
-            let full = (0..<visible).map { entryWidth($0, .full) }
-            var spare = w - (tabsStart + entriesWidth(.short, count: visible) + trailing(.short))
-            var open = Set((0..<visible).filter { full[$0] > widths[$0] })
-            while spare > 0.5, !open.isEmpty {
-                let share = spare / CGFloat(open.count)
-                for i in open {
-                    let grow = min(share, full[i] - widths[i])
-                    widths[i] += grow
-                    spare -= grow
-                    if full[i] - widths[i] < 0.5 { open.remove(i) }
-                }
-            }
-            widths = widths.map { $0.rounded(.down) }
-        }
-
-        items.append((.chip, rect(M.pad, chipWidth)))
-        var x = tabsStart
-        for i in 0..<visible {
-            let width = widths[i]
-            items.append((model.entries[i].isGroup ? .group(i) : .tab(i), rect(x, width)))
-            x += width + M.gap
-        }
-        if !hiddenEntryIndices.isEmpty {
-            let width = overflowWidth(hiddenEntryIndices.count)
-            items.append((.overflow, rect(x, width)))
-            x += width + M.gap
-        }
-        if model.ghost != nil {
-            items.append((.ghost, rect(x, ghostWidth(tier))))
-        }
-        if model.pocketCount > 0 {
-            let width = pocketWidth(tier)
-            items.append((.pocket, rect(w - M.pad - width, width)))
-        }
+        let pocket = model.pocketCount > 0
+            ? TablineLayout.EntryWidths(full: pocketWidth(.full), short: pocketWidth(.short), icon: pocketWidth(.icon))
+            : nil
+        let layout = TablineLayout.make(.init(width: bounds.width, gearWidth: M.gear, chipWidth: chipWidth, entries: measured,
+                                              raisedIndex: model.raisedIndex, ghost: ghost, pocket: pocket,
+                                              overflowWidth: { [unowned self] in self.overflowWidth($0) }))
+        tier = layout.tier
+        hiddenEntryIndices = layout.hiddenEntryIndices
+        let y = ((bounds.height - M.itemH) / 2).rounded()
+        items = layout.items.map { ($0.kind, NSRect(x: $0.x, y: y, width: $0.width, height: M.itemH), $0.tier) }
         needsDisplay = true
     }
 
     func rect(of kind: Kind) -> NSRect? { items.first { $0.kind == kind }?.rect }
+
+    /// Whether a tab or group shows its name, not just its icon.
+    func isTitled(_ kind: Kind) -> Bool { items.first { $0.kind == kind }.map { $0.tier != .icon } ?? false }
+
+    private func tier(of kind: Kind) -> Tier { items.first { $0.kind == kind }?.tier ?? tier }
 
     // MARK: - Accessibility
 
@@ -358,6 +459,7 @@ final class TablineStripView: NSView {
     private func accessibilityLabel(for kind: Kind) -> String {
         func open(_ i: Int) -> String { model.liveIndices.contains(i) ? ", open in browser" : "" }
         switch kind {
+        case .gear: return "Settings"
         case .chip: return "\(model.name), switch workspace"
         case .tab(let i):
             guard case .link(let link) = model.entries[i] else { return "" }
@@ -389,12 +491,13 @@ final class TablineStripView: NSView {
         ring.stroke()
 
         // separator after the chip
-        let sepX = M.pad + chipWidth + M.gap + 4
+        let sepX = TablineLayout.chipX(gearWidth: M.gear) + chipWidth + M.gap + 4
         p.ink.withAlphaComponent(0.18).setFill()
         NSRect(x: sepX, y: (bounds.height - 16) / 2, width: 1, height: 16).fill()
 
         for item in items {
             switch item.kind {
+            case .gear: drawGear(item.rect, p)
             case .chip: drawChip(item.rect, p)
             case .tab(let i): drawTab(i, item.rect, p)
             case .group(let i): drawGroup(i, item.rect, p)
@@ -429,6 +532,20 @@ final class TablineStripView: NSView {
 
     private func glyphRect(x: CGFloat, in rect: NSRect) -> NSRect {
         NSRect(x: x, y: (rect.midY - M.glyph / 2).rounded(), width: M.glyph, height: M.glyph)
+    }
+
+    /// The shared settings symbol in the strip's ink, like the rail's gear.
+    private func drawGear(_ rect: NSRect, _ p: TablinePalette) {
+        hoverFill(.gear, rect, p)
+        let active = hovered == .gear || pressed == .gear
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+            .applying(.init(paletteColors: [p.ink.withAlphaComponent(active ? 1 : 0.75)]))
+        guard let image = NSImage(systemSymbolName: StowSymbols.settings, accessibilityDescription: "Settings")?
+            .withSymbolConfiguration(config) else { return }
+        let size = image.size
+        let target = NSRect(x: (rect.midX - size.width / 2).rounded(), y: (rect.midY - size.height / 2).rounded(),
+                            width: size.width, height: size.height)
+        image.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
     private func drawChip(_ rect: NSRect, _ p: TablinePalette) {
@@ -480,6 +597,7 @@ final class TablineStripView: NSView {
         } else {
             hoverFill(.tab(i), rect, p)
         }
+        let tier = self.tier(of: .tab(i))
         let leading: CGFloat = tier == .full ? 6 : 5
         let glyph = glyphRect(x: rect.minX + leading, in: rect)
         TablineGlyph.draw(title: link.title, url: link.url, faviconPath: link.faviconPath, in: glyph)
@@ -516,6 +634,7 @@ final class TablineStripView: NSView {
             x += M.glyph - 3
         }
         x = rect.minX + 6 + stackWidth(stacked.count) + 5
+        let tier = self.tier(of: .group(i))
         guard tier != .icon else { return }
         // The name shows whenever the waterfill gave the group room for it next to the count.
         let countWidth = Self.width("\(links.count)", Self.font(.semibold))
@@ -585,6 +704,7 @@ final class TablineStripView: NSView {
 
     private func tooltip(for kind: Kind) -> String? {
         switch kind {
+        case .gear: return "Settings"
         case .chip: return "Switch workspace"
         case .tab(let i):
             guard case .link(let link) = model.entries[i] else { return nil }

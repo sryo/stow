@@ -119,7 +119,7 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **ScrollWheelPageController** - Scroll-wheel page navigation for workspace switching
 - **RailView** - The 52pt rail: workspace dots, item cells and their flyouts
 - **SettingsRailController** - Settings in the rail: workspace tiles, the workspace editor and the app sheet
-- **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window
+- **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window; **TablineLayout** places its parts (gear, chip, tabs, waterfilled titles) as a pure function, and **TablineSettingsFlyout** hangs the app sheet off its gear
 - **OpenTabsMonitor** - One shared poll of the browsers' open tabs, for the open dots in the rail, list and Tabline
 
 **Flyouts, menus and shared pieces** (left-click pop-ups are flyouts; right-click menus stay native):
