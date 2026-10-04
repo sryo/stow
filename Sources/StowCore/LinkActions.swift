@@ -9,6 +9,15 @@ final class LinkActions {
     /// The window toasts appear in.
     private let window: () -> NSWindow?
 
+    /// Shows one toast: a message and how long it stays.
+    typealias ToastPresenter = (_ message: String, _ duration: TimeInterval) -> Void
+    /// Where a stow's toast goes when the caller doesn't name a surface: Stow's window.
+    lazy var presentToast: ToastPresenter = { [weak self] message, duration in
+        Toast.show(message, in: self?.window(), duration: duration)
+    }
+    /// Opens several links at once in the workspace's browser. Tests record instead.
+    lazy var openMany: ([Link]) -> Void = { [weak self] links in self?.openInBrowser(links) }
+
     init(model: AppModel, window: @escaping () -> NSWindow?) {
         self.model = model
         self.window = window
@@ -16,21 +25,27 @@ final class LinkActions {
 
     /// Switches to the link's tab if it's open in any browser; otherwise opens it in the
     /// workspace's "Opens in" browser (by default the browser you're using). Holding Option
-    /// opens a fresh tab instead. `override` is a one-off Open in ▸ choice from the link's menu.
-    func openLink(_ link: Link, in override: OpensIn? = nil) {
+    /// opens a fresh tab instead, as `newTab` (⌥Return) does. `override` is a one-off Open in ▸
+    /// choice from the link's menu.
+    func openLink(_ link: Link, in override: OpensIn? = nil, newTab: Bool = false) {
         guard let url = URL(string: link.url) else { return }
         let target = override.map {
-            LinkTarget(bundleId: $0.bundleId, profile: $0.profile)
-        } ?? LinkTarget.forWorkspace(model.activeWorkspaceId)
+            LinkTarget(bundleId: $0.bundleId, profile: $0.profile, focusesOpenTab: !newTab)
+        } ?? LinkTarget.forWorkspace(model.activeWorkspaceId, forceNewTab: newTab || NSEvent.modifierFlags.contains(.option))
         Task.detached(priority: .userInitiated) {
             if target.focusesOpenTab, await BrowserTabService.focusIfOpen(url: url) { return }
             await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
         }
     }
 
+    /// "Open all", from the list, its menu and the rail: the links the folder shows.
     func openLinksInFolder(_ folder: Folder) {
-        let links = collectLinks(in: folder)
+        let links = folder.openableLinks
         guard !links.isEmpty else { return }
+        openMany(links)
+    }
+
+    private func openInBrowser(_ links: [Link]) {
         let target = LinkTarget.forWorkspace(model.activeWorkspaceId)
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
@@ -43,10 +58,6 @@ final class LinkActions {
                 await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
             }
         }
-    }
-
-    private func collectLinks(in folder: Folder) -> [Link] {
-        folder.children.flattenLinks()
     }
 
     /// Saves the front tab of the browser the user was last in to the active workspace (on
@@ -74,18 +85,26 @@ final class LinkActions {
         }, in: window())
     }
 
-    /// The one stow path: top of the workspace, once per page, then a title fetch.
+    /// The one stow path: top of the workspace, once per page, then a title fetch. It says
+    /// "Stowed in X" or "Already in X" once, through `toast` (the caller's surface, such as
+    /// the Tabline's strip) or else in Stow's window.
     @discardableResult
-    func stow(url: URL, title: String, into workspaceId: UUID?) -> AppModel.StowResult {
+    func stow(url: URL, title: String, into workspaceId: UUID?, toast: ToastPresenter? = nil) -> AppModel.StowResult {
         let result = model.stowLink(url: url, title: title, workspaceId: workspaceId)
+        let message: String
         switch result {
         case .added(let id):
             fetchTitleForNewLink(id: id, url: url)
+            message = "Stowed in \(workspaceName(holding: id))"
         case .alreadyPresent(let id):
-            let name = model.workspaces.first { ws in ws.items.flattenIds().contains(id) }?.name ?? model.activeWorkspace.name
-            Toast.show("Already in \(name)", in: window(), duration: Toast.briefDuration * 2)
+            message = "Already in \(workspaceName(holding: id))"
         }
+        (toast ?? presentToast)(message, Toast.briefDuration * 2)
         return result
+    }
+
+    private func workspaceName(holding id: UUID) -> String {
+        model.workspaces.first { $0.items.flattenIds().contains(id) }?.name ?? model.activeWorkspace.name
     }
 
     func fetchTitleForNewLink(id: UUID, url: URL) {

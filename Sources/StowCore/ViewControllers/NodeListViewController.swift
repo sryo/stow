@@ -103,6 +103,10 @@ final class NodeListViewController: NSViewController {
     var onNewSnippetRequested: ((UUID?) -> Void)?
     var onLinkUrlEdited: ((UUID, String) -> Void)?
     var onOpenFolderLinks: ((UUID) -> Void)?
+    /// ⌥Return on a link: open it in a fresh tab, as ⌥-click does.
+    var onOpenLinkInNewTab: ((UUID) -> Void)?
+    /// Shows the row actions for the row at an index. Nil pops up the row's menu; tests record.
+    var rowActionsPresenter: ((Int) -> Void)?
     /// A one-off "Open in ▸" from a link's menu.
     var onOpenLinkIn: ((Link, OpensIn) -> Void)?
     var onBulkOpenLinks: (([UUID]) -> Void)?
@@ -919,7 +923,7 @@ final class NodeListViewController: NSViewController {
     // MARK: - Keyboard
 
     /// The row the keyboard acts on. Drawn with a focus ring while the list has focus.
-    private var keyboardCursorId: UUID? {
+    private(set) var keyboardCursorId: UUID? {
         didSet {
             guard keyboardCursorId != oldValue else { return }
             updateKeyboardCursorVisuals()
@@ -1088,9 +1092,16 @@ final class NodeListViewController: NSViewController {
             } else if let node = row.node {
                 activate(node)
             }
-        case (36, [.option]), (76, [.option]): // option-return: row actions menu
+        case (36, [.option]), (76, [.option]): // option-return: open all, as in the flyouts
+            guard let row, case .regular = row.kind else { return true }
+            switch row.node {
+            case .folder(let folder)?: onOpenFolderLinks?(folder.id)
+            case .link(let link)?: onOpenLinkInNewTab?(link.id)
+            default: break
+            }
+        case (36, [.control]), (76, [.control]), (109, [.shift]): // control-return, shift-F10: row actions
             guard let index, row?.node != nil else { return true }
-            showContextMenu(forRowAt: index)
+            if let rowActionsPresenter { rowActionsPresenter(index) } else { showContextMenu(forRowAt: index) }
         case (120, []): // F2: rename
             guard let index, let node = row?.node, case .regular = row?.kind else { return true }
             beginInlineRename(nodeId: node.id, indexPath: IndexPath(item: index, section: 0))
@@ -1636,7 +1647,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
 // MARK: - Context menus
 
 extension NodeListViewController: NewItemMenuTarget {
-    /// The menu for a right-click (or ⌥↩) at `indexPath`: the selection's bulk menu, an
+    /// The menu for a right-click (or ⌃↩, ⇧F10) at `indexPath`: the selection's bulk menu, an
     /// archived item's menu, the item's NodeMenu, or the New… menu on the background.
     func contextMenu(at indexPath: IndexPath?) -> NSMenu? {
         if isBulkContextMenu && !selectedNodeIds.isEmpty {

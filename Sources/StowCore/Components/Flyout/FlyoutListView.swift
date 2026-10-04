@@ -4,13 +4,20 @@ import StowShared
 /// A list inside a FlyoutPanel, in the rail flyout's style: a section header with a quiet
 /// count, rows of glyph · title · trailing (an open ●, a check, a due date), and optional
 /// footer buttons. ↑/↓ move, Return picks, typing jumps to a title, → opens a subfolder,
-/// ⌥Return runs the first footer button. Links and snippets drag out of it.
+/// ⌥Return runs the Open all button, when the list has one. Links and snippets drag out of it.
 @MainActor
 final class FlyoutListView: NSView {
     struct FooterButton {
         var title: String
         var style: FlyoutButton.Style = .plain
+        /// ⌥Return runs this button.
+        var isOpenAll = false
         var action: () -> Void
+
+        /// A folder list's "Open all", the button ⌥Return runs.
+        static func openAll(_ action: @escaping () -> Void) -> FooterButton {
+            FooterButton(title: "Open all  ⌥↩", style: .primary, isOpenAll: true, action: action)
+        }
     }
 
     enum Metrics {
@@ -42,6 +49,7 @@ final class FlyoutListView: NSView {
     private let separator = NSView()
     private var footerButtons: [FlyoutButton] = []
     private var footerActions: [() -> Void] = []
+    private var openAllAction: (() -> Void)?
     private var sectionLabels: [NSTextField] = []
     private(set) var sections: [FlyoutListSection]
     private(set) var rowViews: [FlyoutListRowView] = []
@@ -74,6 +82,7 @@ final class FlyoutListView: NSView {
             b.action = #selector(footerTapped(_:))
             footerButtons.append(b)
             footerActions.append(button.action)
+            if button.isOpenAll, openAllAction == nil { openAllAction = button.action }
             addSubview(b)
         }
 
@@ -237,9 +246,9 @@ final class FlyoutListView: NSView {
 
     override func insertNewline(_ sender: Any?) { activateSelected() }
 
-    /// ⌥Return: the first footer button (Open all).
+    /// ⌥Return: Open all, as everywhere in Stow. Lists without it ignore the key.
     override func insertNewlineIgnoringFieldEditor(_ sender: Any?) {
-        footerActions.first?()
+        openAllAction?()
     }
 
     override func moveRight(_ sender: Any?) {
@@ -628,13 +637,13 @@ final class FlyoutListPresenter {
         guard let window = view.window else { return }
         let rows = FlyoutListModel.rows(for: folder, openKeys: openKeys)
         let footer: [FlyoutListView.FooterButton] = onOpenAll.map { openAll in
-            [FlyoutListView.FooterButton(title: "Open all  ⌥↩", style: .primary) { [weak self] in
+            [FlyoutListView.FooterButton.openAll { [weak self] in
                 openAll(folder)
                 self?.closeAll()
             }]
         } ?? []
         let list = FlyoutListView(title: folder.name, detail: "\(rows.count)", rows: rows,
-                                  footer: rows.contains(where: { if case .openLink = $0.action { return true }; return false }) ? footer : [])
+                                  footer: folder.openableLinks.isEmpty ? [] : footer)
         wire(list)
         let panel = pushedPanels[folder.id] ?? FlyoutPanel(takesKey: panelsTakeKey)
         panel.level = window.level

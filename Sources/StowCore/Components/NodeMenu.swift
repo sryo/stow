@@ -25,7 +25,7 @@ final class NodeMenu: NSObject, NSMenuDelegate {
         var pasteboard: NSPasteboard = .general
     }
 
-    /// Shown as hints for the list's keyboard shortcuts (F2, ⌘⌫).
+    /// Shown as hints for the list's keyboard shortcuts (F2, ⌘⌫, and ⌥↩ on Open all links).
     static let renameKey = String(Character(UnicodeScalar(NSF2FunctionKey)!))
     static let archiveKey = String(Character(UnicodeScalar(NSBackspaceCharacter)!))
 
@@ -67,8 +67,8 @@ final class NodeMenu: NSObject, NSMenuDelegate {
         switch node {
         case .folder(let folder):
             menu.addItem(item("New folder inside…", #selector(newFolderInside)))
-            if !folder.children.flattenLinks().isEmpty {
-                menu.addItem(item("Open all links", #selector(openFolder)))
+            if !folder.openableLinks.isEmpty {
+                menu.addItem(item("Open all links", #selector(openFolder), key: "\r", mask: .option))
             }
         case .link(let link):
             let openIn = NSMenuItem(title: "Open in", action: nil, keyEquivalent: "")

@@ -121,7 +121,7 @@ final class ReviewRedListTests: XCTestCase {
     func testStowingFromTheTablineLandsAtTheTop() {
         _ = model.addLink(urlString: "https://example.com/old", title: "Old", parentId: nil)
         harness.host(width: 400)
-        TablineController.shared.onStowURL?(URL(string: "https://stow.invalid/new")!, "New")
+        TablineController.shared.onStowURL?(URL(string: "https://stow.invalid/new")!, "New") { _, _ in }
         guard case .link(let first)? = model.currentWorkspace.items.first else { return XCTFail("no items") }
         XCTAssertEqual(first.url, "https://stow.invalid/new",
                        "code-health-10/modes-16: the Tabline ghost appends at the bottom; stowFrontTab inserts at index 0")
@@ -130,8 +130,8 @@ final class ReviewRedListTests: XCTestCase {
     func testStowingTheSameTabTwiceFromTheTablineKeepsOneLink() {
         harness.host(width: 400)
         let url = URL(string: "https://stow.invalid/same")!
-        TablineController.shared.onStowURL?(url, "Same")
-        TablineController.shared.onStowURL?(url, "Same")
+        TablineController.shared.onStowURL?(url, "Same") { _, _ in }
+        TablineController.shared.onStowURL?(url, "Same") { _, _ in }
         let count = model.currentWorkspace.items.filter { if case .link(let l) = $0 { return l.url == url.absoluteString }; return false }.count
         XCTAssertEqual(count, 1, "code-health-10/modes-16: the Tabline ghost skips the canonical-URL de-dup stowFrontTab does")
     }
