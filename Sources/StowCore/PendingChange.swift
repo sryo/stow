@@ -39,9 +39,11 @@ final class PendingChange {
     func offer(in window: NSWindow?) {
         if let undoManager = window?.undoManager {
             self.undoManager = undoManager
-            undoManager.registerUndo(withTarget: self) { change in
-                change.undo()
-                Toast.dismiss(change.toast, expired: false)
+            // NSUndoManager doesn't retain its target. The handler holds `self` strongly so
+            // the change lives as long as its ⌘Z entry, not just as long as its toast.
+            undoManager.registerUndo(withTarget: self) { [self] _ in
+                undo()
+                Toast.dismiss(toast, expired: false)
             }
             undoManager.setActionName(actionName)
         }

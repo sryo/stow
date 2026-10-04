@@ -121,6 +121,26 @@ final class ArchiveUndoTests: XCTestCase {
         XCTAssertFalse(Toast.isShowing)
     }
 
+    func testCommandZStillUndoesAnArchiveAfterTheToastTimesOut() throws {
+        let id = model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
+        harness.host(width: 400)
+        weak var offered: PendingChange?
+        autoreleasepool {
+            let change = PendingChange.archive([id], model: model)
+            change?.offer(in: harness.window)
+            offered = change
+        }
+        autoreleasepool {
+            harness.spin()
+            Toast.dismiss(expired: true)
+            harness.spin(0.5) // the fade-out ends and the panel lets go of its Undo action
+        }
+        XCTAssertNotNil(offered, "the undo manager doesn't retain its target, so the change must outlive its toast")
+        guard offered != nil else { return } // undoing with a freed target crashes
+        undoManager?.undo()
+        XCTAssertEqual(model.nodeById(id)?.isArchived, false)
+    }
+
     func testANestedArchivedItemShowsInTheArchiveAndComesBack() {
         let folder = model.addFolder(name: "Reading", parentId: nil, isExpanded: true)
         let id = model.addLink(urlString: "https://example.com/b", title: "Gone", parentId: folder)
