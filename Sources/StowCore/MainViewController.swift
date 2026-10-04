@@ -266,7 +266,8 @@ final class MainViewController: NSViewController {
         stowTabButton.translatesAutoresizingMaskIntoConstraints = false
         stowTabButton.target = self
         stowTabButton.action = #selector(stowTabTapped)
-        stowTabButton.toolTip = "Save the front tab of the browser you were last in (⌥⌘S)"
+        updateStowTabShortcut()
+        NotificationCenter.default.addObserver(self, selector: #selector(updateStowTabShortcut), name: .toggleSidebarShortcutChanged, object: nil)
 
         // Node list view
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -1157,6 +1158,15 @@ final class MainViewController: NSViewController {
         } else {
             enterSettings()
         }
+    }
+
+    /// The footer's keycap and tip follow the Stow front tab shortcut (none when cleared).
+    @objc private func updateStowTabShortcut() {
+        let shortcut = ShortcutStore().shortcut(for: .stowFrontTab)
+        stowTabButton.keycapText = shortcut?.displayString
+        stowTabFullWidth = nil
+        stowTabButton.toolTip = "Save the front tab of the browser you were last in"
+            + (shortcut.map { " (\($0.displayString), from any app)" } ?? "")
     }
 
     @objc private func stowTabTapped() {

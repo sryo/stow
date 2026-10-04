@@ -93,6 +93,20 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertNil(AppPreferences.side(of: NSRect(x: 0, y: 0, width: 10, height: 10), besides: nil))
     }
 
+    func testAttachingPicksUpTheSideStowIsOn() {
+        preferences.setBrowserSide(1)
+        preferences.attachSide = { 0 }
+        preferences.setWindowMode(.attached)
+        XCTAssertEqual(preferences.browserSide, 0, "Stow sat left of the browser")
+        preferences.attachSide = { 1 }
+        preferences.setWindowMode(.attached)
+        XCTAssertEqual(preferences.browserSide, 0, "already attached: the side is only picked up when attaching")
+        preferences.setWindowMode(.floating)
+        preferences.attachSide = { nil }
+        preferences.setWindowMode(.attached)
+        XCTAssertEqual(preferences.browserSide, 0, "no browser window: keep the last side")
+    }
+
     // MARK: Tabline
 
     func testTablineDefaultsOffAndNotifiesEveryControl() {

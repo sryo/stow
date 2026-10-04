@@ -28,6 +28,9 @@ final class AppPreferences {
 
     /// Attached was chosen but Accessibility isn't granted yet; applied once it is.
     private(set) var attachRequested = false
+    /// Which side of the browser Stow is on right now (0 left, 1 right), read when it
+    /// attaches so Browser side follows where you put it. Nil without a browser window.
+    var attachSide: (() -> Int?)?
     private let defaults: UserDefaults
     private let loginItem: LoginItemControlling
     private let accessibilityCheck: () -> Bool
@@ -102,6 +105,9 @@ final class AppPreferences {
             setAttachment(false)
             setAlwaysOnTop(true)
         case .attached:
+            if windowMode != .attached, let side = attachSide?() {
+                defaults.set(side == 0 ? "left" : "right", forKey: UserDefaultsKeys.sidebarPosition)
+            }
             setAlwaysOnTop(false)
             if hasAccessibility {
                 attachRequested = false

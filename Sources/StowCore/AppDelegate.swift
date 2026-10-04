@@ -85,6 +85,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         self.window = window
         ImportCoordinator.shared.window = window
+        AppPreferences.shared.attachSide = { [weak self] in self?.currentSideOfBrowser() }
         applyAlwaysOnTopFromDefaults()
         setupAttachmentService()
         setupGlobalHotkey()
@@ -465,6 +466,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 window.setFrame(lastFrame, display: true, animate: false)
             }
         }
+    }
+
+    /// Which side of the attach browser's front window Stow sits on, from the window
+    /// list (no Accessibility needed). Both frames are in screen coordinates.
+    private func currentSideOfBrowser() -> Int? {
+        guard let window, let bundleId = BrowserManager.attachTargetBundleId(),
+              let pid = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId })?.processIdentifier,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let browser = list.first { info in
+            (info[kCGWindowOwnerPID as String] as? pid_t) == pid && (info[kCGWindowLayer as String] as? Int) == 0
+        }
+        guard let bounds = browser?[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
+        let browserFrame = NSRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0, width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+        return AppPreferences.side(of: window.frame, besides: browserFrame)
     }
 
     /// One silent snapshot of data.json a day, kept 14 days.
