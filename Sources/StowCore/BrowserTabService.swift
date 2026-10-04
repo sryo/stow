@@ -36,18 +36,14 @@ public enum BrowserTabService {
     private static let safariBundleId = "com.apple.Safari"
     private static let safariAppName  = "Safari"
 
+    private static var supportedBundleIds: [String] { chromiumBrowsers.map(\.bundleId) + [arcBundleId, safariBundleId] }
+
     // MARK: - Public
 
     public static func listTabs() -> [OpenTab] {
         var tabs: [OpenTab] = []
-        for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
-            tabs.append(contentsOf: chromiumTabs(appName: entry.appName, bundleId: entry.bundleId))
-        }
-        if BrowserManager.isRunning(bundleId: arcBundleId) {
-            tabs.append(contentsOf: arcTabs())
-        }
-        if BrowserManager.isRunning(bundleId: safariBundleId) {
-            tabs.append(contentsOf: safariTabs())
+        for bundleId in supportedBundleIds where BrowserManager.isRunning(bundleId: bundleId) {
+            tabs.append(contentsOf: self.tabs(bundleId: bundleId))
         }
         return tabs
     }
@@ -63,14 +59,8 @@ public enum BrowserTabService {
         let target = canonicalize(url)
         let allowed: (String) -> Bool = { onlyBundleId == nil || $0 == onlyBundleId }
         let match = await withTaskGroup(of: OpenTab?.self) { group -> OpenTab? in
-            for entry in chromiumBrowsers where allowed(entry.bundleId) && BrowserManager.isRunning(bundleId: entry.bundleId) {
-                group.addTask { chromiumTabs(appName: entry.appName, bundleId: entry.bundleId).first { canonicalize($0.url) == target } }
-            }
-            if allowed(arcBundleId) && BrowserManager.isRunning(bundleId: arcBundleId) {
-                group.addTask { arcTabs().first { canonicalize($0.url) == target } }
-            }
-            if allowed(safariBundleId) && BrowserManager.isRunning(bundleId: safariBundleId) {
-                group.addTask { safariTabs().first { canonicalize($0.url) == target } }
+            for bundleId in supportedBundleIds where allowed(bundleId) && BrowserManager.isRunning(bundleId: bundleId) {
+                group.addTask { tabs(bundleId: bundleId).first { canonicalize($0.url) == target } }
             }
             for await result in group {
                 if let hit = result {
@@ -89,14 +79,8 @@ public enum BrowserTabService {
     /// queries each browser exactly once instead of per-URL fan-out.
     public static func tabsByCanonicalURL() async -> [String: OpenTab] {
         let lists = await withTaskGroup(of: [OpenTab].self) { group -> [[OpenTab]] in
-            for entry in chromiumBrowsers where BrowserManager.isRunning(bundleId: entry.bundleId) {
-                group.addTask { chromiumTabs(appName: entry.appName, bundleId: entry.bundleId) }
-            }
-            if BrowserManager.isRunning(bundleId: arcBundleId) {
-                group.addTask { arcTabs() }
-            }
-            if BrowserManager.isRunning(bundleId: safariBundleId) {
-                group.addTask { safariTabs() }
+            for bundleId in supportedBundleIds where BrowserManager.isRunning(bundleId: bundleId) {
+                group.addTask { tabs(bundleId: bundleId) }
             }
             var collected: [[OpenTab]] = []
             for await list in group { collected.append(list) }
@@ -138,65 +122,58 @@ public enum BrowserTabService {
 
     // MARK: - Per-browser tab listing
 
-    private static func chromiumTabs(appName: String, bundleId: String) -> [OpenTab] {
-        let script = """
+    /// The AppleScript that lists every tab of `bundleId`'s browser as
+    /// `windowId \t tabIndex \t url \t title` rows, or nil for an unsupported browser.
+    static func tabListScript(bundleId: String) -> String? {
+        let appName: String
+        // Safari tabs expose `name` rather than `title`.
+        let titleKey = bundleId == safariBundleId ? "name" : "title"
+        if bundleId == safariBundleId {
+            appName = safariAppName
+        } else if bundleId == arcBundleId {
+            appName = arcAppName
+        } else if let entry = chromiumBrowsers.first(where: { $0.bundleId == bundleId }) {
+            appName = entry.appName
+        } else {
+            return nil
+        }
+        return """
         set sep to character id 9
         tell application "\(appName)"
             set output to ""
             repeat with w in windows
                 set wid to id of w as string
-                set tabList to tabs of w
-                repeat with i from 1 to (count of tabList)
-                    set t to item i of tabList
-                    set output to output & wid & sep & i & sep & (URL of t) & sep & (title of t) & linefeed
+                -- One request per property for the whole window: fast with hundreds of tabs, and
+                -- Arc can't hold a tab in a variable. A tab with no URL (Arc's empty and
+                -- special tabs) fails only its own row instead of the whole listing.
+                set urls to URL of tabs of w
+                set titles to \(titleKey) of tabs of w
+                repeat with i from 1 to (count of urls)
+                    try
+                        set output to output & wid & sep & i & sep & (item i of urls) & sep & (item i of titles) & linefeed
+                    end try
                 end repeat
             end repeat
             return output
         end tell
         """
+    }
+
+    private static func tabs(bundleId: String) -> [OpenTab] {
+        guard let script = tabListScript(bundleId: bundleId) else { return [] }
         return parseRows(runAppleScript(script), bundleId: bundleId)
-    }
-
-    private static func arcTabs() -> [OpenTab] {
-        let script = """
-        set sep to character id 9
-        tell application "Arc"
-            set output to ""
-            repeat with w in windows
-                set wid to id of w as string
-                repeat with i from 1 to (count of tabs of w)
-                    set t to tab i of w
-                    set output to output & wid & sep & i & sep & (URL of t) & sep & (title of t) & linefeed
-                end repeat
-            end repeat
-            return output
-        end tell
-        """
-        return parseRows(runAppleScript(script), bundleId: arcBundleId)
-    }
-
-    private static func safariTabs() -> [OpenTab] {
-        // Safari tabs expose `name` rather than `title`.
-        let script = """
-        set sep to character id 9
-        tell application "Safari"
-            set output to ""
-            repeat with w in windows
-                set wid to id of w as string
-                repeat with i from 1 to (count of tabs of w)
-                    set t to tab i of w
-                    set output to output & wid & sep & i & sep & (URL of t) & sep & (name of t) & linefeed
-                end repeat
-            end repeat
-            return output
-        end tell
-        """
-        return parseRows(runAppleScript(script), bundleId: safariBundleId)
     }
 
     // MARK: - Focus
 
     static func focus(tab: OpenTab) -> Bool {
+        guard let script = focusScript(tab: tab) else { return false }
+        // Focus scripts return no value, so success means "no error", not "some output".
+        return runAppleScriptSucceeded(script)
+    }
+
+    /// Selects the tab, then raises its window and activates the browser.
+    static func focusScript(tab: OpenTab) -> String? {
         let script: String
         switch tab.bundleId {
         case safariBundleId:
@@ -204,7 +181,10 @@ public enum BrowserTabService {
             tell application "Safari"
                 tell window id \(tab.windowId)
                     set current tab to tab \(tab.tabIndex)
-                    set index to 1
+                    -- Best effort: Arc rejects this while another app is in front.
+                    try
+                        set index to 1
+                    end try
                 end tell
                 activate
             end tell
@@ -215,27 +195,40 @@ public enum BrowserTabService {
             tell application "Arc"
                 tell window id "\(tab.windowId)"
                     tell tab \(tab.tabIndex) to select
-                    set index to 1
+                    -- Best effort: Arc rejects this while another app is in front.
+                    try
+                        set index to 1
+                    end try
                 end tell
                 activate
             end tell
             """
         default:
-            guard let appName = chromiumBrowsers.first(where: { $0.bundleId == tab.bundleId })?.appName else { return false }
+            guard let appName = chromiumBrowsers.first(where: { $0.bundleId == tab.bundleId })?.appName else { return nil }
             script = """
             tell application "\(appName)"
                 tell window id \(tab.windowId)
                     set active tab index to \(tab.tabIndex)
-                    set index to 1
+                    -- Best effort: Arc rejects this while another app is in front.
+                    try
+                        set index to 1
+                    end try
                 end tell
                 activate
             end tell
             """
         }
-        return runAppleScript(script) != nil
+        return script
     }
 
     // MARK: - AppleScript runner
+
+    private static func runAppleScriptSucceeded(_ source: String) -> Bool {
+        guard let script = NSAppleScript(source: source) else { return false }
+        var err: NSDictionary?
+        script.executeAndReturnError(&err)
+        return err == nil
+    }
 
     private static func runAppleScript(_ source: String) -> String? {
         guard let script = NSAppleScript(source: source) else { return nil }
