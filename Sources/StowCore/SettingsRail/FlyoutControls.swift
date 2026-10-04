@@ -66,6 +66,12 @@ enum FlyoutLabel {
         return label
     }
 
+    /// The width a one-line label needs to show its text in full: the text plus the 2pt
+    /// the cell insets it on each side. Its intrinsic width can come up short of that.
+    static func fittingWidth(of label: NSTextField) -> CGFloat {
+        ceil(max(label.intrinsicContentSize.width, label.attributedStringValue.size().width + 4))
+    }
+
     static func wrapping(_ text: String, size: CGFloat, color: NSColor = FlyoutColors.inkSecondary) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = FlyoutFonts.ui(size)

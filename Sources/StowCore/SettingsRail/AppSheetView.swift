@@ -678,7 +678,7 @@ final class AllShortcutsView: RailFlippedView {
             for row in section.rows {
                 let keys = FlyoutLabel.text(row.keys, size: 12, weight: .medium, color: FlyoutColors.inkSecondary)
                 keys.alignment = .right
-                let keyWidth = ceil(keys.intrinsicContentSize.width) + 2
+                let keyWidth = FlyoutLabel.fittingWidth(of: keys)
                 keys.frame = NSRect(x: width - pad - keyWidth, y: y + 2, width: keyWidth, height: 16)
                 keys.setAccessibilityElement(false)
                 let name = FlyoutLabel.text(row.title, size: 12)

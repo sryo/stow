@@ -199,6 +199,19 @@ final class AllShortcutsTests: XCTestCase {
         XCTAssertEqual(AllShortcuts.display(key: ",", modifiers: [.command]), "⌘,")
     }
 
+    func testEveryShortcutAndNameShowsInFull() {
+        let view = AllShortcutsView()
+        view.frame.size = view.preferredSize
+        view.layoutSubtreeIfNeeded()
+        let labels = view.subviews.compactMap { $0 as? NSTextField }.filter { $0 !== view.note }
+        XCTAssertGreaterThan(labels.count, 20)
+        for label in labels {
+            let needed = ceil(label.attributedStringValue.size().width) + 4
+            XCTAssertGreaterThanOrEqual(label.frame.width + 0.5, needed, "“\(label.stringValue)” is cut to “…”")
+            XCTAssertGreaterThanOrEqual(label.frame.minX, 0)
+        }
+    }
+
     func testTheFootnoteIsNotCutOff() {
         let view = AllShortcutsView()
         view.frame.size = view.preferredSize
