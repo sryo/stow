@@ -80,11 +80,13 @@ final class AppViewModel: ObservableObject {
         // Forward every model change to SwiftUI's invalidation pipeline. Replaces
         // the old refreshTrigger.toggle() pattern — views no longer need to read
         // a sentinel @Published; reading any of viewModel's properties is enough.
-        modelChangeSubscription = model.changes
+        // Only local edits are uploaded; an iCloud fetch or absorbed shares just refresh
+        // the UI, the widget and the Live Activity.
+        modelChangeSubscription = model.changeOrigins
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
+            .sink { [weak self] origin in
                 self?.objectWillChange.send()
-                CloudSyncManager.shared.scheduleLocalChanges()
+                if origin == .local { CloudSyncManager.shared.scheduleLocalChanges() }
                 self?.refreshLiveActivity()
                 self?.scheduleWidgetReload()
             }
@@ -163,11 +165,10 @@ final class AppViewModel: ObservableObject {
     /// and uploads them. Call on launch, on every foreground and before applying a push.
     func absorbSharedLinks() {
         guard !shareInbox.pending.isEmpty else { return }
+        // Absorbing notifies `changeOrigins` as external (refreshing the UI, widget and Live
+        // Activity); the links are new to iCloud, so upload them here.
         let added = ShareSaver.absorb(inbox: shareInbox, into: model)
-        if added > 0 { objectWillChange.send() }
-        if isSyncEnabled { CloudSyncManager.shared.scheduleLocalChanges() }
-        refreshLiveActivity()
-        scheduleWidgetReload()
+        if added > 0, isSyncEnabled { CloudSyncManager.shared.scheduleLocalChanges() }
     }
 
     private var widgetReloadTask: Task<Void, Never>?

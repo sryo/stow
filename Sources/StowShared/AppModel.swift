@@ -3,18 +3,37 @@ import Combine
 import os
 
 public final class AppModel {
+    /// Where a change came from. Hosts upload `.local` changes to iCloud; `.external`
+    /// ones (a finished fetch, links absorbed from the share extension) only refresh
+    /// the UI, so a fetch is never echoed back as an upload.
+    public enum ChangeOrigin: Sendable, Equatable {
+        case local, external
+    }
+
+    /// What `stowLink` did: saved a new link, or found the page already saved.
+    public enum StowResult: Equatable, Sendable {
+        case added(UUID)
+        case alreadyPresent(UUID)
+
+        public var linkId: UUID {
+            switch self {
+            case .added(let id), .alreadyPresent(let id): return id
+            }
+        }
+    }
+
     private let store: DataStore
     public private(set) var state: AppState
-    /// Legacy single-assignee change callback. Kept for Mac AppDelegate; iOS
-    /// prefers the multicast `changes` publisher below. Both fire from the
-    /// same `persist(notify: true)` path.
-    public var onChange: (() -> Void)?
-    private let changesSubject = PassthroughSubject<Void, Never>()
+    /// The last workspace that was on screen. Settings clears `state.selectedWorkspaceId`
+    /// but keeps this, so edits made from Settings still land where you came from.
+    private var lastWorkspaceId: UUID?
+    private let changesSubject = PassthroughSubject<ChangeOrigin, Never>()
     /// Multicast change stream. Fires after every mutation that bubbles through
-    /// `persist(notify: true)` — UI subscribers should respond by re-reading
-    /// whatever they expose from the model. Compatible with `.sink` and
-    /// `.objectWillChange.send()` patterns alike.
-    public var changes: AnyPublisher<Void, Never> { changesSubject.eraseToAnyPublisher() }
+    /// `persist(notify: true)` and after `notifyExternalChange()`. UI subscribers
+    /// should respond by re-reading whatever they expose from the model.
+    public var changes: AnyPublisher<Void, Never> { changesSubject.map { _ in () }.eraseToAnyPublisher() }
+    /// `changes`, tagged with where each change came from.
+    public var changeOrigins: AnyPublisher<ChangeOrigin, Never> { changesSubject.eraseToAnyPublisher() }
     /// Called after a delete operation with the set of IDs (workspace and/or
     /// nodes) that need a corresponding CloudKit deletion. Host code (Mac
     /// AppDelegate / iOS AppViewModel) wires this to `CloudSyncManager.scheduleDeletion`;
@@ -43,6 +62,8 @@ public final class AppModel {
                 state.selectedWorkspaceId = state.workspaces.first?.id
             }
         }
+        lastWorkspaceId = state.selectedWorkspaceId
+            ?? UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId).flatMap(UUID.init(uuidString:))
 
         store.cleanOrphanedFavicons(state: state)
     }
@@ -51,10 +72,11 @@ public final class AppModel {
         state.workspaces
     }
 
-    public var currentWorkspace: Workspace {
-        if let selected = state.selectedWorkspaceId,
-           let workspace = state.workspaces.first(where: { $0.id == selected }) {
-            return workspace
+    /// The workspace on screen. On Settings it's the one you came from, so stowing a tab,
+    /// the Tabline and "Opens in" keep acting on it rather than on the first workspace.
+    public var activeWorkspace: Workspace {
+        for id in [state.selectedWorkspaceId, lastWorkspaceId].compactMap({ $0 }) {
+            if let workspace = state.workspaces.first(where: { $0.id == id }) { return workspace }
         }
         if let first = state.workspaces.first {
             return first
@@ -66,6 +88,11 @@ public final class AppModel {
         return fallback
     }
 
+    public var activeWorkspaceId: UUID { activeWorkspace.id }
+
+    /// Same as `activeWorkspace`.
+    public var currentWorkspace: Workspace { activeWorkspace }
+
     public func selectWorkspace(id: UUID) {
         guard state.workspaces.contains(where: { $0.id == id }) else { return }
         state.selectedWorkspaceId = id
@@ -74,7 +101,9 @@ public final class AppModel {
         persist()
     }
 
+    /// Shows Settings. The workspace you came from stays `activeWorkspace`.
     public func selectSettings() {
+        lastWorkspaceId = state.selectedWorkspaceId ?? lastWorkspaceId
         state.isSettingsSelected = true
         state.selectedWorkspaceId = nil
         persist()
@@ -407,7 +436,8 @@ public final class AppModel {
         } else {
             childIds = []
         }
-        updateWorkspace(id: currentWorkspace.id) { workspace in
+        guard let index = workspaceIndex(containing: id) else { return }
+        updateWorkspace(id: state.workspaces[index].id) { workspace in
             _ = removeNode(id: id, nodes: &workspace.items)
         }
         var scheduled: Set<UUID> = [id]
@@ -423,10 +453,11 @@ public final class AppModel {
     }
 
     public func moveNode(id: UUID, toParentId: UUID?, index: Int) {
-        guard let location = findNodeLocation(id: id, nodes: currentWorkspace.items) else { return }
+        guard let wsIndex = workspaceIndex(containing: id),
+              let location = findNodeLocation(id: id, nodes: state.workspaces[wsIndex].items) else { return }
         if let toParentId, isDescendant(nodeId: toParentId, in: id) { return }
 
-        updateWorkspace(id: currentWorkspace.id) { workspace in
+        updateWorkspace(id: state.workspaces[wsIndex].id) { workspace in
             guard let removedNode = removeNode(id: id, nodes: &workspace.items) else { return }
 
             var targetIndex = max(0, index)
@@ -439,9 +470,11 @@ public final class AppModel {
     }
 
     public func moveNodeToWorkspace(id: UUID, workspaceId: UUID) {
-        guard workspaceId != currentWorkspace.id else { return }
+        guard let sourceIndex = workspaceIndex(containing: id) else { return }
+        let sourceId = state.workspaces[sourceIndex].id
+        guard workspaceId != sourceId, state.workspaces.contains(where: { $0.id == workspaceId }) else { return }
         var removedNode: Node?
-        updateWorkspace(id: currentWorkspace.id) { workspace in
+        updateWorkspace(id: sourceId) { workspace in
             removedNode = removeNode(id: id, nodes: &workspace.items)
         }
         guard let node = removedNode else { return }
@@ -463,10 +496,10 @@ public final class AppModel {
         }
     }
 
+    /// Finds the link in any workspace. Does nothing, and writes nothing, when the link is
+    /// missing or already has `path`.
     public func updateLinkFaviconPath(id: UUID, path: String?) {
-        if let node = nodeById(id), case .link(let link) = node, link.faviconPath == path {
-            return
-        }
+        guard case .link(let link)? = nodeById(id), link.faviconPath != path else { return }
         updateNode(id: id) { node in
             switch node {
             case .link(var link):
@@ -500,12 +533,49 @@ public final class AppModel {
         return true
     }
 
+    /// Where the node sits in whichever workspace holds it.
     public func location(of nodeId: UUID) -> NodeLocation? {
-        findNodeLocation(id: nodeId, nodes: currentWorkspace.items)
+        workspaceIndex(containing: nodeId).flatMap { findNodeLocation(id: nodeId, nodes: state.workspaces[$0].items) }
     }
 
+    /// The node with this id in any workspace (ids are unique across the library).
     public func nodeById(_ id: UUID) -> Node? {
-        nodeById(id, nodes: currentWorkspace.items)
+        workspaceIndex(containing: id).flatMap { nodeById(id, nodes: state.workspaces[$0].items) }
+    }
+
+    /// Saves `url` at the top of a workspace (the active one when `workspaceId` is nil or
+    /// gone), unless a link to the same page is already there. One save, one notification.
+    @discardableResult
+    public func stowLink(url: URL, title: String, workspaceId: UUID?) -> StowResult {
+        let fallback = activeWorkspace.id   // also guarantees at least one workspace
+        let index = workspaceId.flatMap { id in state.workspaces.firstIndex { $0.id == id } }
+            ?? state.workspaces.firstIndex { $0.id == fallback } ?? 0
+        let key = URLCanonical.key(url)
+        if let existing = state.workspaces[index].items.flattenLinks().first(where: { URLCanonical.key($0.url) == key }) {
+            return .alreadyPresent(existing.id)
+        }
+        let link = Link(id: UUID(), title: title, url: url.absoluteString, faviconPath: nil)
+        state.workspaces[index].items.insert(.link(link), at: 0)
+        persist()
+        logger.debug("Stowed \(url.absoluteString, privacy: .public)")
+        return .added(link.id)
+    }
+
+    /// Tells subscribers the model changed outside its own mutators: a finished iCloud
+    /// fetch, or links absorbed from the share extension. Doesn't save.
+    public func notifyExternalChange() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        changesSubject.send(.external)
+    }
+
+    /// The index of the workspace holding `id`, checking the active workspace first.
+    private func workspaceIndex(containing id: UUID) -> Int? {
+        let active = activeWorkspace.id
+        if let index = state.workspaces.firstIndex(where: { $0.id == active }),
+           nodeById(id, nodes: state.workspaces[index].items) != nil {
+            return index
+        }
+        return state.workspaces.indices.first { nodeById(id, nodes: state.workspaces[$0].items) != nil }
     }
 
     public func findNode(id: UUID, in nodes: [Node]) -> Node? {
@@ -589,10 +659,11 @@ public final class AppModel {
         persist(notify: notify)
     }
 
+    /// Mutates the node in whichever workspace holds it; saves only when it was found.
     private func updateNode(id: UUID, notify: Bool = true, _ mutate: (inout Node) -> Void) {
-        updateWorkspace(id: currentWorkspace.id, notify: notify) { workspace in
-            _ = updateNode(id: id, nodes: &workspace.items, mutate)
-        }
+        guard let index = workspaceIndex(containing: id) else { return }
+        _ = updateNode(id: id, nodes: &state.workspaces[index].items, mutate)
+        persist(notify: notify)
     }
 
     // MARK: - Sync Support
@@ -625,6 +696,8 @@ public final class AppModel {
         guard let index = state.workspaces.firstIndex(where: { $0.id == remote.id }) else { return }
         state.workspaces[index].name = remote.name
         state.workspaces[index].colorId = remote.colorId
+        state.workspaces[index].icon = remote.icon
+        // isArchiveExpanded isn't synced on purpose: whether the archive is open is per device.
         // Current builds don't upload profiles; only an older build's record carries them.
         if !remote.browserProfiles.isEmpty {
             state.workspaces[index].browserProfiles = remote.browserProfiles
@@ -638,6 +711,7 @@ public final class AppModel {
         guard let index = state.workspaces.firstIndex(where: { $0.id == localId }) else { return }
 
         state.workspaces[index].colorId = remote.colorId
+        state.workspaces[index].icon = remote.icon
 
         // Merge browser profiles: remote wins for conflicts
         for (bundleId, profile) in remote.browserProfiles {
@@ -652,9 +726,10 @@ public final class AppModel {
     /// at the given parent (or top-level if parentId is nil).
     /// When `deduplicateLinks` is true (used during workspace name-merge), new link nodes
     /// are skipped if the workspace already contains a link with the same URL.
+    /// A new node goes at `index` among its siblings, or after them when nil.
     /// Returns false if the insert failed (e.g. parent folder not yet available).
     @discardableResult
-    public func upsertNodeFromSync(node: Node, workspaceId: UUID, parentId: UUID?, deduplicateLinks: Bool = false) -> Bool {
+    public func upsertNodeFromSync(node: Node, workspaceId: UUID, parentId: UUID?, deduplicateLinks: Bool = false, index: Int? = nil) -> Bool {
         // Malformed records that name themselves as their own parent would create an
         // unwalkable cycle. Drop silently — sync will not retry an "impossible" record.
         if parentId == node.id {
@@ -695,7 +770,7 @@ public final class AppModel {
             }
         }
 
-        insertNode(node, parentId: parentId, index: nil, nodes: &state.workspaces[wsIndex].items)
+        insertNode(node, parentId: parentId, index: index, nodes: &state.workspaces[wsIndex].items)
 
         // If parent insert failed (parent not found), fall back to top-level
         if parentId != nil {
@@ -809,9 +884,9 @@ public final class AppModel {
         // background timers that mutate state MUST hop to MainActor first.
         dispatchPrecondition(condition: .onQueue(.main))
         store.save(state)
+        if let selected = state.selectedWorkspaceId { lastWorkspaceId = selected }
         if notify {
-            onChange?()
-            changesSubject.send()
+            changesSubject.send(.local)
         }
     }
 
@@ -894,7 +969,7 @@ public final class AppModel {
     }
 
     private func isDescendant(nodeId: UUID, in potentialAncestorId: UUID) -> Bool {
-        guard let ancestor = nodeById(potentialAncestorId, nodes: currentWorkspace.items) else { return false }
+        guard let ancestor = nodeById(potentialAncestorId) else { return false }
         return containsNode(nodeId, within: ancestor)
     }
 

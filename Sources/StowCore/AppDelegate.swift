@@ -34,7 +34,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         ImportCoordinator.shared.model = model
         ImportCoordinator.shared.backups = BackupService(baseDirectory: Self.dataDirectory)
         scheduleBackups()
-        PageColorSync().adoptRemote()
+        AppPreferences.shared.startTintSync()
         let mainViewController = MainViewController(model: model)
         self.mainViewController = mainViewController
 
@@ -492,12 +492,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private var backupTimer: Timer?
 
-    @objc private func pageColorChangedElsewhere(_ note: Notification) {
-        guard PageColorSync().adoptRemote() != nil else { return }
-        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
-        NotificationCenter.default.post(name: .stowAppPreferencesChanged, object: nil)
-    }
-
     @objc private func accessibilityDisplayChanged(_ note: Notification) {
         // Increase Contrast changes the page color that's drawn.
         NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
@@ -509,9 +503,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func observeBrowserChanges() {
         NotificationCenter.default.addObserver(self, selector: #selector(showImportFromFooter(_:)), name: .stowShowImport, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(pageColorChangedElsewhere(_:)),
-                                               name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-                                               object: NSUbiquitousKeyValueStore.default)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(accessibilityDisplayChanged(_:)),
                                                           name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(

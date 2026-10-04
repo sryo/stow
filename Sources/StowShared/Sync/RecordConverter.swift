@@ -1,6 +1,12 @@
 import CloudKit
 import Foundation
 
+extension CKWorkspaceFields {
+    /// WorkspaceIcon in its Codable string form ("favicons", "letter", "symbol:<name>").
+    /// Records from builds before it was synced have none and read as `.favicons`.
+    public static let icon = "icon"
+}
+
 public enum RecordConverter {
 
     // MARK: - Workspace -> CKRecord
@@ -23,6 +29,12 @@ public enum RecordConverter {
             let trimmed = colorString.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             record[CKWorkspaceFields.colorId] = trimmed as CKRecordValue
         }
+
+        if let iconData = try? JSONEncoder().encode(workspace.icon),
+           let iconString = try? JSONDecoder().decode(String.self, from: iconData) {
+            record[CKWorkspaceFields.icon] = iconString as CKRecordValue
+        }
+        // isArchiveExpanded isn't uploaded on purpose: whether the archive is open is per device.
 
         // browserProfiles aren't uploaded: profile folders only exist on the Mac that
         // made them, so each Mac keeps its own (read below for records from older builds).
@@ -56,12 +68,20 @@ public enum RecordConverter {
             browserProfiles = (try? JSONDecoder().decode([String: String].self, from: profilesData)) ?? [:]
         }
 
+        var icon: WorkspaceIcon = .favicons
+        if let iconString = record[CKWorkspaceFields.icon] as? String,
+           let iconData = try? JSONEncoder().encode(iconString),
+           let decoded = try? JSONDecoder().decode(WorkspaceIcon.self, from: iconData) {
+            icon = decoded
+        }
+
         return Workspace(
             id: id,
             name: name,
             colorId: colorId,
             items: [],
-            browserProfiles: browserProfiles
+            browserProfiles: browserProfiles,
+            icon: icon
         )
     }
 
