@@ -55,6 +55,9 @@ final class MainViewController: NSViewController {
     private var swipeStartPageIndex: Int = 0
     private var preloadedPageIndex: Int?
     private var swipeDirection: Int = 0 // -1 backward, 0 none, +1 forward
+    /// The rail's items as they were when a rail swipe began, sliding out with the finger.
+    private var railOutgoingSnapshot: NSImageView?
+    private var isRailSwipe: Bool { elasticMode == .rail && !railView.isHidden }
 
     // Key event monitor
     nonisolated(unsafe) private var keyEventMonitor: Any?
@@ -1685,6 +1688,12 @@ final class MainViewController: NSViewController {
 
         let workspaceCount = model.workspaces.count
 
+        if isRailSwipe {
+            // The rail keeps its dots; only the items under them change to the incoming page's.
+            let index = RailSwipe.workspaceIndex(forPage: targetPageIndex, workspaceCount: model.workspaces.count)
+            railView.previewItems(index.map { model.workspaces[$0].items } ?? [])
+            return
+        }
         if targetPageIndex == 0 {
             showSettingsContent()
         } else if targetPageIndex >= 1 && targetPageIndex <= workspaceCount {
@@ -1705,7 +1714,10 @@ final class MainViewController: NSViewController {
         preloadedPageIndex = nil
         swipeDirection = 0
 
-        if let snapshot = captureContentSnapshot() {
+        if isRailSwipe {
+            railOutgoingSnapshot = railView.snapshotItems()
+            railView.setItemsOffset(view.bounds.width)
+        } else if let snapshot = captureContentSnapshot() {
             outgoingSnapshotView = snapshot
             view.addSubview(snapshot)
         }
@@ -1714,6 +1726,9 @@ final class MainViewController: NSViewController {
     private func cleanupSwipeTransition() {
         outgoingSnapshotView?.removeFromSuperview()
         outgoingSnapshotView = nil
+        railOutgoingSnapshot?.removeFromSuperview()
+        railOutgoingSnapshot = nil
+        railView.setItemsOffset(0)
         preloadedPageIndex = nil
         swipeDirection = 0
         nodeListViewController.view.layer?.transform = CATransform3DIdentity
@@ -1756,6 +1771,12 @@ extension MainViewController: ScrollWheelPageDelegate {
             swipeDirection = newDirection
             let targetPage = swipeStartPageIndex + newDirection
             preloadIncomingPage(targetPage)
+        }
+
+        if isRailSwipe {
+            let t = RailSwipe.translations(delta: delta, direction: swipeDirection == 0 ? 1 : swipeDirection, width: view.bounds.width)
+            railOutgoingSnapshot?.layer?.transform = CATransform3DMakeTranslation(t.outgoing, 0, 0)
+            railView.setItemsOffset(t.incoming)
         }
 
         // Position outgoing snapshot (slides away from center)

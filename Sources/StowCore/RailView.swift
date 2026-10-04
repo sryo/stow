@@ -111,6 +111,46 @@ final class RailView: NSView {
         scrollTop.constant = SettingsRailLayout.dotsSeparatorY(count: workspaces.count) + 4
         needsLayout = true
 
+        rebuildCells(items: items)
+        applyColors()
+        applyOpenState()
+    }
+
+    // MARK: - Swiping
+
+    /// Shows another workspace's items under the current dots, for the incoming side of a swipe.
+    func previewItems(_ items: [Node]) {
+        cancelDrag()
+        itemIds = items.map(\.id)
+        rebuildCells(items: items)
+        applyColors()
+        applyOpenState()
+        setItemsOffset(0)
+    }
+
+    /// A picture of the items as they are now, placed over them, for the outgoing side of a swipe.
+    func snapshotItems() -> NSImageView? {
+        let bounds = scrollView.bounds
+        guard bounds.width > 0, bounds.height > 0,
+              let rep = scrollView.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        scrollView.cacheDisplay(in: bounds, to: rep)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(rep)
+        let view = PassThroughImageView(image: image)
+        view.imageScaling = .scaleNone
+        view.wantsLayer = true
+        view.frame = convert(scrollView.bounds, from: scrollView)
+        addSubview(view)
+        return view
+    }
+
+    /// Slides the items horizontally; 0 puts them back in place.
+    func setItemsOffset(_ x: CGFloat) {
+        scrollView.wantsLayer = true
+        scrollView.layer?.transform = CATransform3DMakeTranslation(x, 0, 0)
+    }
+
+    private func rebuildCells(items: [Node]) {
         cells.forEach { $0.removeFromSuperview() }
         cells = []
         let active = items.filter { !$0.isArchived }
@@ -157,8 +197,7 @@ final class RailView: NSView {
             y += 40
         }
         column.frame = NSRect(x: 0, y: 0, width: 52, height: y + 6)
-        applyColors()
-        applyOpenState()
+        needsLayout = true
     }
 
     /// Marks links whose site is open in a browser, like the Dock's running indicator.
