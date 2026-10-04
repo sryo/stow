@@ -5,9 +5,24 @@ struct NodeRowView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.stowColors) private var colors
     @Environment(\.undoManager) private var undoManager
-    let node: Node
+    /// SwiftUI skips a row whose stored properties compare equal, and `Node ==` compares
+    /// ids only, so a ticked task or an opened folder kept its old look. The row compares
+    /// its node by content instead.
+    private let content: RowContent
+    var node: Node { content.node }
     let parentId: UUID?
     var isArchived: Bool = false
+
+    init(node: Node, parentId: UUID?, isArchived: Bool = false) {
+        content = RowContent(node: node)
+        self.parentId = parentId
+        self.isArchived = isArchived
+    }
+
+    struct RowContent: Equatable {
+        let node: Node
+        static func == (lhs: RowContent, rhs: RowContent) -> Bool { lhs.node.hasSameContent(as: rhs.node) }
+    }
 
     @State private var isEditing = false
     @State private var editText = ""

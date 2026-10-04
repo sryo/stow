@@ -254,6 +254,24 @@ public enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
         lhs.id == rhs.id
     }
 
+    /// Whether the two nodes show the same thing: every field, children included at any
+    /// depth. `==` compares ids only, which is what identity needs but not a view that
+    /// redraws when its node changes.
+    public func hasSameContent(as other: Node) -> Bool {
+        switch (self, other) {
+        case let (.folder(a), .folder(b)):
+            var shallowA = a, shallowB = b
+            shallowA.children = []
+            shallowB.children = []
+            return shallowA == shallowB && a.children.count == b.children.count
+                && zip(a.children, b.children).allSatisfy { $0.hasSameContent(as: $1) }
+        case let (.link(a), .link(b)): return a == b
+        case let (.task(a), .task(b)): return a == b
+        case let (.snippet(a), .snippet(b)): return a == b
+        default: return false
+        }
+    }
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

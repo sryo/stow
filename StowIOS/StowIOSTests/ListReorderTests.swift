@@ -51,3 +51,14 @@ final class ListReorderTests: XCTestCase {
         XCTAssertEqual(titles.filter { $0 != "Archived" }, ["Beta", "Alpha"])
     }
 }
+
+/// A row redraws when what it shows changes, though `Node ==` only compares ids.
+final class RowContentTests: XCTestCase {
+    func testATickedTaskIsANewRow() {
+        let id = UUID()
+        let open = Node.task(TaskItem(id: id, title: "Call mom", isCompleted: false, dueDate: nil, notes: nil, createdAt: .distantPast))
+        let done = Node.task(TaskItem(id: id, title: "Call mom", isCompleted: true, dueDate: nil, notes: nil, createdAt: .distantPast))
+        XCTAssertNotEqual(NodeRowView.RowContent(node: open), NodeRowView.RowContent(node: done))
+        XCTAssertEqual(NodeRowView.RowContent(node: done), NodeRowView.RowContent(node: done))
+    }
+}
