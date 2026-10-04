@@ -204,6 +204,9 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
             main.view.layer?.backgroundColor = blended.cgColor
             main.view.window?.backgroundColor = blended
         }
+        let fromColors = StowTheme.colors(for: main.colorForPage(fromPage), tint: StowTheme.displayTint)
+        let toColors = StowTheme.colors(for: main.colorForPage(toPage), tint: StowTheme.displayTint)
+        main.applyChromeColors(fromColors.blended(with: toColors, fraction: Double(fraction)))
 
         // Update workspace switcher sliding highlight
         main.workspaceSwitcher.visualPageOffset = offset

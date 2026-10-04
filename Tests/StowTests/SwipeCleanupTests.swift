@@ -92,4 +92,21 @@ final class SwipeCleanupTests: XCTestCase {
         XCTAssertEqual(contentStack?.isHidden, true, "the live list shows through under the swipe")
         controller.pageSwipe.pagerDidSnapToPage(1)
     }
+
+    /// The search field follows the background's blend while swiping, instead of keeping
+    /// the old workspace's tint until the swipe ends.
+    func testSearchFieldBlendsWithTheBackgroundMidSwipe() throws {
+        func searchBar(in view: NSView) -> SearchBarView? {
+            if let s = view as? SearchBarView { return s }
+            for sub in view.subviews { if let s = searchBar(in: sub) { return s } }
+            return nil
+        }
+        let search = try XCTUnwrap(searchBar(in: controller.view))
+        controller.pageSwipe.pagerDidUpdateOffset(1.5)   // halfway from workspace 1 to workspace 2
+        let from = StowTheme.colors(for: model.workspaces[0].colorId, tint: StowTheme.displayTint)
+        let to = StowTheme.colors(for: model.workspaces[1].colorId, tint: StowTheme.displayTint)
+        XCTAssertEqual(search.colors?.light.hover, from.blended(with: to, fraction: 0.5).light.hover)
+        controller.pageSwipe.pagerDidSnapToPage(2)
+        XCTAssertEqual(search.colors?.light.hover, to.light.hover)
+    }
 }

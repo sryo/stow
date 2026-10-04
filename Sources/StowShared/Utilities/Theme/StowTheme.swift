@@ -375,3 +375,31 @@ extension StowTheme {
         )
     }
 }
+
+// MARK: - Blending
+
+extension StowTheme.Palette {
+    /// Every token mixed `fraction` of the way to `other`; `inkIsDark` flips at halfway.
+    func blended(with other: StowTheme.Palette, fraction t: Double) -> StowTheme.Palette {
+        StowTheme.Palette(
+            surface: surface.mix(other.surface, t), hover: hover.mix(other.hover, t),
+            multiSelected: multiSelected.mix(other.multiSelected, t), raised: raised.mix(other.raised, t),
+            inkPrimary: inkPrimary.mix(other.inkPrimary, t), inkSecondary: inkSecondary.mix(other.inkSecondary, t),
+            guide: guide.mix(other.guide, t), stroke: stroke.mix(other.stroke, t), accent: accent.mix(other.accent, t),
+            selectionFill: selectionFill.mix(other.selectionFill, t), onSelection: onSelection.mix(other.onSelection, t),
+            overdue: overdue.mix(other.overdue, t), paper: paper.mix(other.paper, t), glow: glow.mix(other.glow, t),
+            inkIsDark: t < 0.5 ? inkIsDark : other.inkIsDark)
+    }
+}
+
+extension StowTheme.Colors {
+    /// Both appearances blended `fraction` (clamped to 0...1) of the way to `other`, for
+    /// chrome that follows the background while swiping between workspaces.
+    public func blended(with other: StowTheme.Colors, fraction: Double) -> StowTheme.Colors {
+        let t = min(max(fraction, 0), 1)
+        if t == 0 { return self }
+        if t == 1 { return other }
+        return StowTheme.Colors(light: light.blended(with: other.light, fraction: t),
+                                dark: dark.blended(with: other.dark, fraction: t))
+    }
+}

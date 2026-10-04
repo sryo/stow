@@ -801,10 +801,15 @@ final class MainViewController: NSViewController {
         view.layer?.backgroundColor = view.resolvedCGColor(bgColor)
         view.window?.backgroundColor = bgColor
         displayedColorId = colorId
-        let colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
+        applyChromeColors(StowTheme.colors(for: colorId, tint: StowTheme.displayTint))
+        updateSettingsConstraints()
+    }
+
+    /// Tints the chrome that sits on the page background: search, title and footer buttons.
+    /// Mid-swipe it gets the same blend of the two workspaces as the background.
+    func applyChromeColors(_ colors: StowTheme.Colors) {
         searchField.colors = colors
         updateTitleButtons(colors: colors)
-        updateSettingsConstraints()
         pasteButton.colors = colors
         stowTabButton.colors = colors
     }
