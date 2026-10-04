@@ -673,6 +673,9 @@ final class MainViewController: NSViewController {
 
         // Notify settings view that workspaces may have changed
         settingsViewController.notifyWorkspacesChanged()
+        // The editor opened from a rail dot, a tab or the Tabline chip shows each change
+        // as it's made; the Settings page refreshes it only while the page is on screen.
+        if workspaceEditor.isOpen { workspaceEditor.refresh() }
 
         // Clear selections when workspace changes
         let currentWorkspaceId = model.currentWorkspace.id

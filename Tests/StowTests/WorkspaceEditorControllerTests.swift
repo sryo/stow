@@ -106,6 +106,24 @@ final class WorkspaceEditorControllerTests: XCTestCase {
         XCTAssertEqual(edited, id)
     }
 
+    func testTheEditorFromARailDotShowsEachChangeAsItsMade() throws {
+        harness.host(width: 52)
+        let id = model.currentWorkspace.id
+        let editor = harness.controller.workspaceEditor
+        let window = try XCTUnwrap(harness.window)
+        editor.open(id, placement: {
+            .init(anchor: NSRect(x: window.frame.minX, y: window.frame.maxY - 40, width: 20, height: 20),
+                  edge: .beside(column: window.frame), parent: window)
+        })
+        defer { editor.close() }
+        editor.editor.onIcon?(.letter)
+        harness.spin()
+        XCTAssertEqual(editor.editor.content?.icon, .letter, "the card shows the icon just picked, outside Settings too")
+        editor.editor.onColor?(.ember)
+        harness.spin()
+        XCTAssertEqual(editor.editor.content?.colorId, .ember)
+    }
+
     func testRightClickingARailDotShowsTheWorkspaceMenu() throws {
         harness.host(width: 52)
         let rail = try XCTUnwrap(harness.controller.view.descendants(of: RailView.self).first)
