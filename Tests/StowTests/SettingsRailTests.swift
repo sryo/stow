@@ -311,6 +311,21 @@ final class FlyoutPlacementTests: XCTestCase {
         XCTAssertEqual(low.minY, 0)
         XCTAssertLessThanOrEqual(low.arrowFromTop, 372 - 16)
     }
+
+    func testBelowCentresUnderTheAnchorAndKeepsTheArrowOnIt() {
+        let anchor = NSRect(x: 600, y: 700, width: 80, height: 24)
+        let placed = FlyoutPlacement.below(width: 240, anchor: anchor, screen: screen)
+        XCTAssertEqual(placed.minX, 640 - 120)
+        XCTAssertEqual(placed.maxY, 700 - FlyoutPlacement.gap)
+        XCTAssertEqual(placed.arrowFromLeft, 120, accuracy: 0.01)
+    }
+
+    func testBelowStaysOnScreenAtTheEdge() {
+        let anchor = NSRect(x: 1420, y: 700, width: 16, height: 16)
+        let placed = FlyoutPlacement.below(width: 240, anchor: anchor, screen: screen)
+        XCTAssertEqual(placed.minX + 240, 1440 - FlyoutPlacement.gap)
+        XCTAssertLessThanOrEqual(placed.arrowFromLeft, 240 - FlyoutPlacement.arrowMargin)
+    }
 }
 
 // MARK: - App sheet
@@ -412,5 +427,109 @@ final class SwipeStepTests: XCTestCase {
 
     func testWithoutACapTheTargetStands() {
         XCTAssertEqual(ScrollWheelPageController.clampTarget(4, start: 0, maxStep: nil), 4)
+    }
+}
+
+// MARK: - Settings rail through FlyoutController
+
+@MainActor
+final class SettingsRailFlyoutTests: XCTestCase {
+    private var tempDir: URL!
+    private var model: AppModel!
+    private var controller: SettingsRailController!
+    private var window: NSWindow!
+
+    override func setUp() async throws {
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-rail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        model = AppModel(store: DataStore(baseDirectory: tempDir))
+        controller = SettingsRailController(model: model)
+        window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 52, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 52, height: 640)
+        controller.reload()
+    }
+
+    override func tearDown() async throws {
+        controller.willLeave()
+        NSColorPanel.shared.setTarget(nil)
+        NSColorPanel.shared.setAction(nil)
+        NSColorPanel.shared.orderOut(nil)
+        window.close()
+        controller = nil
+        model = nil
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    func testTheEditorAndTheSheetOpenThroughTheFlyoutController() {
+        let id = model.currentWorkspace.id
+        controller.view.onTileClick?(id)
+        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.editor])
+        controller.view.onQuiet?()
+        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet], "the sheet replaces the editor")
+        XCTAssertNil(controller.editingId)
+        controller.closeFlyouts()
+        XCTAssertFalse(controller.flyouts.isOpen)
+    }
+
+    func testAllShortcutsIsPushedBesideTheSheetAndEscClosesOnlyIt() {
+        controller.view.onQuiet?()
+        controller.showAllShortcuts(from: NSRect(x: 300, y: 300, width: 80, height: 14))
+        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet, SettingsRailController.FlyoutId.allShortcuts])
+        let panels = controller.flyouts.panels
+        XCTAssertFalse(FlyoutDismissPolicy.clickCloses(window: panels[1], stack: panels, host: window),
+                       "a click inside All shortcuts keeps the sheet open")
+        XCTAssertTrue(controller.handleEscape())
+        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet], "one Esc closes only All shortcuts")
+        XCTAssertTrue(controller.handleEscape())
+        XCTAssertFalse(controller.flyouts.isOpen)
+    }
+
+    func testCustomColorPreviewsWhileDraggingAndCommitsOnceOnClose() {
+        let id = model.currentWorkspace.id
+        model.updateWorkspaceColor(id: id, colorId: .ocean)
+        var previewed: [WorkspaceColorId?] = []
+        controller.onPreviewColor = { previewed.append($0) }
+        controller.view.onTileClick?(id)
+        controller.chooseCustomColor()
+        NSColorPanel.shared.color = .systemRed
+        controller.customColorChanged(NSColorPanel.shared)
+        XCTAssertEqual(model.workspaces.first { $0.id == id }?.colorId, .ocean, "dragging doesn't write the library")
+        guard case .custom? = previewed.last ?? nil else { return XCTFail("the drag previews through onPreviewColor") }
+        controller.view.onTileClick?(id)
+        guard case .custom? = model.workspaces.first(where: { $0.id == id })?.colorId else {
+            return XCTFail("closing the editor commits the custom color")
+        }
+        let committed = model.workspaces.first { $0.id == id }?.colorId
+        NSColorPanel.shared.color = .systemBlue
+        controller.customColorChanged(NSColorPanel.shared)
+        XCTAssertEqual(model.workspaces.first { $0.id == id }?.colorId, committed, "the closed editor lets go of the panel")
+    }
+}
+
+// MARK: - Settings page width
+
+@MainActor
+final class SettingsPageWidthTests: XCTestCase {
+    func testContentIsCappedAndCentredOnAWideWindow() {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-page-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let model = AppModel(store: DataStore(baseDirectory: tempDir))
+        let page = SettingsContentViewController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentViewController = page
+        page.appModel = model
+        window.setContentSize(NSSize(width: 820, height: 640))
+        window.layoutIfNeeded()
+        page.view.layoutSubtreeIfNeeded()
+        let sheet = page.sheet.frame
+        XCTAssertLessThanOrEqual(sheet.width, SettingsContentViewController.maxContentWidth)
+        let pageWidth = page.sheet.superview!.bounds.width
+        XCTAssertEqual(sheet.midX, pageWidth / 2, accuracy: 1, "the column is centred")
+        XCTAssertEqual(SettingsContentViewController.contentColumn(width: 300), 0...300, "narrow pages use the full width")
     }
 }

@@ -40,6 +40,8 @@ final class WorkspaceCollectionViewItem: NSCollectionViewItem {
         rowView.onRename = { [weak self] in self?.actions?.rename(id) }
         rowView.onDelete = { [weak self] in self?.actions?.delete(id) }
         rowView.onMove = { [weak self] direction in self?.actions?.move(id, direction) }
+        var content = content
+        if content.identity == nil { content.identity = WorkspaceTileIdentity.resolve([workspace])[workspace.id] }
         rowView.configure(content)
     }
 
