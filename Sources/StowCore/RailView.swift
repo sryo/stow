@@ -42,6 +42,8 @@ final class RailView: NSView {
     private enum OpenList: Hashable { case folder(UUID), tasks, snippets }
 
     private let gear = RailGlyphButton(glyph: .gear)
+    private let gearTipId = UUID()
+    private let fabTipId = UUID()
     private let separator = NSView()
     private var scrollTop: NSLayoutConstraint!
     private let scrollView = NSScrollView()
@@ -69,8 +71,12 @@ final class RailView: NSView {
         super.init(frame: frameRect)
         gear.target = self
         gear.action = #selector(gearTapped)
-        gear.toolTip = "Settings · ⌘, · or swipe right"
+        gear.railTip = .init(title: "Settings", detail: "⌘, · or swipe right")
         gear.setAccessibilityLabel("Settings")
+        gear.onHover = { [weak self] inside in
+            guard let self, let tip = self.gear.railTip, !(inside && self.flyout.isOpen) else { return }
+            self.tips.hover(self.gearTipId, view: self.gear, tip: tip, inside: inside)
+        }
         addSubview(gear)
 
         separator.wantsLayer = true
@@ -91,8 +97,12 @@ final class RailView: NSView {
         fab.translatesAutoresizingMaskIntoConstraints = false
         fab.target = self
         fab.action = #selector(fabTapped)
-        fab.toolTip = "Stow the front browser tab"
+        fab.railTip = .init(title: "Stow this tab", detail: "The front browser tab")
         fab.setAccessibilityLabel("Stow this tab")
+        fab.onHover = { [weak self] inside in
+            guard let self, let tip = self.fab.railTip, !(inside && self.flyout.isOpen) else { return }
+            self.tips.hover(self.fabTipId, view: self.fab, tip: tip, inside: inside)
+        }
         addSubview(fab)
 
         registerForDraggedTypes([.URL, .string])
@@ -1025,7 +1035,11 @@ private final class RailFabButton: BaseControl {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
-    override func handleHoverStateChanged() { updateLook() }
+    override func handleHoverStateChanged() { updateLook(); onHover?(isHovered) }
+
+    /// Shown by the rail's RailTipController instead of a system tooltip.
+    var railTip: RailTipController.Tip? { didSet { setAccessibilityHelp(railTip?.text) } }
+    var onHover: ((Bool) -> Void)?
 
     override func accessibilityPerformPress() -> Bool {
         performAction()

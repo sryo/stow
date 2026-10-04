@@ -72,6 +72,22 @@ final class ReviewRedRailTests: XCTestCase {
         }
     }
 
+    func testTheRailsGlyphButtonsUseTheRailTipNotTheSystemTooltip() {
+        // C7: one hover-tip style in the rail, the gear and "+" included.
+        let view = rail(items: [], dots: [dot("Alpha")])
+        let glyphs = view.descendants(of: BaseControl.self).filter { $0.accessibilityLabel() == "Settings" || $0.accessibilityLabel() == "Stow this tab" }
+        XCTAssertEqual(glyphs.count, 2)
+        for glyph in glyphs {
+            XCTAssertNil(glyph.toolTip, "\(glyph.accessibilityLabel() ?? "") still shows the system tooltip")
+            XCTAssertNotNil(glyph.accessibilityHelp(), "the tip's words stay available to VoiceOver")
+        }
+        let settings = SettingsRailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
+        settings.configure(tiles: [], cameFrom: nil, selected: nil, sheetOpen: false, badge: false, returnName: "Alpha")
+        let settingsGlyphs = settings.descendants(of: RailGlyphButton.self)
+        XCTAssertEqual(settingsGlyphs.count, 3)
+        XCTAssertTrue(settingsGlyphs.allSatisfy { $0.toolTip == nil && $0.accessibilityHelp() != nil })
+    }
+
     // MARK: patterns-9 / modes-14
 
     func testALetterTileHasTheSameColorInTheRailAndTheTabline() {

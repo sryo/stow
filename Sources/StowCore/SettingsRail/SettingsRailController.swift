@@ -160,6 +160,12 @@ final class SettingsRailController: NSObject {
             if inside { self.tips.pointerEntered(id) } else { self.tips.pointerExited(id) }
         }
         view.onTileFocus = { [weak self] id in self?.tips.focusChanged(id) }
+        // The gear, "+" and sliders cell show the same tip as the tiles, at once (the
+        // tiles' dwell previews page colours instead).
+        view.onGlyphHover = { [weak self] glyph, tip, inside in
+            guard let self else { return }
+            if inside, !self.isFlyoutOpen { self.tips.show(tip, from: glyph) } else { self.hideTip() }
+        }
         view.onDragBegan = { [weak self] in
             guard let self else { return }
             self.closeFlyouts()

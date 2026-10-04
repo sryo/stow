@@ -24,6 +24,8 @@ final class SettingsRailView: NSView {
     var onDragBegan: (() -> Void)?
     var onAdd: (() -> Void)?
     var onQuiet: (() -> Void)?
+    /// The pointer entered (true) or left the gear, "+" or sliders cell, with its tip.
+    var onGlyphHover: ((NSView, RailTipController.Tip, Bool) -> Void)?
     var onBackgroundClick: (() -> Void)?
 
     private(set) var tiles: [Tile] = []
@@ -68,7 +70,7 @@ final class SettingsRailView: NSView {
 
         addTile.target = self
         addTile.action = #selector(addTapped)
-        addTile.toolTip = "New workspace"
+        addTile.railTip = .init(title: "New workspace")
         addTile.setAccessibilityLabel("New workspace")
         column.addSubview(addTile)
 
@@ -81,9 +83,15 @@ final class SettingsRailView: NSView {
         addSubview(quietSeparator)
         quiet.target = self
         quiet.action = #selector(quietTapped)
-        quiet.toolTip = "App settings"
+        quiet.railTip = .init(title: "App settings")
         quiet.setAccessibilityLabel("App settings")
         addSubview(quiet)
+        for glyph in [gear, addTile, quiet] {
+            glyph.onHover = { [weak self, weak glyph] inside in
+                guard let self, let glyph, let tip = glyph.railTip else { return }
+                self.onGlyphHover?(glyph, tip, inside)
+            }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -104,7 +112,7 @@ final class SettingsRailView: NSView {
             row.tile = tile
         }
         self.tiles = tiles
-        gear.toolTip = returnName.map { "Back to \($0) · ⌘," } ?? "Settings · ⌘,"
+        gear.railTip = .init(title: returnName.map { "Back to \($0)" } ?? "Settings", detail: "⌘,")
         gear.setAccessibilityLabel(returnName.map { "Leave Settings, back to \($0)" } ?? "Settings")
         quiet.isOn = sheetOpen
         quiet.showsBadge = badge
@@ -580,6 +588,10 @@ final class RailGlyphButton: FocusableControl {
     /// The gear while Settings is current; the sliders cell while its sheet is open.
     var isOn = false { didSet { needsDisplay = true } }
     var showsBadge = false { didSet { needsDisplay = true } }
+    /// Shown beside the button by the rail's RailTipController, in place of a system
+    /// tooltip; VoiceOver reads it as help.
+    var railTip: RailTipController.Tip? { didSet { setAccessibilityHelp(railTip?.text) } }
+    var onHover: ((Bool) -> Void)?
 
     init(glyph: Glyph) {
         self.glyph = glyph
@@ -592,7 +604,7 @@ final class RailGlyphButton: FocusableControl {
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func handleHoverStateChanged() { needsDisplay = true }
+    override func handleHoverStateChanged() { needsDisplay = true; onHover?(isHovered) }
     override func handlePressedStateChanged() { needsDisplay = true }
 
     override func updateTrackingAreas() {
