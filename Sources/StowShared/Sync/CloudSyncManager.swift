@@ -15,7 +15,9 @@ public enum SyncAvailability: Equatable, Sendable {
 public final class CloudSyncManager {
     public static let shared = CloudSyncManager()
 
-    public private(set) var availability: SyncAvailability = .notConfigured
+    public private(set) var availability: SyncAvailability = .notConfigured {
+        didSet { NotificationCenter.default.post(name: .cloudSyncStatusChanged, object: nil) }
+    }
     /// When changes last finished fetching or sending, for "Synced · 2 min ago".
     public private(set) var lastSyncDate: Date?
     /// The iCloud account signed out while Stow was running.

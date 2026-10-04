@@ -24,7 +24,7 @@ final class MainAppLoginItem: LoginItemControlling {
 final class AppPreferences {
     static let shared = AppPreferences(defaults: .standard, loginItem: MainAppLoginItem(),
                                        hasAccessibility: AppPreferences.systemHasAccessibility,
-                                       applyTabline: { TablineController.shared.isEnabled = $0 })
+                                       applyTabline: { TablineController.shared.setRunning($0) })
 
     /// Attached was chosen but Accessibility isn't granted yet; applied once it is.
     private(set) var attachRequested = false
@@ -174,16 +174,32 @@ final class AppPreferences {
 
     var tablineEnabled: Bool { defaults.bool(forKey: TablineController.defaultsKey) }
 
-    /// The sheet's switch, the Window menu item and ⌥⌘L all come through here.
+    /// Whether the strip is running; it waits for Accessibility while the switch is on.
+    private var tablineRunning = false
+
+    /// The sheet's switch, the Window menu item and ⌥⌘L all come through here. Without
+    /// Accessibility the switch stays on and the permissions line offers Fix…; the
+    /// strip starts once access is granted.
     func setTabline(_ enabled: Bool) {
         defaults.set(enabled, forKey: TablineController.defaultsKey)
-        applyTabline(enabled)
+        tablineRunning = enabled && hasAccessibility
+        applyTabline(tablineRunning)
         NotificationCenter.default.post(name: .tablineSettingChanged, object: nil, userInfo: ["enabled": enabled])
         changed()
     }
 
     func toggleTabline() {
         setTabline(!tablineEnabled)
+    }
+
+    /// Starts the strip once Accessibility arrives (or at launch). Returns true when it did.
+    @discardableResult
+    func applyPendingTabline() -> Bool {
+        guard tablineEnabled, !tablineRunning, hasAccessibility else { return false }
+        tablineRunning = true
+        applyTabline(true)
+        changed()
+        return true
     }
 
     // MARK: Open at login
@@ -233,7 +249,12 @@ final class AppPreferences {
     }
 
     func openAccessibilitySettings() {
-        WindowAttachmentService.shared.requestAccessibilityPermissions()
+        var prompt = true
+        #if DEBUG
+        // The simulated missing-permission state opens the pane without the system prompt.
+        if ProcessInfo.processInfo.environment["STOW_NO_ACCESSIBILITY"] != nil { prompt = false }
+        #endif
+        if prompt { WindowAttachmentService.shared.requestAccessibilityPermissions() }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

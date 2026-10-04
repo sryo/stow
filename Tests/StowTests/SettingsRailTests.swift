@@ -345,7 +345,7 @@ final class AppSheetTests: XCTestCase {
         XCTAssertEqual(AppSheet.syncLine(availability: .active, lastSync: now, signedOut: true, now: now),
                        .init(text: "iCloud is off for Stow", isError: true))
         XCTAssertEqual(AppSheet.syncLine(availability: .disabledNoProvisioningProfile, lastSync: nil, signedOut: false, now: now),
-                       .init(text: "iCloud sync isn’t available in this build", isError: true))
+                       .init(text: "iCloud is off in this build", isError: true))
     }
 }
 

@@ -276,6 +276,7 @@ final class SettingsContentViewController: NSViewController {
     }
 
     @objc private func applicationDidBecomeActive() {
+        AppPreferences.shared.applyPendingTabline()
         if AppPreferences.shared.applyPendingAttachment() {
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                                  userInfo: [.announcement: "Accessibility granted. Stow is attached to your browser.",

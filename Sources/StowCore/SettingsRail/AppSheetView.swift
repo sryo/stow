@@ -373,7 +373,7 @@ private final class SyncsTag: NSView {
 
     override var isFlipped: Bool { true }
 
-    var fittingWidth: CGFloat { 13 + ceil(label.intrinsicContentSize.width) }
+    var fittingWidth: CGFloat { 13 + ceil(label.intrinsicContentSize.width) + 5 }
 
     override func layout() {
         super.layout()
@@ -397,7 +397,7 @@ final class AppSheetFooterView: RailFlippedView {
     private let line = NSView()
     private let cloud = NSImageView()
     private let status = FlyoutLabel.text("", size: 11.5, color: FlyoutColors.inkSecondary)
-    private let fixButton = FlyoutLink("Open iCloud Settings…", fontSize: 11)
+    private let fixButton = FlyoutLink("Fix…", fontSize: 11.5)
     private let importLink = FlyoutLink("Import…")
     private let separator = FlyoutLabel.text("·", size: 11.5, color: FlyoutColors.inkSecondary)
     private let version = FlyoutLabel.text("", size: 11.5, color: FlyoutColors.inkSecondary)
@@ -416,6 +416,7 @@ final class AppSheetFooterView: RailFlippedView {
         addSubview(status)
         fixButton.target = self
         fixButton.action = #selector(openICloudSettings)
+        fixButton.toolTip = "Open iCloud settings"
         addSubview(fixButton)
         importLink.target = self
         importLink.action = #selector(importTapped)
@@ -475,7 +476,7 @@ final class AppSheetFooterView: RailFlippedView {
         cloud.frame = NSRect(x: 0, y: y, width: 16, height: 13)
         var right = bounds.width
         if showsVersion {
-            let v = ceil(version.intrinsicContentSize.width)
+            let v = ceil(version.intrinsicContentSize.width) + 2
             version.frame = NSRect(x: right - v, y: y - 1, width: v, height: 15)
             right -= v + 2
             separator.frame = NSRect(x: right - 8, y: y - 1, width: 8, height: 15)

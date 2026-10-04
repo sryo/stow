@@ -121,6 +121,20 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(tablineApplied, [true, false])
     }
 
+    func testTablineWithoutAccessibilityWaitsForTheFixInsteadOfPrompting() {
+        accessibility = false
+        preferences.setTabline(true)
+        XCTAssertTrue(preferences.tablineEnabled, "the switch stays on")
+        XCTAssertEqual(tablineApplied, [false], "the strip doesn't start (and doesn't prompt) without Accessibility")
+        XCTAssertEqual(AppSheet.permissionNeeds(windowMode: preferences.windowMode, tabline: preferences.tablineEnabled,
+                                                hasAccessibility: false, automationDenied: nil),
+                       [.accessibility(reason: "Tabline needs Accessibility")])
+        accessibility = true
+        XCTAssertTrue(preferences.applyPendingTabline())
+        XCTAssertEqual(tablineApplied, [false, true], "granted: the strip starts")
+        XCTAssertFalse(preferences.applyPendingTabline(), "only once")
+    }
+
     // MARK: Permissions
 
     func testPermissionsLineAppearsOnlyWhenSomethingIsMissing() {

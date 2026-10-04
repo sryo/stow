@@ -369,7 +369,7 @@ enum AppSheet {
     static func syncLine(availability: SyncAvailability, lastSync: Date?, signedOut: Bool, now: Date = Date()) -> SyncLine {
         switch availability {
         case .disabledNoProvisioningProfile:
-            return SyncLine(text: "iCloud sync isn’t available in this build", isError: true)
+            return SyncLine(text: "iCloud is off in this build", isError: true)
         case .notConfigured:
             return SyncLine(text: "iCloud is off for Stow", isError: true)
         case .active:

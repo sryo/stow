@@ -536,12 +536,13 @@ final class FlyoutLink: FlyoutControl {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private func applyTitle() {
+        label.stringValue = title
         setAccessibilityLabel(title)
         needsDisplay = true
         invalidateIntrinsicContentSize()
     }
 
-    var fittingWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 2 }
+    var fittingWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 4 }
     override var intrinsicContentSize: NSSize { NSSize(width: fittingWidth, height: 16) }
 
     override func layout() {
