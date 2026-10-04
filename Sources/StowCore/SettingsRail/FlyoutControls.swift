@@ -232,10 +232,13 @@ final class FlyoutSegmented: FlyoutControl {
             let frame = segmentFrame(i)
             pills[i].frame = frame
             let labelSize = labels[i].intrinsicContentSize
-            let leadingWidth = segment.leading.map { $0.frame.width + 4 } ?? 0
+            // In a narrow track the glyph or swatch goes first, so the title stays whole.
+            let fits = labelSize.width + (segment.leading.map { $0.frame.width + 4 } ?? 0) <= frame.width - 4
+            segment.leading?.isHidden = !fits
+            let leadingWidth = fits ? (segment.leading.map { $0.frame.width + 4 } ?? 0) : 0
             let total = min(frame.width - 2, labelSize.width + leadingWidth)
             var x = frame.midX - total / 2
-            if let leading = segment.leading {
+            if fits, let leading = segment.leading {
                 leading.frame.origin = NSPoint(x: round(x), y: round(frame.midY - leading.frame.height / 2))
                 x += leadingWidth
             }

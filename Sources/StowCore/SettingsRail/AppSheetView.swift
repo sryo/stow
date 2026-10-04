@@ -280,14 +280,26 @@ final class AppSheetView: RailFlippedView {
                 line(frontTabLabel, frontTabRecorder, height: 26)
                 y += 6
                 let link = allShortcuts.fittingWidth
-                let lines: CGFloat = keyboardStatus != nil && keyboardHelp.stringValue.count > 34 ? 2 : 1
+                // Narrow: the help gets the whole line and the link drops below it.
+                let helpWidth = stacked ? w - 2 : w - link - 10
+                let needed = (keyboardHelp.stringValue as NSString).size(withAttributes: [.font: keyboardHelp.font as Any]).width + 4
+                let lines: CGFloat = needed > helpWidth ? 2 : 1
                 keyboardHelp.maximumNumberOfLines = Int(lines)
                 keyboardHelp.lineBreakMode = lines > 1 ? .byWordWrapping : .byTruncatingTail
-                place(keyboardHelp, NSRect(x: pad + 2, y: y, width: w - link - 10, height: 14 * lines))
-                place(allShortcuts, NSRect(x: pad + w - link, y: y, width: link, height: 14))
-                y += 14 * lines
+                place(keyboardHelp, NSRect(x: pad + 2, y: y, width: helpWidth, height: 14 * lines))
+                if stacked {
+                    y += 14 * lines + 3
+                    place(allShortcuts, NSRect(x: pad + 2, y: y, width: link, height: 14))
+                    y += 14
+                } else {
+                    place(allShortcuts, NSRect(x: pad + w - link, y: y, width: link, height: 14))
+                    y += 14 * lines
+                }
             case .appearance:
+                // The "syncs" note sits at the header's end when there's room for both.
                 let tag = syncsTag.fittingWidth
+                let headerWidth = (sectionLabels[.appearance]?.attributedStringValue.size().width ?? 0) + 12
+                syncsTag.isHidden = headerWidth + tag > w
                 place(syncsTag, NSRect(x: pad + w - tag, y: y - 17, width: tag, height: 12))
                 line(tintLabel, tintControl, height: 28)
             }
@@ -449,7 +461,7 @@ final class AppSheetFooterView: RailFlippedView {
         let line = AppSheet.syncLine(availability: sync.availability, lastSync: sync.lastSyncDate, signedOut: sync.isSignedOut)
         status.stringValue = line.text
         status.toolTip = line.isError && sync.availability == .disabledNoProvisioningProfile
-            ? "Development builds aren't signed for iCloud." : nil
+            ? "\(line.text). Development builds aren't signed for iCloud." : line.text
         isError = line.isError
         // A signed-out account can be fixed in System Settings; an unsigned build can't.
         fixButton.isHidden = !(line.isError && sync.availability != .disabledNoProvisioningProfile)

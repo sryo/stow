@@ -303,7 +303,10 @@ enum WorkspaceDeletion {
     static func delete(_ workspaceId: UUID, model: AppModel, in window: NSWindow?, onDeleted: (() -> Void)? = nil) {
         guard let pending = deleteUndoably(workspaceId, model: model) else { return }
         onDeleted?()
-        window?.undoManager?.registerUndo(withTarget: pending) { $0.undo() }
+        window?.undoManager?.registerUndo(withTarget: pending) { pending in
+            pending.undo()
+            UndoToast.dismiss(expired: false)
+        }
         window?.undoManager?.setActionName("Delete Workspace")
         UndoToast.show(pending.message, in: window, onUndo: { pending.undo() }, onExpire: { pending.expire() })
     }
