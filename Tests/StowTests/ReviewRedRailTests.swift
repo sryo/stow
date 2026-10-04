@@ -66,7 +66,7 @@ final class ReviewRedRailTests: XCTestCase {
         let dots = view.subviews.compactMap { $0 as? NSButton }.filter { names.contains($0.accessibilityLabel() ?? "") }
         XCTAssertEqual(dots.count, names.count)
         for (i, b) in dots.enumerated() {
-            XCTAssertEqual(b.frame.midY, SettingsRailLayout.dotCenterY(at: i), accuracy: 0.5, "dot \(i) isn't in its place yet")
+            XCTAssertEqual(b.frame.midY, RailLayout.dotCenterY(at: i), accuracy: 0.5, "dot \(i) isn't in its place yet")
             XCTAssertEqual(b.frame.width, 20, accuracy: 0.5)
             XCTAssertTrue(b.bounds.contains(b.visibleRect), "dot \(i)'s hover area spills past it: \(b.visibleRect)")
         }
@@ -81,11 +81,9 @@ final class ReviewRedRailTests: XCTestCase {
             XCTAssertNil(glyph.toolTip, "\(glyph.accessibilityLabel() ?? "") still shows the system tooltip")
             XCTAssertNotNil(glyph.accessibilityHelp(), "the tip's words stay available to VoiceOver")
         }
-        let settings = SettingsRailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
-        settings.configure(tiles: [], cameFrom: nil, selected: nil, sheetOpen: false, badge: false, returnName: "Alpha")
-        let settingsGlyphs = settings.descendants(of: RailGlyphButton.self)
-        XCTAssertEqual(settingsGlyphs.count, 3)
-        XCTAssertTrue(settingsGlyphs.allSatisfy { $0.toolTip == nil && $0.accessibilityHelp() != nil })
+        let plus = view.newWorkspaceButton
+        XCTAssertNil(plus.toolTip, "the \"+\" dot uses the rail tip too")
+        XCTAssertEqual(plus.accessibilityHelp(), "New workspace… · ⌘N")
     }
 
     // MARK: patterns-9 / modes-14

@@ -19,6 +19,10 @@ final class ScrollWheelPageController {
     /// At most this many pages per gesture (nil: as far as the swipe goes).
     var maxPagesPerSwipe: Int?
 
+    /// The first page a swipe can reach: 1 in the rail, which has no Settings page, so a
+    /// swipe right past the first workspace only rubber-bands.
+    var firstPage = 0
+
     /// Whether the system asks for reduced motion; replaceable in tests.
     var reduceMotion: () -> Bool = { RailMotion.reduceMotion }
 
@@ -230,8 +234,9 @@ final class ScrollWheelPageController {
 
         // Clamp with rubber-band at edges
         let maxPage = CGFloat(pageCount - 1)
-        if visualOffset < 0 {
-            visualOffset = -rubberBand(abs(visualOffset), dimension: pageWidth)
+        let minPage = CGFloat(firstPage)
+        if visualOffset < minPage {
+            visualOffset = minPage - rubberBand(minPage - visualOffset, dimension: pageWidth)
         } else if visualOffset > maxPage {
             let overshoot = visualOffset - maxPage
             visualOffset = maxPage + rubberBand(overshoot, dimension: pageWidth)
@@ -239,6 +244,11 @@ final class ScrollWheelPageController {
 
         delegate.pagerDidUpdateOffset(visualOffset)
         return nil // consume the event
+    }
+
+    /// Keeps a target between `firstPage` and the last page.
+    nonisolated static func clampPage(_ target: Int, firstPage: Int, pageCount: Int) -> Int {
+        max(firstPage, min(target, pageCount - 1))
     }
 
     /// Keeps a gesture's target within `maxStep` pages of where it started.
@@ -274,7 +284,7 @@ final class ScrollWheelPageController {
 
         // Clamp
         targetPage = Self.clampTarget(targetPage, start: gestureStartPage, maxStep: maxPagesPerSwipe)
-        targetPage = max(0, min(targetPage, pageCount - 1))
+        targetPage = Self.clampPage(targetPage, firstPage: firstPage, pageCount: pageCount)
 
         // Require extra drag to snap to the add-new (last) page
         let lastPage = pageCount - 1

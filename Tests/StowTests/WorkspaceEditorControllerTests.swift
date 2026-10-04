@@ -3,9 +3,9 @@ import XCTest
 @testable import StowCore
 import StowShared
 
-/// C4: one workspace editor, opened from the Settings rail, the Settings page, a rail
-/// dot's menu and the Tabline chip's menu. G7: one active-only item count. X2: the list's
-/// narrow end keeps its controls inside the window.
+/// C4: one workspace editor, opened by a right-click on any workspace (EditEverywhereTests
+/// covers each surface). G7: one active-only item count. X2: the list's narrow end keeps
+/// its controls inside the window.
 @MainActor
 final class WorkspaceEditorControllerTests: XCTestCase {
     private var harness: RedHarness!
@@ -66,46 +66,6 @@ final class WorkspaceEditorControllerTests: XCTestCase {
         XCTAssertEqual(opened, id)
     }
 
-    func testClickingASettingsPageRowOpensTheEditorForThatWorkspace() throws {
-        let second = model.createWorkspace(name: "Second", colorId: .ocean)
-        model.selectSettings()
-        let host = window(width: 300, height: 600)
-        let page = SettingsContentViewController()
-        host.contentViewController = page
-        page.appModel = model
-        host.setContentSize(NSSize(width: 300, height: 600))
-        host.layoutIfNeeded()
-        page.view.layoutSubtreeIfNeeded()
-        let rows = page.view.descendants(of: WorkspaceRowView.self)
-        XCTAssertEqual(rows.count, 2)
-        let row = try XCTUnwrap(rows.first { $0.accessibilityLabel()?.hasPrefix("Second") == true })
-        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                     windowNumber: host.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        row.mouseDown(with: click)
-        XCTAssertEqual(page.workspaceEditor?.editingId, second, "C4: a row click opens the shared editor beside the row")
-        page.workspaceEditor?.close()
-    }
-
-    func testTheSettingsPageRowHasNoMenusOfItsOwn() {
-        let row = WorkspaceRowView(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
-        row.configure(.init(name: "Home", colorId: .ocean, iconLinks: [], opensIn: nil, itemCount: 0, position: 1, total: 1, canDelete: false))
-        let buttons = row.descendants(of: NSControl.self).compactMap { $0.accessibilityLabel() }
-        XCTAssertFalse(buttons.contains("Workspace menu"), "C4: the “…” menu button is gone; the row opens the editor")
-        let actions = (row.accessibilityCustomActions() ?? []).map(\.name)
-        XCTAssertFalse(actions.contains("Change color"), "C4: colour is in the editor, not a menu")
-        XCTAssertTrue(actions.contains("Edit workspace"))
-    }
-
-    func testTheWorkspaceMenusEditItemOpensTheEditor() throws {
-        let id = model.currentWorkspace.id
-        var edited: UUID?
-        let menu = WorkspaceMenu.make(for: id, model: model, presentingView: NSView(), onEdit: { edited = $0 })
-        let index = menu.indexOfItem(withTitle: "Edit…")
-        XCTAssertEqual(index, 0, "C4: the menu leads with Edit…")
-        menu.performActionForItem(at: index)
-        XCTAssertEqual(edited, id)
-    }
-
     func testTheEditorFromARailDotShowsEachChangeAsItsMade() throws {
         harness.host(width: 52)
         let id = model.currentWorkspace.id
@@ -124,32 +84,6 @@ final class WorkspaceEditorControllerTests: XCTestCase {
         XCTAssertEqual(editor.editor.content?.colorId, .ember)
     }
 
-    func testRightClickingARailDotShowsTheWorkspaceMenu() throws {
-        harness.host(width: 52)
-        let rail = try XCTUnwrap(harness.controller.view.descendants(of: RailView.self).first)
-        XCTAssertNotNil(rail.onWorkspaceContextMenu, "C4: a dot's right-click opens the native WorkspaceMenu")
-    }
-
-    func testRightClickingTheTablineChipAsksForTheWorkspaceMenu() {
-        let strip = TablineStripView(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
-        var model = TablineStripModel()
-        model.name = "Research"
-        model.colorId = .ocean
-        strip.update(model)
-        var asked: TablineStripView.Kind?
-        strip.onContextMenu = { kind, _ in asked = kind }
-        let chip = strip.rect(of: .chip)!
-        let click = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: chip.midX, y: chip.midY), modifierFlags: [],
-                                       timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        strip.rightMouseDown(with: click)
-        XCTAssertEqual(asked, .chip, "C4: the Tabline chip has a right-click")
-    }
-
-    func testMainWindowRoutesTheTablineChipMenu() {
-        harness.host(width: 300)
-        XCTAssertNotNil(TablineController.shared.onWorkspaceContextMenu, "C4: the Tabline routes its chip's right-click to WorkspaceMenu")
-    }
-
     // MARK: G7 · one count
 
     func testActiveItemCountLeavesOutArchivedItemsAtEveryDepth() {
@@ -159,15 +93,15 @@ final class WorkspaceEditorControllerTests: XCTestCase {
         XCTAssertEqual(nodes.leafCount(), 4)
     }
 
-    func testTheRailTipCountsOnlyLiveItems() {
+    func testTheEditorCountsOnlyLiveItems() {
         let id = model.currentWorkspace.id
-        let live = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        _ = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
         let archived = model.addLink(urlString: "https://b.com", title: "B", parentId: nil)
         model.archiveNode(id: archived)
-        _ = live
-        let controller = SettingsRailController(model: model)
-        let detail = controller.detail(for: model.workspaces.first { $0.id == id }!, position: 1)
-        XCTAssertTrue(detail.hasPrefix("1 item"), "G7: the tip counts the archived link too: \(detail)")
+        let controller = WorkspaceEditorController(model: model)
+        let ws = model.workspaces.first { $0.id == id }!
+        let content = controller.editorContent(for: ws, identities: WorkspaceTileIdentity.resolve(model.workspaces))
+        XCTAssertEqual(content.itemCount, 1, "G7: the editor counts the archived link too")
     }
 
     // MARK: X2 · narrow list

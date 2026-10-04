@@ -61,25 +61,6 @@ final class AppMenusTests: XCTestCase {
     }
 }
 
-// MARK: - Workspace menu
-
-@MainActor
-final class WorkspaceMenuTests: XCTestCase {
-    func testOneMenuWithThePlansItems() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("stow-menu-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let model = AppModel(store: DataStore(baseDirectory: dir))
-        _ = model.createWorkspace(name: "Second", colorId: .ocean)
-        let menu = WorkspaceMenu.make(for: model.workspaces[0].id, model: model, presentingView: NSView(), onEdit: { _ in })
-        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        XCTAssertEqual(titles, ["Edit…", "Color", "Icon", "Opens in", "Move Up", "Move Down", "Share…", "Export…", "Delete"])
-        XCTAssertFalse(menu.item(withTitle: "Move Up")!.isEnabled)
-        XCTAssertNotNil(menu.item(withTitle: "Icon")?.submenu?.item(withTitle: "Favicons"))
-        XCTAssertNotNil(menu.item(withTitle: "Opens in")?.submenu?.item(withTitle: OpensIn.browserImUsing))
-    }
-}
-
 // MARK: - Import parsers
 
 final class BookmarkParserTests: XCTestCase {

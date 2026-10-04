@@ -1,205 +1,24 @@
 import AppKit
 
-// Settings in the 52pt rail ("workspace-first rail"): the logic behind it, kept free of
-// views so it can be tested. Geometry is in the rail's flipped coordinates.
+// The 52pt rail's geometry and the small rules behind it, kept free of views so they
+// can be tested. Geometry is in the rail's flipped coordinates.
 
 // MARK: - Layout
 
-/// Metrics for the Settings rail. The tile list is a scroll view between the gear (top)
-/// and the quiet cell (bottom); tile frames are in that list's coordinates.
-enum SettingsRailLayout {
+/// The gear heads the rail's column of workspace dots, each 12pt dot 18pt below the
+/// last, and the dashed "+" dot ends it.
+enum RailLayout {
     static let railWidth: CGFloat = 52
     static let gearFrame = NSRect(x: 19, y: 13, width: 14, height: 14)
-    static let separatorY: CGFloat = 36
-    static let listTop: CGFloat = 46
-    static let listBottomInset: CGFloat = 52
-    /// The thin rule above the quiet cell, measured from the rail's bottom.
-    static let quietSeparatorFromBottom: CGFloat = 48
-
-    static let tileSize: CGFloat = 36
-    static let tileX: CGFloat = 8
-    static let tileRadius: CGFloat = 11
-    /// Tile plus caption.
-    static let rowHeight: CGFloat = 51
-    static let pitch: CGFloat = 59
-    static let captionTop: CGFloat = 38
-    static let captionHeight: CGFloat = 12
-    static let captionInset: CGFloat = 2
-    static var captionFont: NSFont { .systemFont(ofSize: 9.5, weight: .semibold) }
-
-    static func rowFrame(at index: Int) -> NSRect {
-        NSRect(x: 0, y: CGFloat(index) * pitch, width: railWidth, height: rowHeight)
-    }
-
-    static func tileFrame(at index: Int) -> NSRect {
-        NSRect(x: tileX, y: CGFloat(index) * pitch, width: tileSize, height: tileSize)
-    }
-
-    static func captionFrame(at index: Int) -> NSRect {
-        NSRect(x: captionInset, y: CGFloat(index) * pitch + captionTop,
-               width: railWidth - captionInset * 2, height: captionHeight)
-    }
-
-    static func cameFromDotFrame(at index: Int) -> NSRect {
-        NSRect(x: 2, y: CGFloat(index) * pitch + 16, width: 4, height: 4)
-    }
-
-    static func addTileFrame(count: Int) -> NSRect {
-        tileFrame(at: count)
-    }
-
-    static func contentHeight(count: Int) -> CGFloat {
-        addTileFrame(count: count).maxY
-    }
-
-    static func listHeight(railHeight: CGFloat) -> CGFloat {
-        max(0, railHeight - listTop - listBottomInset)
-    }
-
-    static func quietCellFrame(railHeight: CGFloat) -> NSRect {
-        NSRect(x: 11, y: railHeight - 40, width: 30, height: 30)
-    }
-
-    static func scrolls(count: Int, railHeight: CGFloat) -> Bool {
-        contentHeight(count: count) > listHeight(railHeight: railHeight)
-    }
-
-    static func fullyVisibleTileCount(railHeight: CGFloat) -> Int {
-        let visible = listHeight(railHeight: railHeight)
-        guard visible >= rowHeight else { return 0 }
-        return Int(floor((visible - rowHeight) / pitch)) + 1
-    }
-
-    static func captionWidth(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: captionFont]).width)
-    }
-
-    /// The name cut to the caption's width with a trailing ellipsis.
-    static func caption(_ name: String) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let limit = captionFrame(at: 0).width
-        guard captionWidth(trimmed) > limit else { return trimmed }
-        var chars = Array(trimmed)
-        while !chars.isEmpty {
-            chars.removeLast()
-            let candidate = String(chars).trimmingCharacters(in: .whitespaces) + "…"
-            if captionWidth(candidate) <= limit { return candidate }
-        }
-        return "…"
-    }
-
-    // On a workspace page the gear heads the dot column and each 12pt dot sits 18pt
-    // below the last; entering Settings grows each dot from here into its tile.
     static let dotPitch: CGFloat = 18
 
     static func dotCenterY(at index: Int) -> CGFloat {
         gearFrame.minY + dotPitch * CGFloat(index + 1) + 6
     }
 
+    /// The rule under the dots and the "+" dot that ends them (`count` workspaces).
     static func dotsSeparatorY(count: Int) -> CGFloat {
-        gearFrame.minY + dotPitch * CGFloat(count + 1) + 4
-    }
-}
-
-// MARK: - Drag to reorder
-
-enum TileReorder {
-    static let startThreshold: CGFloat = 4
-
-    static func hasStarted(dy: CGFloat) -> Bool {
-        abs(dy) >= startThreshold
-    }
-
-    /// The dragged tile's top, kept between just above the first slot and just below the last.
-    static func clampedTileTop(_ y: CGFloat, count: Int) -> CGFloat {
-        let last = SettingsRailLayout.tileFrame(at: max(0, count - 1)).minY
-        return min(max(y, -10), last + 10)
-    }
-
-    /// The slot nearest the dragged tile's top: the index it takes once dropped.
-    static func targetIndex(tileTop: CGFloat, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let y = clampedTileTop(tileTop, count: count)
-        let slot = Int((y / SettingsRailLayout.pitch).rounded(.toNearestOrAwayFromZero))
-        return min(max(slot, 0), count - 1)
-    }
-
-    static func order<T: Equatable>(_ ids: [T], moving: T, to index: Int) -> [T] {
-        var rest = ids.filter { $0 != moving }
-        guard rest.count < ids.count else { return ids }
-        rest.insert(moving, at: min(max(index, 0), rest.count))
-        return rest
-    }
-
-    /// The final index to hand to the model, or nil when the tile ends where it started.
-    static func move(from: Int, to: Int) -> Int? {
-        from == to ? nil : to
-    }
-
-    static func dropIndicatorY(to index: Int) -> CGFloat {
-        SettingsRailLayout.tileFrame(at: index).minY - 5
-    }
-}
-
-// MARK: - Navigation
-
-/// Settings is page 0, before the first workspace. Entering remembers the workspace you
-/// came from (the 4pt dot), which the gear and Esc take you back to.
-struct SettingsRailNavigation {
-    enum Destination: Equatable { case settings, workspace(UUID) }
-    enum EscapeAction: Equatable { case closeFlyout, leave(UUID), none }
-
-    private(set) var cameFrom: UUID?
-
-    mutating func didEnterSettings(from id: UUID?) {
-        cameFrom = id
-    }
-
-    func cameFromIndex(in workspaces: [UUID]) -> Int? {
-        cameFrom.flatMap { workspaces.firstIndex(of: $0) }
-    }
-
-    /// Where leaving Settings goes: the workspace you came from, or the first one if it's gone.
-    func returnTarget(in workspaces: [UUID]) -> UUID? {
-        if let cameFrom, workspaces.contains(cameFrom) { return cameFrom }
-        return workspaces.first
-    }
-
-    func gearDestination(isOnSettings: Bool, workspaces: [UUID]) -> Destination {
-        guard isOnSettings, let target = returnTarget(in: workspaces) else { return .settings }
-        return .workspace(target)
-    }
-
-    func escapeAction(isOnSettings: Bool, flyoutOpen: Bool, workspaces: [UUID]) -> EscapeAction {
-        guard isOnSettings else { return .none }
-        if flyoutOpen { return .closeFlyout }
-        return returnTarget(in: workspaces).map(EscapeAction.leave) ?? .none
-    }
-
-    static func page(of destination: Destination, workspaces: [UUID]) -> Int {
-        switch destination {
-        case .settings: return 0
-        case .workspace(let id): return (workspaces.firstIndex(of: id) ?? 0) + 1
-        }
-    }
-
-    static func destination(forPage page: Int, workspaces: [UUID]) -> Destination? {
-        if page == 0 { return .settings }
-        let index = page - 1
-        return workspaces.indices.contains(index) ? .workspace(workspaces[index]) : nil
-    }
-
-    /// How far a swipe travels per page. The rail's content is far narrower than a
-    /// two-finger swipe, so there a page is a typical swipe's length.
-    static let railSwipePageWidth: CGFloat = 160
-
-    static func swipePageWidth(contentWidth: CGFloat, isRail: Bool) -> CGFloat {
-        isRail ? max(contentWidth, railSwipePageWidth) : contentWidth
-    }
-
-    /// `direction` +1 is the next page (a swipe left), -1 the previous one.
-    static func swipe(from destination: Destination, direction: Int, workspaces: [UUID]) -> Destination? {
-        Self.destination(forPage: page(of: destination, workspaces: workspaces) + direction, workspaces: workspaces)
+        gearFrame.minY + dotPitch * CGFloat(count + 2) + 4
     }
 }
 
@@ -236,8 +55,8 @@ final class MainQueueDwellClock: DwellClock {
     }
 }
 
-/// Resting on a tile previews its page color after a short dwell, so running the pointer
-/// down the column doesn't strobe. Keyboard focus previews at once.
+/// Resting on a rail cell shows its tip after a short dwell, so running the pointer down
+/// the column doesn't strobe. Keyboard focus shows it at once.
 @MainActor
 final class HoverDwell {
     static let defaultDelay: TimeInterval = 0.22
@@ -559,18 +378,17 @@ enum PermissionNeed: Equatable {
 
 // MARK: - New workspace
 
-/// The dashed tile's new workspace takes the next palette color nobody uses, and a
-/// distinct allocated hue once all eight are taken.
-enum SettingsRailNewWorkspace {
-    static func color(existing: [WorkspaceColorId]) -> WorkspaceColorId {
+/// A new workspace takes the next palette color nobody uses, and a distinct allocated
+/// hue once all eight are taken.
+enum NewWorkspaceColor {
+    static func pick(existing: [WorkspaceColorId]) -> WorkspaceColorId {
         WorkspaceColorId.allCases.first { !existing.contains($0) } ?? WorkspaceColorAllocator.next(existing: existing)
     }
 }
 
 // MARK: - Motion
 
-/// Whether the rail's dot↔tile morph and tile reorder animate. Reduce Motion swaps
-/// instantly.
+/// Whether the rail's animations run. Reduce Motion swaps instantly.
 enum RailMotion {
     static func animates(windowVisible: Bool, swiping: Bool, reduceMotion: Bool) -> Bool {
         windowVisible && !swiping && !reduceMotion

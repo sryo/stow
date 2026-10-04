@@ -104,22 +104,22 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 
 **UI Components**:
 - **MainViewController** - The main window: elastic modes, the page chrome, data reload and the commands AppDelegate calls (~1400 lines). Its concerns live in:
-  - **RailCoordinator** - Rail wiring, reload, visibility and the dots↔tiles transition into the Settings rail
+  - **RailCoordinator** - Rail wiring, reload and visibility (the rail has no Settings page: its gear opens the app sheet)
   - **LinkActions** - Opening links and folders, stowing the front tab or a URL, title fetches
   - **KeyboardRouter** - Key and modifier monitors, ⌘-hold jump letters, ⌘J jump mode, "/" and Esc
   - **PageSwipeCoordinator** - Swipes between pages: snapshots, preloading, the `ScrollWheelPageDelegate`, reloads deferred to the snap
 - **NodeListViewController** - Manages collection view, drag-drop, context menus (~1150 lines, extracted from MainViewController)
 - **SearchCoordinator** - Handles search/filtering logic (extracted from MainViewController)
-- **SettingsContentViewController** - The Settings page at list and sidebar widths: workspace rows (a click opens the workspace editor) and the app sheet
+- **SettingsContentViewController** - The Settings page at list and sidebar widths: app settings only (the app sheet in page style and its footer). Workspaces are edited where they show, by right-click
 - **NodeCollectionViewItem** - Reusable cell with icon, title, hover states, delete button
 - **SnippetEditorView** - Editor UI for code snippets with language selection
 - **SearchBarView** - Search field that filters nodes
 - **FooterButton** - The bottom bar's "+ Stow this tab" and Paste; drops its keycap, then its title, as the list narrows
 - **ListFlowLayout** - Custom NSCollectionViewLayout for vertical list
 - **ScrollWheelPageController** - Scroll-wheel page navigation for workspace switching
-- **RailView** - The 52pt rail: workspace dots, item cells and their flyouts
-- **SettingsRailController** - Settings in the rail: workspace tiles, the workspace editor and the app sheet
-- **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window; **TablineLayout** places its parts (gear, chip, tabs, waterfilled titles) as a pure function, and **TablineSettingsFlyout** hangs the app sheet off its gear
+- **RailView** - The 52pt rail: the gear (app sheet), workspace dots (drag to reorder, right-click or ⌃Return to edit), the dashed "+" dot (New workspace…), item cells and their flyouts
+- **AppSheetFlyout** - The app sheet in a flyout hung off a gear: the rail's (beside the window) and the Tabline's (away from the strip's edge)
+- **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window; **TablineLayout** places its parts (gear, chip, tabs, waterfilled titles) as a pure function
 - **OpenTabsMonitor** - One shared poll of the browsers' open tabs, for the open dots in the rail, list and Tabline
 
 **Flyouts, menus and shared pieces** (left-click pop-ups are flyouts; right-click menus stay native):
@@ -127,8 +127,7 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **FlyoutController** - A stack of FlyoutPanels (a root plus pushed children) with one outside-click monitor and Esc routing
 - **FlyoutListView** - The list inside a flyout (folder contents, tasks, snippets, workspaces), keyboard navigable
 - **TextFieldFlyout** - One-field flyout for rename, Edit URL and new folder/task names (shown through `ItemFlyouts`)
-- **WorkspaceEditorController** - The one workspace editor (name, colour, icon, Opens in, Open/Share/Delete), opened beside a Settings rail tile, a Settings page row, a rail dot, a title-bar tab or the Tabline chip
-- **WorkspaceMenu** - The native right-click menu for a workspace; its Edit… opens the workspace editor
+- **WorkspaceEditorController** - The one workspace editor (name, colour, icon, Opens in, Open/Share/Export/Delete), owned by MainViewController. A right-click on any workspace opens it beside what was clicked: a rail dot, a Color Strip tab, a "More workspaces" row, the Tabline chip or a row in its list. "New workspace…" (⌘N, the title "+", the rail's "+" dot, a swipe past the last page) opens it on a workspace that's created only on commit (Esc creates nothing)
 - **NodeMenu** - The native right-click menu for an item, in the list, the mosaic and the rail
 - **NewItemMenu** - The + / Add menu (folder, task, snippet, workspace, paste, import)
 - **Toast** - Bottom-of-window message with an optional action (copy, archive undo, stow failures)
@@ -145,7 +144,7 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
   - Used by: `FooterButton`, `FocusableControl` (Tab-focusable controls in Settings and the flyouts)
 - **BaseView** - Base class for custom views with hover state management (no pressed state)
   - Simpler than BaseControl, designed for non-interactive views like rows
-  - Used by: `NodeRowView`, `WorkspaceRowView`
+  - Used by: `NodeRowView`, `RailCell`
 - **InlineEditableTextField** - Reusable component for inline text editing
   - Encapsulates commit/cancel logic, focus management, and callbacks
   - Eliminates ~80 lines of duplicate editing code per component

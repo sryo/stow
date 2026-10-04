@@ -2,169 +2,24 @@ import XCTest
 import AppKit
 @testable import StowCore
 
-// MARK: - Tile column layout
+// MARK: - Rail layout
 
-final class SettingsRailLayoutTests: XCTestCase {
-    typealias L = SettingsRailLayout
+final class RailLayoutTests: XCTestCase {
+    typealias L = RailLayout
 
-    func testTilesStackAtTheConceptPitch() {
-        // 36pt tile, 12pt caption under it, 59pt from one tile to the next.
-        XCTAssertEqual(L.tileFrame(at: 0), NSRect(x: 8, y: 0, width: 36, height: 36))
-        XCTAssertEqual(L.tileFrame(at: 2), NSRect(x: 8, y: 118, width: 36, height: 36))
-        XCTAssertEqual(L.captionFrame(at: 2), NSRect(x: 2, y: 156, width: 48, height: 12))
-        XCTAssertEqual(L.rowFrame(at: 3), NSRect(x: 0, y: 177, width: 52, height: 51))
-    }
-
-    func testCameFromDotSitsInTheLeftMarginOfItsTile() {
-        XCTAssertEqual(L.cameFromDotFrame(at: 2), NSRect(x: 2, y: 134, width: 4, height: 4))
-    }
-
-    func testDashedTileFollowsTheLastWorkspace() {
-        XCTAssertEqual(L.addTileFrame(count: 4), NSRect(x: 8, y: 236, width: 36, height: 36))
-        XCTAssertEqual(L.addTileFrame(count: 0).minY, 0)
-        XCTAssertEqual(L.contentHeight(count: 4), 236 + 36)
-    }
-
-    func testListLeavesRoomForGearAndQuietCell() {
-        XCTAssertEqual(L.listTop, 46)
-        XCTAssertEqual(L.listHeight(railHeight: 640), 640 - 46 - 52)
-        XCTAssertEqual(L.quietCellFrame(railHeight: 640), NSRect(x: 11, y: 600, width: 30, height: 30))
+    func testDotsSitUnderTheGearAndThePlusDotEndsThem() {
+        // Gear at 13, then one 12pt dot every 18pt; the "+" dot takes the next slot.
         XCTAssertEqual(L.gearFrame, NSRect(x: 19, y: 13, width: 14, height: 14))
-    }
-
-    func testNineFitIn640AndOnlyTheDashedTileScrolls() {
-        XCTAssertFalse(L.scrolls(count: 4, railHeight: 640))
-        XCTAssertFalse(L.scrolls(count: 8, railHeight: 640))
-        XCTAssertTrue(L.scrolls(count: 9, railHeight: 640), "past nine the dashed tile scrolls into view")
-        XCTAssertEqual(L.fullyVisibleTileCount(railHeight: 640), 9)
-        XCTAssertTrue(L.scrolls(count: 4, railHeight: 300))
-    }
-
-    func testCaptionsKeepShortNamesAndCutLongOnesWithAnEllipsis() {
-        XCTAssertEqual(L.caption("Research"), "Research")
-        XCTAssertEqual(L.caption("Shopping"), "Shopping")
-        let lisbon = L.caption("Lisbon trip")
-        XCTAssertTrue(lisbon.hasPrefix("Lisbon"), lisbon)
-        XCTAssertTrue(lisbon.hasSuffix("…"), lisbon)
-        let side = L.caption("Side project")
-        XCTAssertTrue(side.hasPrefix("Side"), side)
-        XCTAssertTrue(side.hasSuffix("…"), side)
-        for name in ["Lisbon trip", "Side project", "An extremely long workspace name"] {
-            XCTAssertLessThanOrEqual(L.captionWidth(L.caption(name)), L.captionFrame(at: 0).width, name)
-        }
-        XCTAssertEqual(L.caption("  "), "")
-    }
-
-    func testDotsOnTheWorkspacePageSitUnderTheGear() {
-        // Gear at 13, then one 12pt dot every 18pt (the dot "grows" from here into its tile).
         XCTAssertEqual(L.dotCenterY(at: 0), 37)
         XCTAssertEqual(L.dotCenterY(at: 2), 73)
-        XCTAssertEqual(L.dotsSeparatorY(count: 4), 13 + 18 * 5 + 4)
-    }
-}
-
-// MARK: - Drag to reorder
-
-final class TileReorderTests: XCTestCase {
-    func testDragStartsAfterFourPoints() {
-        XCTAssertFalse(TileReorder.hasStarted(dy: 3.9))
-        XCTAssertTrue(TileReorder.hasStarted(dy: -4))
-    }
-
-    func testTargetIndexRoundsToTheNearestSlot() {
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 50, count: 4), 1, "the concept's Reading-up frame")
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 29, count: 4), 0)
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 30, count: 4), 1)
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 118, count: 4), 2)
-    }
-
-    func testTargetIndexClampsAtBothEnds() {
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: -200, count: 4), 0)
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 5000, count: 4), 3, "dragging past the end lands last")
-        XCTAssertEqual(TileReorder.targetIndex(tileTop: 40, count: 1), 0)
-        XCTAssertEqual(TileReorder.clampedTileTop(5000, count: 4), 3 * 59 + 10)
-        XCTAssertEqual(TileReorder.clampedTileTop(-200, count: 4), -10)
-    }
-
-    func testOrderPreviewMovesOnlyTheDraggedTile() {
-        XCTAssertEqual(TileReorder.order(["a", "b", "c", "d"], moving: "d", to: 1), ["a", "d", "b", "c"])
-        XCTAssertEqual(TileReorder.order(["a", "b", "c", "d"], moving: "a", to: 3), ["b", "c", "d", "a"])
-        XCTAssertEqual(TileReorder.order(["a", "b", "c", "d"], moving: "b", to: 1), ["a", "b", "c", "d"])
-    }
-
-    func testNotMovingIsNoMove() {
-        XCTAssertNil(TileReorder.move(from: 2, to: 2))
-        XCTAssertEqual(TileReorder.move(from: 0, to: 3), 3)
-    }
-
-    func testDropBarSitsJustAboveTheSlot() {
-        XCTAssertEqual(TileReorder.dropIndicatorY(to: 1), 59 - 5)
-        XCTAssertEqual(TileReorder.dropIndicatorY(to: 0), -5)
-    }
-}
-
-// MARK: - Navigation
-
-final class SettingsRailNavigationTests: XCTestCase {
-    let a = UUID(), b = UUID(), c = UUID()
-    var all: [UUID] { [a, b, c] }
-
-    func testEnteringRemembersWhereYouCameFrom() {
-        var nav = SettingsRailNavigation()
-        nav.didEnterSettings(from: b)
-        XCTAssertEqual(nav.cameFrom, b)
-        XCTAssertEqual(nav.cameFromIndex(in: all), 1)
-    }
-
-    func testGearTogglesBetweenSettingsAndWhereYouCameFrom() {
-        var nav = SettingsRailNavigation()
-        XCTAssertEqual(nav.gearDestination(isOnSettings: false, workspaces: all), .settings)
-        nav.didEnterSettings(from: c)
-        XCTAssertEqual(nav.gearDestination(isOnSettings: true, workspaces: all), .workspace(c))
-    }
-
-    func testReturnFallsBackToTheFirstWorkspaceWhenCameFromIsGone() {
-        var nav = SettingsRailNavigation()
-        nav.didEnterSettings(from: b)
-        XCTAssertEqual(nav.gearDestination(isOnSettings: true, workspaces: [a, c]), .workspace(a))
-        XCTAssertNil(nav.cameFromIndex(in: [a, c]))
-        nav.didEnterSettings(from: nil)
-        XCTAssertEqual(nav.gearDestination(isOnSettings: true, workspaces: all), .workspace(a))
-    }
-
-    func testCameFromFollowsTheWorkspaceThroughAReorder() {
-        var nav = SettingsRailNavigation()
-        nav.didEnterSettings(from: a)
-        XCTAssertEqual(nav.cameFromIndex(in: [b, c, a]), 2)
-    }
-
-    func testEscClosesAFlyoutFirstThenLeaves() {
-        var nav = SettingsRailNavigation()
-        nav.didEnterSettings(from: b)
-        XCTAssertEqual(nav.escapeAction(isOnSettings: true, flyoutOpen: true, workspaces: all), .closeFlyout)
-        XCTAssertEqual(nav.escapeAction(isOnSettings: true, flyoutOpen: false, workspaces: all), .leave(b))
-        XCTAssertEqual(nav.escapeAction(isOnSettings: false, flyoutOpen: false, workspaces: all), .none)
+        XCTAssertEqual(L.dotsSeparatorY(count: 4), 13 + 18 * 6 + 4, "the rule sits under the \"+\" dot")
     }
 
     func testOneSwipeInTheRailMovesOnePage() {
         // The rail's content is ~36pt wide; paging by that would fly past several pages.
-        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 36, isRail: true), 160)
-        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 300, isRail: false), 300)
-        XCTAssertEqual(SettingsRailNavigation.swipePageWidth(contentWidth: 90, isRail: false), 90)
-    }
-
-    func testSettingsIsPageZeroAndSwipesWalkThePages() {
-        typealias N = SettingsRailNavigation
-        XCTAssertEqual(N.page(of: .settings, workspaces: all), 0)
-        XCTAssertEqual(N.page(of: .workspace(b), workspaces: all), 2)
-        XCTAssertEqual(N.destination(forPage: 0, workspaces: all), .settings)
-        XCTAssertEqual(N.destination(forPage: 1, workspaces: all), .workspace(a))
-        XCTAssertNil(N.destination(forPage: 4, workspaces: all), "the add-new page isn't a destination")
-        // Swiping left (next page) from Settings opens workspace 1; swiping right past it returns.
-        XCTAssertEqual(N.swipe(from: .settings, direction: 1, workspaces: all), .workspace(a))
-        XCTAssertEqual(N.swipe(from: .workspace(a), direction: -1, workspaces: all), .settings)
-        XCTAssertNil(N.swipe(from: .settings, direction: -1, workspaces: all))
-        XCTAssertEqual(N.swipe(from: .workspace(b), direction: 1, workspaces: all), .workspace(c))
+        XCTAssertEqual(RailSwipe.pageWidth(contentWidth: 36, isRail: true), 160)
+        XCTAssertEqual(RailSwipe.pageWidth(contentWidth: 300, isRail: false), 300)
+        XCTAssertEqual(RailSwipe.pageWidth(contentWidth: 90, isRail: false), 90)
     }
 }
 
@@ -400,13 +255,13 @@ final class WorkspaceTileIdentityTests: XCTestCase {
 
 final class NewWorkspaceColorTests: XCTestCase {
     func testTakesTheFirstPaletteColorNoWorkspaceUses() {
-        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: [.ember, .ruby]), .coral)
-        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: []), .ember)
-        XCTAssertEqual(SettingsRailNewWorkspace.color(existing: [.ember, .custom("#123456"), .ruby, .coral]), .tangerine)
+        XCTAssertEqual(NewWorkspaceColor.pick(existing: [.ember, .ruby]), .coral)
+        XCTAssertEqual(NewWorkspaceColor.pick(existing: []), .ember)
+        XCTAssertEqual(NewWorkspaceColor.pick(existing: [.ember, .custom("#123456"), .ruby, .coral]), .tangerine)
     }
 
     func testFallsBackToADistinctHueOnceAllEightAreTaken() {
-        let color = SettingsRailNewWorkspace.color(existing: WorkspaceColorId.allCases)
+        let color = NewWorkspaceColor.pick(existing: WorkspaceColorId.allCases)
         guard case .custom = color else { return XCTFail("expected an allocated custom color, got \(color)") }
     }
 }
@@ -422,84 +277,6 @@ final class SwipeStepTests: XCTestCase {
 
     func testWithoutACapTheTargetStands() {
         XCTAssertEqual(ScrollWheelPageController.clampTarget(4, start: 0, maxStep: nil), 4)
-    }
-}
-
-// MARK: - Settings rail through FlyoutController
-
-@MainActor
-final class SettingsRailFlyoutTests: XCTestCase {
-    private var tempDir: URL!
-    private var model: AppModel!
-    private var controller: SettingsRailController!
-    private var window: NSWindow!
-
-    override func setUp() async throws {
-        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-rail-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        model = AppModel(store: DataStore(baseDirectory: tempDir))
-        controller = SettingsRailController(model: model)
-        window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 52, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = controller.view
-        controller.view.frame = NSRect(x: 0, y: 0, width: 52, height: 640)
-        controller.reload()
-    }
-
-    override func tearDown() async throws {
-        controller.willLeave()
-        NSColorPanel.shared.setTarget(nil)
-        NSColorPanel.shared.setAction(nil)
-        NSColorPanel.shared.orderOut(nil)
-        window.close()
-        controller = nil
-        model = nil
-        try? FileManager.default.removeItem(at: tempDir)
-    }
-
-    func testTheEditorAndTheSheetOpenThroughTheFlyoutController() {
-        let id = model.currentWorkspace.id
-        controller.view.onTileClick?(id)
-        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.editor])
-        controller.view.onQuiet?()
-        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet], "the sheet replaces the editor")
-        XCTAssertNil(controller.editingId)
-        controller.closeFlyouts()
-        XCTAssertFalse(controller.flyouts.isOpen)
-    }
-
-    func testAllShortcutsIsPushedBesideTheSheetAndEscClosesOnlyIt() {
-        controller.view.onQuiet?()
-        controller.showAllShortcuts(from: NSRect(x: 300, y: 300, width: 80, height: 14))
-        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet, SettingsRailController.FlyoutId.allShortcuts])
-        let panels = controller.flyouts.panels
-        XCTAssertFalse(FlyoutDismissPolicy.clickCloses(window: panels[1], stack: panels, host: window),
-                       "a click inside All shortcuts keeps the sheet open")
-        XCTAssertTrue(controller.handleEscape())
-        XCTAssertEqual(controller.flyouts.openIds, [SettingsRailController.FlyoutId.sheet], "one Esc closes only All shortcuts")
-        XCTAssertTrue(controller.handleEscape())
-        XCTAssertFalse(controller.flyouts.isOpen)
-    }
-
-    func testCustomColorPreviewsWhileDraggingAndCommitsOnceOnClose() {
-        let id = model.currentWorkspace.id
-        model.updateWorkspaceColor(id: id, colorId: .ocean)
-        var previewed: [WorkspaceColorId?] = []
-        controller.onPreviewColor = { previewed.append($0) }
-        controller.view.onTileClick?(id)
-        controller.chooseCustomColor()
-        NSColorPanel.shared.color = .systemRed
-        controller.customColorChanged(NSColorPanel.shared)
-        XCTAssertEqual(model.workspaces.first { $0.id == id }?.colorId, .ocean, "dragging doesn't write the library")
-        guard case .custom? = previewed.last ?? nil else { return XCTFail("the drag previews through onPreviewColor") }
-        controller.view.onTileClick?(id)
-        guard case .custom? = model.workspaces.first(where: { $0.id == id })?.colorId else {
-            return XCTFail("closing the editor commits the custom color")
-        }
-        let committed = model.workspaces.first { $0.id == id }?.colorId
-        NSColorPanel.shared.color = .systemBlue
-        controller.customColorChanged(NSColorPanel.shared)
-        XCTAssertEqual(model.workspaces.first { $0.id == id }?.colorId, committed, "the closed editor lets go of the panel")
     }
 }
 
@@ -529,10 +306,10 @@ final class SettingsPageWidthTests: XCTestCase {
     }
 }
 
-// MARK: - Rail identity, tips and timers (review wave 2B)
+// MARK: - Shortcuts and timers (review wave 2B)
 
 @MainActor
-final class SettingsRailFollowThroughTests: XCTestCase {
+final class RailFollowThroughTests: XCTestCase {
     private var tempDir: URL!
     private var model: AppModel!
 
@@ -551,34 +328,6 @@ final class SettingsRailFollowThroughTests: XCTestCase {
         XCTAssertEqual(WorkspaceShortcut.label(position: 1), "⌘1")
         XCTAssertEqual(WorkspaceShortcut.label(position: 9), "⌘9")
         XCTAssertNil(WorkspaceShortcut.label(position: 10), "past nine there's no shortcut")
-    }
-
-    func testReturnTargetIsTheModelsActiveWorkspace() {
-        let first = model.currentWorkspace.id
-        let second = model.createWorkspace(name: "Second", colorId: .ocean)
-        model.selectWorkspace(id: second)
-        model.selectSettings()
-        let controller = SettingsRailController(model: model)
-        controller.didEnter(from: first)
-        XCTAssertEqual(controller.returnTarget, model.activeWorkspaceId)
-        XCTAssertEqual(controller.returnTarget, second, "B1: Settings goes back to AppModel's active workspace")
-    }
-
-    func testCreatingAWorkspaceFromSettingsKeepsWhereYouCameFrom() {
-        let first = model.currentWorkspace.id
-        model.selectSettings()
-        let controller = SettingsRailController(model: model)
-        controller.view.onAdd?()
-        XCTAssertEqual(model.workspaces.count, 2)
-        XCTAssertTrue(model.state.isSettingsSelected)
-        XCTAssertEqual(controller.returnTarget, first, "the new workspace doesn't become the way back")
-        controller.willLeave()
-    }
-
-    func testAHiddenSettingsRailSkipsPreferenceReloads() {
-        let controller = SettingsRailController(model: model)
-        NotificationCenter.default.post(name: .stowAppPreferencesChanged, object: nil)
-        XCTAssertTrue(controller.view.tiles.isEmpty, "X5: a Settings rail with no window (sidebar mode) still reloads")
     }
 
     func testTheFooterTimerStopsWhenItsSheetHides() {
@@ -634,22 +383,17 @@ final class RailTipAndHookTests: XCTestCase {
         XCTAssertNil(view.cellView(for: UUID()))
     }
 
-    func testADotRightClickPrefersTheContextMenuHook() {
+    func testADotRightClickAsksForTheEditorOnItsWorkspace() {
         let alpha = RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)
         let view = rail([], dots: [alpha])
-        var contextMenu: UUID?
-        var fallback = 0
-        view.onWorkspaceMenu = { _ in fallback += 1 }
+        var edited: UUID?
         let dot = subviews(of: view, NSButton.self).first { $0.toolTip?.hasPrefix("Alpha") == true }
         XCTAssertEqual(dot?.toolTip, "Alpha · ⌘1", "the dot reports its tip text")
+        view.onWorkspaceContextMenu = { id, _ in edited = id }
         let click = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         dot?.rightMouseDown(with: click)
-        XCTAssertEqual(fallback, 1, "without the hook the old menu shows")
-        view.onWorkspaceContextMenu = { id, _ in contextMenu = id }
-        dot?.rightMouseDown(with: click)
-        XCTAssertEqual(contextMenu, alpha.id)
-        XCTAssertEqual(fallback, 1)
+        XCTAssertEqual(edited, alpha.id)
     }
 
     func testTheTipControllerShowsTheSourceTipAfterTheDwellAndHides() {

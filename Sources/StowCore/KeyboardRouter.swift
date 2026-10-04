@@ -2,7 +2,8 @@ import AppKit
 
 /// The main window's own keys, ahead of the responder chain: ⌘ held alone reveals jump
 /// letters (⌘ + letter opens that row), ⌘J's jump mode takes plain letters, "/" focuses
-/// search, and Esc leaves jump mode, clears search or steps back out of Settings.
+/// search, and Esc closes the rail's app sheet, steps back out of Settings, leaves jump
+/// mode or clears search.
 @MainActor
 final class KeyboardRouter {
     private unowned let main: MainViewController
@@ -137,9 +138,9 @@ final class KeyboardRouter {
         guard event.window === window, window?.isKeyWindow == true else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.isEmpty || flags == .capsLock || flags == .shift else { return false }
-        if event.keyCode == 53, main.elasticMode == .rail, model.state.isSettingsSelected, !main.isSwiping,
-           !(window?.firstResponder is NSTextView) {
-            return main.rail.settingsRail.handleEscape()
+        // Esc closes the rail's app sheet, or leaves the Settings page for the workspace before it.
+        if event.keyCode == 53, !main.isSwiping, !(window?.firstResponder is NSTextView), main.handleEscape() {
+            return true
         }
         guard !model.state.isSettingsSelected, !main.isSwiping else { return false }
         let isEditingText = window?.firstResponder is NSTextView

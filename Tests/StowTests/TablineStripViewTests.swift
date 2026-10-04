@@ -156,7 +156,7 @@ final class TablineStripViewTests: XCTestCase {
         XCTAssertTrue(view.isTitled(.tab(3)), "the raised page keeps its title")
     }
 
-    func testRightClickOnTheChipAsksForTheWorkspaceMenu() {
+    func testRightClickOnTheChipAsksForTheWorkspaceEditor() {
         let view = strip(width: 1100)
         var asked: TablineStripView.Kind?
         view.onContextMenu = { kind, _ in asked = kind }

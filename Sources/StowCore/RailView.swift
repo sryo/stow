@@ -1,8 +1,9 @@
 import AppKit
 
-/// The Elastic rail: a 52pt column of shapes. The Settings gear (page 0) heads the
-/// workspace dots (the current one ringed), then one 38pt cell per top-level link or folder, tasks and
-/// snippets folded into counted cells, and a round "+" that stows the front tab.
+/// The Elastic rail: a 52pt column of shapes. The gear (the app sheet) heads the
+/// workspace dots (the current one ringed) and the dashed "+" dot that names a new one,
+/// then one 38pt cell per top-level link or folder, tasks and snippets folded into counted
+/// cells, and a round "+" that stows the front tab.
 @MainActor
 final class RailView: NSView {
     struct WorkspaceDot {
@@ -12,8 +13,12 @@ final class RailView: NSView {
     }
 
     var onSelectWorkspace: ((UUID) -> Void)?
+    /// The gear: the app sheet beside the rail.
     var onSettings: (() -> Void)?
-    var onWorkspaceMenu: ((NSView) -> Void)?
+    /// The dashed "+" dot after the workspace dots: "New workspace…".
+    var onNewWorkspace: (() -> Void)?
+    /// A workspace dot dragged to another place in the stack: its id and new index.
+    var onReorderWorkspace: ((UUID, Int) -> Void)?
     var onOpenLink: ((Link) -> Void)?
     var onOpenFolder: ((Folder) -> Void)?
     var onToggleTask: ((UUID) -> Void)?
@@ -24,7 +29,8 @@ final class RailView: NSView {
     var onReorder: ((UUID, Int) -> Void)?
     /// A link or folder dropped on another workspace's dot.
     var onMoveToWorkspace: ((UUID, UUID) -> Void)?
-    /// A workspace dot right-clicked: its id and the dot. Falls back to `onWorkspaceMenu`.
+    /// A workspace dot right-clicked (or ⌃Return, ⇧F10, VoiceOver's Show Menu): its id
+    /// and the dot, to open the workspace editor beside it.
     var onWorkspaceContextMenu: ((UUID, NSView) -> Void)?
     /// Text dropped on the rail (a URL from a browser) and the `AppModel` index it lands at.
     var onDropText: ((String, Int) -> Void)?
@@ -43,6 +49,11 @@ final class RailView: NSView {
 
     private let gear = RailGlyphButton(glyph: .gear)
     private let gearTipId = UUID()
+    /// "New workspace…", ending the dot stack.
+    let newWorkspaceButton = RailGlyphButton(glyph: .addDot)
+    private let newWorkspaceTipId = UUID()
+    /// A dot being dragged to a new place: which, where the pointer is, and its slot.
+    private var dotDrag: (id: UUID, y: CGFloat, slot: Int)?
     private let fabTipId = UUID()
     private let separator = NSView()
     private var scrollTop: NSLayoutConstraint!
@@ -71,13 +82,23 @@ final class RailView: NSView {
         super.init(frame: frameRect)
         gear.target = self
         gear.action = #selector(gearTapped)
-        gear.railTip = .init(title: "Settings", detail: "⌘, · or swipe right")
+        gear.railTip = .init(title: "Settings", detail: "⌘,")
         gear.setAccessibilityLabel("Settings")
         gear.onHover = { [weak self] inside in
             guard let self, let tip = self.gear.railTip, !(inside && self.flyout.isOpen) else { return }
             self.tips.hover(self.gearTipId, view: self.gear, tip: tip, inside: inside)
         }
         addSubview(gear)
+
+        newWorkspaceButton.target = self
+        newWorkspaceButton.action = #selector(newWorkspaceTapped)
+        newWorkspaceButton.railTip = .init(title: "New workspace…", detail: "⌘N")
+        newWorkspaceButton.setAccessibilityLabel("New workspace…")
+        newWorkspaceButton.onHover = { [weak self] inside in
+            guard let self, let tip = self.newWorkspaceButton.railTip, !(inside && self.flyout.isOpen) else { return }
+            self.tips.hover(self.newWorkspaceTipId, view: self.newWorkspaceButton, tip: tip, inside: inside)
+        }
+        addSubview(newWorkspaceButton)
 
         separator.wantsLayer = true
         addSubview(separator)
@@ -107,7 +128,7 @@ final class RailView: NSView {
 
         registerForDraggedTypes([.URL, .string])
 
-        scrollTop = scrollView.topAnchor.constraint(equalTo: topAnchor, constant: SettingsRailLayout.dotsSeparatorY(count: 0) + 4)
+        scrollTop = scrollView.topAnchor.constraint(equalTo: topAnchor, constant: RailLayout.dotsSeparatorY(count: 0) + 4)
         NSLayoutConstraint.activate([
             scrollTop,
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -142,12 +163,13 @@ final class RailView: NSView {
             b.target = self
             b.action = #selector(dotTapped(_:))
             b.onRightClick = { [weak self, weak b] in
+                guard let self, let b, let id = b.workspaceId else { return }
+                self.tips.hide()
+                self.onWorkspaceContextMenu?(id, b)
+            }
+            b.onDrag = { [weak self, weak b] phase, windowPoint in
                 guard let self, let b else { return }
-                if let id = b.workspaceId, let menu = self.onWorkspaceContextMenu {
-                    menu(id, b)
-                } else {
-                    self.onWorkspaceMenu?(b)
-                }
+                self.handleDotDrag(b, phase: phase, windowPoint: windowPoint)
             }
             b.onHover = { [weak self, weak b] inside in
                 guard let self, let b, let tip = b.tip, !(inside && self.flyout.isOpen) else { return }
@@ -156,7 +178,7 @@ final class RailView: NSView {
             addSubview(b)
             return b
         }
-        scrollTop.constant = SettingsRailLayout.dotsSeparatorY(count: workspaces.count) + 4
+        scrollTop.constant = RailLayout.dotsSeparatorY(count: workspaces.count) + 4
         // Place the new dots now: refreshHover() below reads the pointer against them.
         layoutDots()
         needsLayout = true
@@ -168,6 +190,22 @@ final class RailView: NSView {
         // ⌘1/⌘2 from a Tab-focused gear would otherwise carry its ring onto the next page.
         if pageChanged, let window, window.firstResponder === gear { window.makeFirstResponder(nil) }
         refreshHover()
+    }
+
+    /// A workspace's dot, for anchoring the workspace editor to it.
+    func dotView(for workspaceId: UUID) -> NSView? {
+        dotButtons.first { $0.workspaceId == workspaceId }
+    }
+
+    /// The gear, for anchoring the app sheet to it.
+    var settingsGear: NSView { gear }
+
+    /// The gear reads "on" while its sheet is open, and carries a warning dot when the
+    /// sheet has a permission to ask for.
+    func setSettings(open: Bool, badge: Bool) {
+        gear.isOn = open
+        gear.showsBadge = badge
+        if open { tips.hide() }
     }
 
     /// The rail cell showing a top-level link or folder, for anchoring a flyout to it.
@@ -290,31 +328,54 @@ final class RailView: NSView {
         if case .folder? = flyout.rootId as? OpenList { refreshOpenList() }
     }
 
-    /// Each workspace dot's center, from the rail's top: where its Settings tile grows from.
-    func dotCenters() -> [UUID: CGFloat] {
-        var result: [UUID: CGFloat] = [:]
-        for (i, b) in dotButtons.enumerated() { if let id = b.workspaceId { result[id] = SettingsRailLayout.dotCenterY(at: i) } }
-        return result
-    }
-
     override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
         let midX = round(bounds.midX)
-        gear.frame = SettingsRailLayout.gearFrame.insetBy(dx: -4, dy: -4).offsetBy(dx: midX - 26, dy: 0)
+        gear.frame = RailLayout.gearFrame.insetBy(dx: -4, dy: -4).offsetBy(dx: midX - 26, dy: 0)
         layoutDots()
-        separator.frame = NSRect(x: midX - 10, y: SettingsRailLayout.dotsSeparatorY(count: dotButtons.count), width: 20, height: 1)
+        separator.frame = NSRect(x: midX - 10, y: RailLayout.dotsSeparatorY(count: dotButtons.count), width: 20, height: 1)
         column.frame.size.width = scrollView.contentSize.width
         for cell in cells { cell.frame.origin.x = (column.bounds.width - cell.frame.width) / 2 }
     }
 
     private func layoutDots() {
         let midX = round(bounds.midX)
-        for (i, b) in dotButtons.enumerated() {
-            let y = SettingsRailLayout.dotCenterY(at: i)
+        // While a dot is dragged it follows the pointer and the others close up round its slot.
+        var slots = dotButtons.filter { $0.workspaceId != dotDrag?.id }
+        if let drag = dotDrag, let dragged = dotButtons.first(where: { $0.workspaceId == drag.id }) {
+            slots.insert(dragged, at: min(drag.slot, slots.count))
+        }
+        for (i, b) in slots.enumerated() {
+            var y = RailLayout.dotCenterY(at: i)
+            if let drag = dotDrag, b.workspaceId == drag.id {
+                y = min(max(drag.y, RailLayout.dotCenterY(at: 0)), RailLayout.dotCenterY(at: max(0, dotButtons.count - 1)))
+            }
             b.frame = NSRect(x: midX - 10, y: y - 10, width: 20, height: 20)
         }
+        let plusY = RailLayout.dotCenterY(at: dotButtons.count)
+        newWorkspaceButton.frame = NSRect(x: midX - 10, y: plusY - 10, width: 20, height: 20)
+    }
+
+    // MARK: - Dragging a dot
+
+    private func handleDotDrag(_ dot: RailDotButton, phase: RailCell.DragPhase, windowPoint: NSPoint) {
+        guard let id = dot.workspaceId, let from = dotButtons.firstIndex(where: { $0 === dot }) else { return }
+        let y = convert(windowPoint, from: nil).y
+        let slot = RailDrag.dotSlot(y: y, count: dotButtons.count)
+        switch phase {
+        case .began:
+            tips.hide()
+            flyout.closeAll()
+            dotDrag = (id, y, from)
+        case .moved:
+            dotDrag = (id, y, slot)
+        case .ended:
+            dotDrag = nil
+            if slot != from { onReorderWorkspace?(id, slot) }
+        }
+        layoutDots()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -326,6 +387,7 @@ final class RailView: NSView {
         separator.layer?.backgroundColor = resolvedCGColor(colors.inkSecondary.withAlphaComponent(0.35))
         for b in dotButtons { b.ink = colors.inkPrimary; b.gap = colors.surface }
         gear.colors = colors
+        newWorkspaceButton.colors = colors
         for c in cells { c.apply(colors: colors) }
         fab.apply(colors: colors)
     }
@@ -622,6 +684,8 @@ final class RailView: NSView {
     @objc private func fabTapped() { onStowTab?() }
 
     @objc private func gearTapped() { onSettings?() }
+
+    @objc private func newWorkspaceTapped() { onNewWorkspace?() }
 }
 
 /// The lifted copy that follows the pointer; clicks go through it to the rail.
@@ -641,6 +705,8 @@ private final class RailDotButton: NSButton {
     var gap: NSColor = .clear { didSet { needsDisplay = true } }
     var isCurrent = false { didSet { needsDisplay = true; invalidateIntrinsicContentSize() } }
     var onRightClick: (() -> Void)?
+    /// A press that travels becomes a drag to reorder the workspaces; a still one clicks.
+    var onDrag: ((RailCell.DragPhase, NSPoint) -> Void)?
     /// A dragged item is over this dot: it swells, like the mockup's drop state.
     var isDropTarget = false { didSet { needsDisplay = true } }
     private var isHovered = false {
@@ -687,6 +753,41 @@ private final class RailDotButton: NSButton {
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onDrag, let window else { return super.mouseDown(with: event) }
+        let start = event.locationInWindow
+        var dragging = false
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            let point = next.locationInWindow
+            if next.type == .leftMouseUp {
+                if dragging { onDrag(.ended, point) } else { sendAction(action, to: target) }
+                return
+            }
+            if !dragging, hypot(point.x - start.x, point.y - start.y) >= RailDrag.startThreshold {
+                dragging = true
+                onDrag(.began, start)
+            }
+            if dragging { onDrag(.moved, point) }
+        }
+    }
+
+    /// ⌃Return and ⇧F10 are the keyboard's right-click: the workspace editor.
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.control, .shift, .option, .command])
+        let isControlReturn = flags == .control && (event.keyCode == 36 || event.keyCode == 76)
+        let isShiftF10 = flags == .shift && event.keyCode == 109
+        if isControlReturn || isShiftF10 {
+            onRightClick?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        onRightClick?()
+        return true
+    }
 
     func refreshHover() {
         guard let window, !bounds.isEmpty else { isHovered = false; return }

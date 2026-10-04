@@ -33,11 +33,11 @@ final class FlyoutDismissPolicyTests: XCTestCase {
         XCTAssertTrue(FlyoutDismissPolicy.clickCloses(window: other, stack: stack, host: host))
     }
 
-    func testTheRailForwarderUsesThePolicy() {
-        XCTAssertFalse(SettingsRailController.clickClosesFlyouts(inFlyout: false, inRail: false, isColorPanel: false,
-                                                                 windowClassName: "_NSPopoverWindow"))
-        XCTAssertTrue(SettingsRailController.clickClosesFlyouts(inFlyout: false, inRail: false, isColorPanel: false,
-                                                                windowClassName: "NSWindow"))
+    func testPopoversCountAsInsideAndOtherWindowsDont() {
+        XCTAssertFalse(FlyoutDismissPolicy.clickCloses(inStack: false, inHost: false, isColorPanel: false,
+                                                       windowClassName: "_NSPopoverWindow"))
+        XCTAssertTrue(FlyoutDismissPolicy.clickCloses(inStack: false, inHost: false, isColorPanel: false,
+                                                      windowClassName: "NSWindow"))
     }
 }
 

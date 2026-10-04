@@ -134,14 +134,12 @@ final class TablineController {
     var onCopySnippet: ((Snippet) -> Void)?
     /// A group's "Open all". When nil, each of its links opens through `onOpenLink`.
     var onOpenFolder: ((Folder) -> Void)?
-    /// A right-click on the chip: the workspace's WorkspaceMenu, shown in `view` at `rect`.
-    var onWorkspaceContextMenu: ((UUID, NSView, NSRect) -> Void)?
-    /// "Edit Workspace…" from the chip's list: the shared workspace editor, anchored on
-    /// the chip (`rect` in `view`).
+    /// The shared workspace editor for a workspace, anchored on `rect` in `view`: a
+    /// right-click on the chip or on a row of its list, or the list's "Edit Workspace…".
     var onEditWorkspace: ((UUID, NSView, NSRect) -> Void)?
 
     private var panel: NSPanel?
-    private let strip = TablineStripView()
+    let strip = TablineStripView()
     private var trackTimer: Timer?
     private var hoverTimer: Timer?
     private var lastFrame: NSRect = .zero
@@ -159,10 +157,10 @@ final class TablineController {
     private var entries: [TablineEntry] = []
     private var pocket = Pocket.Contents()
     /// The group, overflow, pocket and workspace lists, below the strip.
-    private let flyout = FlyoutListPresenter(takesKey: false)
+    let flyout = FlyoutListPresenter(takesKey: false)
     /// The gear's app sheet.
-    private lazy var settings: TablineSettingsFlyout = {
-        let settings = TablineSettingsFlyout()
+    private lazy var settings: AppSheetFlyout = {
+        let settings = AppSheetFlyout()
         settings.onClose = { TablineController.shared.flyoutsClosed() }
         return settings
     }()
@@ -197,6 +195,9 @@ final class TablineController {
 
 
     private init() {
+        strip.onActivate = { kind, rect in TablineController.shared.activate(kind, rect: rect) }
+        strip.onContextMenu = { kind, rect in TablineController.shared.showContextMenu(kind, rect: rect) }
+        wireFlyout()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { TablineController.shared.restoreNudgedWindows() }
         }
@@ -354,9 +355,6 @@ final class TablineController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        strip.onActivate = { kind, rect in TablineController.shared.activate(kind, rect: rect) }
-        strip.onContextMenu = { kind, rect in TablineController.shared.showContextMenu(kind, rect: rect) }
-        wireFlyout()
         panel.contentView = strip
         self.panel = panel
     }
@@ -460,12 +458,23 @@ final class TablineController {
         }
     }
 
-    /// Only the chip has a right-click menu: the native WorkspaceMenu for the workspace
-    /// the Tabline shows.
+    /// The chip is the Tabline's workspace: its right-click opens the workspace editor on it.
     private func showContextMenu(_ kind: TablineStripView.Kind, rect: NSRect) {
         guard kind == .chip, let id = content.workspaceId else { return }
         closeFlyouts()
-        onWorkspaceContextMenu?(id, strip, rect)
+        onEditWorkspace?(id, strip, rect)
+    }
+
+    /// A right-click on a row of the chip's list: the editor on that workspace, where the
+    /// row was (the list closes, the chip stays as the anchor if the row is gone).
+    private func editWorkspace(fromRow id: UUID, view: NSView) {
+        let rowRect: NSRect? = view.window.flatMap { window in
+            guard let panel else { return nil }
+            let screen = window.convertToScreen(view.convert(view.bounds, to: nil))
+            return strip.convert(panel.convertFromScreen(screen), from: nil)
+        }
+        flyout.closeAll()
+        onEditWorkspace?(id, strip, rowRect ?? strip.rect(of: .chip) ?? .zero)
     }
 
     /// "Stowed in Research" or "Already in Research", for the toast under the strip.
@@ -618,6 +627,7 @@ final class TablineController {
     private func wireFlyout() {
         flyout.onOpenAll = { folder in TablineController.shared.openAll(folder) }
         flyout.onClose = { TablineController.shared.flyoutsClosed() }
+        flyout.onWorkspaceMenu = { id, view in TablineController.shared.editWorkspace(fromRow: id, view: view) }
         flyout.onAction = { action, _, _ in
             let controller = TablineController.shared
             switch action {

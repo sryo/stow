@@ -90,11 +90,11 @@ final class RailTipController {
 
     @objc private func appResigned() { hide() }
 
-    /// The nearest RailView or SettingsRailView holding `view`, else its window's content.
+    /// The nearest RailView holding `view`, else its window's content.
     private static func rail(of view: NSView) -> NSView {
         var current: NSView? = view
         while let v = current {
-            if v is RailView || v is SettingsRailView { return v }
+            if v is RailView { return v }
             current = v.superview
         }
         return view.window?.contentView ?? view

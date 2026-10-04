@@ -27,6 +27,13 @@ enum RailDrag {
         return 0
     }
 
+    /// The place (0..<count) a workspace dot dragged to `y` takes: the nearest dot's.
+    static func dotSlot(y: CGFloat, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let slot = Int(((y - RailLayout.dotCenterY(at: 0)) / RailLayout.dotPitch).rounded())
+        return min(max(slot, 0), count - 1)
+    }
+
     /// The workspace whose dot is under `point`, or nil for the current one or empty space.
     static func workspaceDrop(at point: NSPoint, dots: [(UUID, NSRect)], current: UUID) -> UUID? {
         workspaceTarget(at: point, targets: dots, current: current, tolerance: dotTolerance)

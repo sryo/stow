@@ -119,6 +119,17 @@ public final class AppModel {
         return workspace.id
     }
 
+    /// Adds a workspace that was named before it existed, keeping the id it was named under.
+    @discardableResult
+    public func createWorkspace(id: UUID, name: String, colorId: WorkspaceColorId, icon: WorkspaceIcon) -> UUID {
+        let workspace = Workspace(id: id, name: name, colorId: colorId, items: [], icon: icon)
+        state.workspaces.append(workspace)
+        state.selectedWorkspaceId = workspace.id
+        UserDefaults.standard.set(workspace.id.uuidString, forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
+        persist()
+        return workspace.id
+    }
+
     public func exportWorkspace(id: UUID) throws -> Data {
         guard let workspace = state.workspaces.first(where: { $0.id == id }) else {
             throw NSError(domain: "AppModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Workspace not found"])

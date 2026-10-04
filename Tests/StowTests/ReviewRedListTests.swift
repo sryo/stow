@@ -169,30 +169,4 @@ final class ReviewRedListTests: XCTestCase {
         XCTAssertFalse(panel.isVisible,
                        "patterns-2: picking a date commits and closes the due date editor")
     }
-
-    // MARK: patterns-11
-
-    func testSettingsPageRowShowsTheWorkspacesChosenIcon() {
-        func render(_ icon: WorkspaceIcon) -> Data? {
-            let workspace = Workspace(id: UUID(), name: "Home", colorId: .ocean, items: [], icon: icon)
-            let content = WorkspaceRowView.Content(name: workspace.name, colorId: workspace.colorId,
-                                                   iconLinks: WorkspaceIconSites.pick(from: workspace.items), opensIn: nil,
-                                                   itemCount: 0, position: 1, total: 1, canDelete: false)
-            let item = WorkspaceCollectionViewItem()
-            item.loadView()
-            item.view.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
-            item.view.appearance = NSAppearance(named: .aqua)
-            item.configure(workspace: workspace, content: content, actions: .init(
-                edit: { _, _ in }, contextMenu: { _, _ in }, delete: { _ in }, move: { _, _ in }))
-            item.view.layoutSubtreeIfNeeded()
-            guard let rep = item.view.bitmapImageRepForCachingDisplay(in: item.view.bounds) else { return nil }
-            item.view.cacheDisplay(in: item.view.bounds, to: rep)
-            return rep.tiffRepresentation
-        }
-        let favicons = render(.favicons)
-        let symbol = render(.symbol("star"))
-        XCTAssertNotNil(favicons)
-        XCTAssertNotEqual(favicons, symbol,
-                          "patterns-11: WorkspaceRowView draws the same icon for .favicons and .symbol(\"star\"); Workspace.icon is never read")
-    }
 }

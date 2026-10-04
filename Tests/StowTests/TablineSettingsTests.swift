@@ -26,10 +26,10 @@ final class TablineSettingsTests: XCTestCase {
         parent = nil
     }
 
-    private func makeFlyout() -> TablineSettingsFlyout {
+    private func makeFlyout() -> AppSheetFlyout {
         let preferences = AppPreferences(defaults: scratchDefaults(), loginItem: StubLoginItem(),
                                          hasAccessibility: { true }, applyTabline: { _ in }, requestAccessibility: {})
-        return TablineSettingsFlyout(preferences: preferences)
+        return AppSheetFlyout(preferences: preferences)
     }
 
     private var gearAnchor: NSRect { NSRect(x: parent.frame.minX + 5, y: parent.frame.minY + 4, width: 24, height: 24) }

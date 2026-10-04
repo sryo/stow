@@ -736,6 +736,9 @@ final class NodeListViewController: NSViewController {
             guard indexPath.item < newRows.count else { return nil }
             return newRows[indexPath.item].id
         })
+        // A reloadData() still pending from this turn would otherwise read the new rows as
+        // the "before" count of the batch below.
+        _ = collectionView.numberOfItems(inSection: 0)
         visibleRows = newRows
         collectionView.performBatchUpdates({
             if !deletedIndexPaths.isEmpty {

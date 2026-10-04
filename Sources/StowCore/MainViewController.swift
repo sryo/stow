@@ -14,8 +14,8 @@ final class MainViewController: NSViewController {
 
     // UI Components
     let workspaceSwitcher = WorkspaceStripView()
-    private let titleSettingsButton = NSButton()
-    /// The workspace rail and the Settings rail.
+    let titleSettingsButton = NSButton()
+    /// The workspace rail.
     private(set) lazy var rail = RailCoordinator(main: self)
     /// Opening and stowing links.
     private(set) lazy var links = LinkActions(model: model, window: { [weak self] in self?.view.window })
@@ -24,10 +24,14 @@ final class MainViewController: NSViewController {
     let itemFlyouts = ItemFlyouts()
     /// The one snippet editor, moved between snippets.
     private lazy var snippetEditor = SnippetEditorView()
-    private var settingsRail: SettingsRailController { rail.settingsRail }
-    /// The workspace editor for the Settings page, rail dots, title-bar tabs and the
-    /// Tabline chip (the Settings rail shows its own in its flyout stack).
-    private(set) lazy var workspaceEditor = WorkspaceEditorController(model: model)
+    /// The one workspace editor, for a right-click on any workspace (rail dots, strip tabs,
+    /// "More workspaces" rows, the Tabline chip and its list) and for "New workspace…".
+    private(set) lazy var workspaceEditor = makeWorkspaceEditor()
+    /// The app sheet beside the rail, from its gear: Settings at rail width.
+    private(set) lazy var appSheet = makeAppSheet()
+    private var isAppSheetLoaded = false
+    private var isPreviewingWorkspaceColor = false
+    nonisolated(unsafe) private var hostClickMonitor: Any?
     /// The workspace on screen before Settings, for the 4pt dot and the way back.
     private(set) var lastShownWorkspaceId: UUID?
     /// Released in rail so the hidden list's minimum width can't hold the window wider than the rail.
@@ -40,7 +44,7 @@ final class MainViewController: NSViewController {
     private var settingsConstraints: [NSLayoutConstraint] {
         view.constraints.filter { ($0.firstItem as? NSView) === settingsViewController.view || ($0.secondItem as? NSView) === settingsViewController.view }
     }
-    private let titleAddButton = NSButton()
+    let titleAddButton = NSButton()
     let searchField = SearchBarView(style: .defaultSearch)
     private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S", symbolName: "plus")
     let pasteButton = FooterButton(title: "Paste", symbolName: "doc.on.clipboard")
@@ -67,7 +71,6 @@ final class MainViewController: NSViewController {
     private var isReloadScheduled = false
     private var hasLoaded = false
     private var lastWorkspaceId: UUID?
-    private var pendingWorkspaceRenameId: UUID?
     private var displayedColorId: WorkspaceColorId = .defaultColor()
     private var appearanceObservation: NSKeyValueObservation?
     private var hasClaimedInitialFocus = false
@@ -97,6 +100,7 @@ final class MainViewController: NSViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        if let hostClickMonitor { NSEvent.removeMonitor(hostClickMonitor) }
     }
 
     override func loadView() {
@@ -126,12 +130,8 @@ final class MainViewController: NSViewController {
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
         // The editor opens away from the edge the strip rides, like its other flyouts.
-        tabline.onWorkspaceContextMenu = { [weak self] id, view, rect in
-            self?.showWorkspaceMenu(for: id, in: view, at: NSPoint(x: rect.minX, y: view.isFlipped ? rect.maxY + 2 : rect.minY - 2),
-                                    editorAnchor: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
-        }
         tabline.onEditWorkspace = { [weak self] id, view, rect in
-            self?.openWorkspaceEditor(id, from: view, rect: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
+            self?.editWorkspace(id, from: view, rect: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
         }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
@@ -146,6 +146,7 @@ final class MainViewController: NSViewController {
         )
 
         keyboard.start()
+        installHostClickMonitor()
     }
 
     override func viewDidAppear() {
@@ -207,11 +208,8 @@ final class MainViewController: NSViewController {
         nodeListViewController.onOpenLinkIn = { [weak self] link, choice in
             self?.links.openLink(link, in: choice)
         }
-        workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
-            guard let self else { return }
-            let local = self.view.convert(point, from: nil)
-            self.showWorkspaceMenu(for: workspaceId, in: self.view, at: local,
-                                   editorAnchor: NSRect(x: local.x, y: local.y, width: 1, height: 1), edge: .below)
+        workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, anchor in
+            self?.editWorkspace(workspaceId, from: anchor, edge: .below)
         }
         workspaceSwitcher.onWorkspaceReorder = { [weak self] workspaceId, index in
             self?.model.reorderWorkspace(id: workspaceId, toIndex: index)
@@ -271,8 +269,6 @@ final class MainViewController: NSViewController {
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Settings view
-        settingsViewController.workspaceEditor = workspaceEditor
-        settingsViewController.onOpenWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         settingsViewController.appModel = model
         settingsViewController.view.translatesAutoresizingMaskIntoConstraints = false
         settingsViewController.view.isHidden = true
@@ -307,10 +303,6 @@ final class MainViewController: NSViewController {
         railView.translatesAutoresizingMaskIntoConstraints = false
         railView.isHidden = true
         view.addSubview(railView)
-        let settingsRailView = settingsRail.view
-        settingsRailView.translatesAutoresizingMaskIntoConstraints = false
-        settingsRailView.isHidden = true
-        view.addSubview(settingsRailView)
         rail.wireRail()
 
         let pad = LayoutConstants.windowPadding
@@ -374,10 +366,6 @@ final class MainViewController: NSViewController {
             railView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             railView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             railView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            settingsRailView.topAnchor.constraint(equalTo: view.topAnchor),
-            settingsRailView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            settingsRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            settingsRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
         wireEmptyState()
@@ -605,17 +593,10 @@ final class MainViewController: NSViewController {
         }
     }
 
-    private func moveToNewWorkspace(_ nodeIds: [UUID]) {
+    /// Move to › New workspace…: the items go into the new workspace when it's created.
+    func moveToNewWorkspace(_ nodeIds: [UUID]) {
         guard !nodeIds.isEmpty else { return }
-        if elasticMode == .rail { return createWorkspaceInRail(moving: nodeIds) }
-        let workspaceId = model.createWorkspace(name: "Untitled")
-        for nodeId in nodeIds {
-            model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
-        }
-        if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
-            pageController.jumpToPage(idx + 1)
-        }
-        scheduleWorkspaceInlineRename(for: workspaceId)
+        beginNewWorkspace(moving: nodeIds)
     }
 
     private func moveToNewFolder(_ nodeIds: [UUID]) {
@@ -667,6 +648,12 @@ final class MainViewController: NSViewController {
             nodeListViewController.cancelInlineRename()
         }
 
+        // The rail has no Settings page; it goes back to the workspace you came from.
+        if elasticMode == .rail, model.state.isSettingsSelected {
+            model.selectWorkspace(id: model.activeWorkspaceId)
+            pageController.jumpToPage(currentPageIndex())
+        }
+
         let isNodeRenaming = nodeListViewController.inlineRenameNodeId != nil
         let isWorkspaceRenaming = workspaceSwitcher.isInlineRenaming
 
@@ -675,10 +662,8 @@ final class MainViewController: NSViewController {
             reloadWorkspaceMenu()
         }
 
-        // Notify settings view that workspaces may have changed
         settingsViewController.notifyWorkspacesChanged()
-        // The editor opened from a rail dot, a tab or the Tabline chip shows each change
-        // as it's made; the Settings page refreshes it only while the page is on screen.
+        // The editor shows each change as it's made.
         if workspaceEditor.isOpen { workspaceEditor.refresh() }
 
         // Clear selections when workspace changes
@@ -696,11 +681,11 @@ final class MainViewController: NSViewController {
             nodeListViewController.clearSelections()
             showSettingsContent()
             applyBackgroundColor(for: .settingsBackground)
-            if elasticMode == .rail { settingsRail.reload() }
         } else {
             lastShownWorkspaceId = currentWorkspaceId
             showWorkspaceContent()
-            applyBackgroundColor(for: model.currentWorkspace.colorId)
+            // A custom colour being dragged in the editor previews on the page behind it.
+            applyBackgroundColor(for: workspaceEditor.shownColor(of: model.currentWorkspace))
             DockIconRenderer.apply(model.currentWorkspace.colorId)
             nodeListViewController.workspaceColor = model.currentWorkspace.colorId
             let workspace = model.currentWorkspace
@@ -782,7 +767,7 @@ final class MainViewController: NSViewController {
             WorkspaceStripView.WorkspaceItem(
                 id: workspace.id,
                 name: workspace.name,
-                colorId: workspace.colorId
+                colorId: workspaceEditor.shownColor(of: workspace)
             )
         }
 
@@ -794,10 +779,8 @@ final class MainViewController: NSViewController {
         } else {
             let selectedId = model.currentWorkspace.id
             workspaceSwitcher.selectedWorkspaceId = selectedId
-            workspaceSwitcher.workspaceColor = model.currentWorkspace.colorId
+            workspaceSwitcher.workspaceColor = workspaceEditor.shownColor(of: model.currentWorkspace)
         }
-
-        handlePendingWorkspaceRename()
     }
 
     func applyBackgroundColor(for colorId: WorkspaceColorId) {
@@ -866,8 +849,9 @@ final class MainViewController: NSViewController {
     private func updatePageWidth() {
         let width = contentAreaWidth
         if width > 0 {
-            pageController.pageWidth = SettingsRailNavigation.swipePageWidth(contentWidth: width, isRail: elasticMode == .rail)
+            pageController.pageWidth = RailSwipe.pageWidth(contentWidth: width, isRail: elasticMode == .rail)
             pageController.maxPagesPerSwipe = elasticMode == .rail ? 1 : nil
+            pageController.firstPage = elasticMode == .rail ? 1 : 0
         }
     }
 
@@ -875,7 +859,7 @@ final class MainViewController: NSViewController {
 
     func showSettingsContent() {
         contentStack.isHidden = true
-        // In rail mode Settings is the rail of workspace tiles, not the page.
+        // The rail has no Settings page: its gear opens the app sheet instead.
         settingsViewController.view.isHidden = elasticMode == .rail
         rail.updateRailVisibility()
     }
@@ -889,60 +873,115 @@ final class MainViewController: NSViewController {
 
     // MARK: - Workspace Management
 
-    /// Where the workspace editor goes relative to what opened it.
-    enum WorkspaceEditorEdge { case below, above, besideWindow }
+    typealias WorkspaceEditorEdge = WorkspaceEditorController.AnchorEdge
 
-    /// The native WorkspaceMenu at `point` in `view`, for a right-click on a title-bar tab,
-    /// a rail dot or the Tabline chip. Its Edit… opens the workspace editor at
-    /// `editorAnchor` (in `view`).
-    func showWorkspaceMenu(for workspaceId: UUID, in view: NSView, at point: NSPoint,
-                                   editorAnchor: NSRect, edge: WorkspaceEditorEdge) {
-        guard view.window != nil else { return }
-        let menu = WorkspaceMenu.make(for: workspaceId, model: model, presentingView: view) { [weak self, weak view] id in
-            guard let self, let view else { return }
-            self.openWorkspaceEditor(id, from: view, rect: editorAnchor, edge: edge)
-        }
-        menu.popUp(positioning: nil, at: point, in: view)
-    }
-
-    private func openWorkspaceEditor(_ id: UUID, from view: NSView, rect: NSRect, edge: WorkspaceEditorEdge) {
-        workspaceEditor.onOpenWorkspace = { [weak self] id in
+    private func makeWorkspaceEditor() -> WorkspaceEditorController {
+        let editor = WorkspaceEditorController(model: model)
+        editor.onOpenWorkspace = { [weak self] id in
             self?.workspaceEditor.close()
             self?.selectWorkspaceAndPage(id)
         }
-        workspaceEditor.open(id, placement: { [weak view] in
-            guard let view, let window = view.window else { return nil }
-            let anchor = window.convertToScreen(view.convert(rect, to: nil))
-            switch edge {
-            case .below: return .init(anchor: anchor, edge: .below, topInset: 0, parent: window)
-            case .above: return .init(anchor: anchor, edge: .above, topInset: 0, parent: window)
-            case .besideWindow: return .init(anchor: anchor, edge: .beside(column: window.frame), topInset: 28, parent: window)
-            }
-        }, focusName: true)
-    }
-
-    /// ⌘N, the + menus and the add-new page. In the rail the strip is hidden, so the new
-    /// workspace is named in the Settings rail's editor instead.
-    func promptCreateWorkspace() {
-        if elasticMode == .rail { return createWorkspaceInRail() }
-        let workspaceId = model.createWorkspace(name: "Untitled")
-        if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
-            pageController.jumpToPage(idx + 1)
-        }
-        scheduleWorkspaceInlineRename(for: workspaceId)
-    }
-
-    private func scheduleWorkspaceInlineRename(for workspaceId: UUID) {
-        pendingWorkspaceRenameId = workspaceId
-    }
-
-    private func handlePendingWorkspaceRename() {
-        guard let workspaceId = pendingWorkspaceRenameId else { return }
-        pendingWorkspaceRenameId = nil
-
-        DispatchQueue.main.async { [weak self] in
+        editor.onCreated = { [weak self] id in self?.selectWorkspaceAndPage(id) }
+        // A swipe past the last page that ends in Esc snaps back to the workspace it left.
+        editor.onNewCancelled = { [weak self] in
             guard let self else { return }
-            self.workspaceSwitcher.beginInlineRename(workspaceId: workspaceId)
+            self.pageController.jumpToPage(self.currentPageIndex())
+            self.reloadData(animated: false)
+        }
+        // A custom colour's drag previews on the page, the strip and the rail; closing
+        // without one puts the real colours back.
+        editor.onPreviewColor = { [weak self] _ in
+            self?.isPreviewingWorkspaceColor = true
+            self?.reloadData(animated: false)
+        }
+        editor.onClose = { [weak self] in
+            guard let self, self.isPreviewingWorkspaceColor else { return }
+            self.isPreviewingWorkspaceColor = false
+            self.reloadData(animated: false)
+        }
+        return editor
+    }
+
+    /// Opens the workspace editor on `workspaceId`, anchored to `view` (`rect` in it, or
+    /// its bounds). The anchor is followed while it's on screen; once it's gone (a flyout
+    /// row that closed) the editor stays where it was. A view in a flyout parents the
+    /// editor to the window under that flyout.
+    func editWorkspace(_ workspaceId: UUID, from view: NSView, rect: NSRect? = nil, edge: WorkspaceEditorEdge,
+                       focusName: Bool = false) {
+        workspaceEditor.open(workspaceId, placement: anchoredPlacement(view, rect: rect, edge: edge), focusName: focusName)
+    }
+
+    /// "New workspace…": the editor on a workspace that exists only once it's committed,
+    /// with its name empty and focused, beside the rail's "+" dot or under the title "+".
+    func beginNewWorkspace(moving nodeIds: [UUID] = []) {
+        let anchor: NSView
+        let edge: WorkspaceEditorEdge
+        if elasticMode == .rail {
+            anchor = railView.newWorkspaceButton
+            edge = .besideWindow
+        } else if !titleAddButton.isHidden {
+            anchor = titleAddButton
+            edge = .below
+        } else {
+            anchor = workspaceSwitcher
+            edge = .below
+        }
+        workspaceEditor.beginNew(moving: nodeIds, placement: anchoredPlacement(anchor, rect: nil, edge: edge))
+    }
+
+    private func anchoredPlacement(_ view: NSView, rect: NSRect?, edge: WorkspaceEditorEdge) -> () -> WorkspaceEditorController.Placement? {
+        var last: WorkspaceEditorController.Placement?
+        return { [weak view] in
+            if let view, let window = view.window, window.isVisible || last == nil {
+                let anchor = window.convertToScreen(view.convert(rect ?? view.bounds, to: nil))
+                let parent = (window as? FlyoutPanel)?.parent ?? window
+                last = WorkspaceEditorController.placement(anchor: anchor, parent: parent, edge: edge)
+            }
+            return last
+        }
+    }
+
+    /// ⌘N, the title "+" menu, the rail's "+" dot and a swipe past the last page.
+    func promptCreateWorkspace() {
+        beginNewWorkspace()
+    }
+
+    // MARK: - App sheet (Settings in the rail)
+
+    private func makeAppSheet() -> AppSheetFlyout {
+        isAppSheetLoaded = true
+        let sheet = AppSheetFlyout()
+        sheet.onClose = { [weak self] in self?.updateRailGear() }
+        return sheet
+    }
+
+    private var isAppSheetOpen: Bool { isAppSheetLoaded && appSheet.isOpen }
+
+    /// The rail's gear: the app sheet beside the window, or closed again.
+    func toggleAppSheet() {
+        guard let window = view.window else { return }
+        let gear = railView.settingsGear
+        let anchor = window.convertToScreen(gear.convert(gear.bounds, to: nil))
+        appSheet.toggle(anchor: anchor, edge: .beside(column: window.frame), topInset: 22, parent: window,
+                        colorId: model.currentWorkspace.colorId)
+        updateRailGear()
+    }
+
+    func updateRailGear() {
+        railView.setSettings(open: isAppSheetOpen, badge: AppSheet.showsBadge(needs: AppPreferences.shared.permissionNeeds))
+    }
+
+    /// A click elsewhere in the window closes the workspace editor and the rail's sheet
+    /// (their panels see clicks in their own host window as their host's).
+    private func installHostClickMonitor() {
+        hostClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let window = self.view.window, event.window === window else { return event }
+            let hit = window.contentView?.hitTest(window.contentView?.convert(event.locationInWindow, from: nil) ?? .zero)
+            if self.isAppSheetOpen, hit.map({ !$0.isDescendant(of: self.railView.settingsGear) }) ?? true {
+                self.appSheet.close()
+            }
+            if event.type == .leftMouseDown, self.workspaceEditor.isOpen { self.workspaceEditor.close() }
+            return event
         }
     }
 
@@ -984,14 +1023,6 @@ final class MainViewController: NSViewController {
     }
 
     // MARK: - Creating in the rail
-
-    /// Settings, then the new workspace's editor with its name focused.
-    private func createWorkspaceInRail(moving nodeIds: [UUID] = []) {
-        enterSettings()
-        reloadData(animated: false)
-        view.layoutSubtreeIfNeeded()
-        settingsRail.createWorkspace(moving: nodeIds)
-    }
 
     /// Adds the folder, then names it in a flyout beside its cell. Cancelling takes an
     /// empty new folder away again; one that was given items keeps the default name.
@@ -1086,8 +1117,14 @@ final class MainViewController: NSViewController {
         workspaceSwitcher.isHidden = rail
         searchField.isHidden = rail
         titleSettingsButton.isHidden = rail
-        titleAddButton.isHidden = rail
         pasteButton.isHidden = rail
+        updateTitleAddVisibility()
+        if isAppSheetOpen { appSheet.close() }
+        // The rail has no Settings page; narrowing from it returns to the workspace.
+        if rail, model.state.isSettingsSelected {
+            model.selectWorkspace(id: model.activeWorkspaceId)
+            pageController.jumpToPage(currentPageIndex())
+        }
         updateFooterFit()
         nodeListViewController.elasticMode = mode
         updateSettingsConstraints()
@@ -1114,18 +1151,44 @@ final class MainViewController: NSViewController {
         pageController.jumpToPage(idx + 1)
     }
 
+    /// Settings: the page at list width and wider, the gear's app sheet in the rail.
     func enterSettings() {
+        if elasticMode == .rail {
+            if !isAppSheetOpen { toggleAppSheet() }
+            return
+        }
         model.selectSettings()
         pageController.jumpToPage(0)
     }
 
-    /// ⌘, opens Settings; in the rail it also leaves, back to where you came from.
+    /// Back to the workspace you were on before Settings.
+    func leaveSettings() {
+        guard model.state.isSettingsSelected else { return }
+        selectWorkspaceAndPage(model.activeWorkspaceId)
+    }
+
+    /// ⌘, and the title gear open Settings and close it again: the page, or the rail's sheet.
     func toggleSettings() {
-        if elasticMode == .rail, model.state.isSettingsSelected {
-            if let id = settingsRail.returnTarget { selectWorkspaceAndPage(id) }
+        if elasticMode == .rail {
+            toggleAppSheet()
+        } else if model.state.isSettingsSelected {
+            leaveSettings()
         } else {
             enterSettings()
         }
+    }
+
+    /// Esc on the window: closes the rail's sheet, or leaves the Settings page.
+    func handleEscape() -> Bool {
+        if isAppSheetOpen {
+            appSheet.close()
+            return true
+        }
+        if model.state.isSettingsSelected, elasticMode != .rail {
+            leaveSettings()
+            return true
+        }
+        return false
     }
 
     /// The footer's keycap and tip follow the Stow front tab shortcut (none when cleared).
@@ -1179,13 +1242,18 @@ final class MainViewController: NSViewController {
     private var parkedSettingsConstraints: [NSLayoutConstraint] = []
 
     @objc private func titleSettingsTapped() {
-        model.selectSettings()
-        pageController.jumpToPage(0)
+        toggleSettings()
+    }
+
+    /// The title "+" (New…) adds to the workspace on show, so Settings and the rail hide it.
+    private func updateTitleAddVisibility() {
+        titleAddButton.isHidden = elasticMode == .rail || model.state.isSettingsSelected
     }
 
     /// Ink for the title-row buttons; Settings wears the selected pill on its page.
     private func updateTitleButtons(colors: StowTheme.Colors) {
         let onSettings = model.state.isSettingsSelected
+        updateTitleAddVisibility()
         titleSettingsButton.layer?.backgroundColor = view.resolvedCGColor(onSettings ? colors.inkPrimary : .clear)
         titleSettingsButton.contentTintColor = onSettings ? colors.surface : colors.inkPrimary
         titleAddButton.contentTintColor = colors.inkPrimary
@@ -1346,11 +1414,14 @@ final class MainViewController: NSViewController {
     /// Jump letters, ⌘-hold and / act on the list, which the rail hides.
     var acceptsListShortcuts: Bool { elasticMode != .rail }
 
-    /// The workspace whose editor is open in the Settings rail.
-    var settingsRailEditingId: UUID? { settingsRail.editingId }
+    /// Whether the title-bar strip is renaming a workspace.
+    var isWorkspaceStripRenaming: Bool { workspaceSwitcher.isInlineRenaming }
 
-    /// Whether the title-bar strip is renaming a workspace, or about to.
-    var isWorkspaceStripRenaming: Bool { workspaceSwitcher.isInlineRenaming || pendingWorkspaceRenameId != nil }
+    /// The first page a swipe reaches: 1 in the rail, which has no Settings page.
+    var firstSwipePage: Int { pageController.firstPage }
+
+    /// The page the pager shows now.
+    var shownPage: Int { Int(pageSwipe.shownOffset.rounded()) }
 
     /// ⌘F. In the rail the panel first widens to the list, where the search field is.
     func focusSearch() {

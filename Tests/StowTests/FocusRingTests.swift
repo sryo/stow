@@ -127,7 +127,6 @@ final class FocusRingTests: XCTestCase {
         if let control = root as? FocusableControl, control.isFocused { found.append("\(type(of: control))") }
         if let picker = root as? WindowPlacementPicker, picker.showsFocusRing { found.append("WindowPlacementPicker") }
         if let picker = root as? BrowserDockPicker, picker.showsFocusRing { found.append("BrowserDockPicker") }
-        if let row = root as? WorkspaceRowView, row.isFocused { found.append("WorkspaceRowView") }
         for view in root.subviews { found += ringedViews(in: view) }
         return found
     }

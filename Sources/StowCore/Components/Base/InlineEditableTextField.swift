@@ -41,7 +41,7 @@ import AppKit
 /// - **Focus loss**: Commits the edit if text is non-empty, otherwise cancels
 /// - **Empty text**: Treated as cancellation
 ///
-/// - SeeAlso: `NodeRowView`, `WorkspaceRowView` for usage examples
+/// - SeeAlso: `NodeRowView` for a usage example
 @MainActor
 final class InlineEditableTextField: NSView {
 

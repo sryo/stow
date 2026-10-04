@@ -208,14 +208,15 @@ final class FlyoutEditorsTests: XCTestCase {
         XCTAssertEqual(model.currentWorkspace.items.map(\.displayName), ["Call back"])
     }
 
-    func testNewWorkspaceInTheRailOpensTheSettingsEditor() {
+    func testNewWorkspaceInTheRailOpensTheEditorBesideThePlusDot() {
         harness.host(width: ElasticMode.railWidth)
         harness.window.orderFront(nil)
         let before = model.workspaces.count
         harness.controller.promptCreateWorkspace()
-        XCTAssertEqual(model.workspaces.count, before + 1)
-        XCTAssertTrue(model.state.isSettingsSelected, "the rail goes to Settings")
-        XCTAssertNotNil(harness.controller.settingsRailEditingId, "the editor opens on the new workspace")
+        defer { harness.controller.workspaceEditor.cancel() }
+        XCTAssertEqual(model.workspaces.count, before, "nothing is created until it's named")
+        XCTAssertFalse(model.state.isSettingsSelected, "the rail stays on the workspace")
+        XCTAssertTrue(harness.controller.workspaceEditor.isNew, "the editor opens on the new workspace")
         XCTAssertFalse(harness.controller.isWorkspaceStripRenaming, "no rename in the hidden strip")
     }
 

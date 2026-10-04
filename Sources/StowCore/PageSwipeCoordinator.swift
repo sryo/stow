@@ -9,6 +9,8 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
     private unowned let main: MainViewController
 
     private(set) var isSwiping = false
+    /// The page offset last shown, mid-swipe fractions included.
+    private(set) var shownOffset: CGFloat = 0
     /// A reload asked for mid-swipe, run once the swipe ends.
     var needsReloadAfterSwipe = false
     private var lastAddNewHapticTime: TimeInterval = 0
@@ -60,6 +62,8 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
         let workspaceCount = main.model.workspaces.count
 
         if isRailSwipe {
+            // The rail has no Settings page: past the first workspace the items only rubber-band.
+            guard targetPageIndex >= 1 else { return }
             // The rail keeps its dots; only the items under them change to the incoming page's.
             let index = RailSwipe.workspaceIndex(forPage: targetPageIndex, workspaceCount: main.model.workspaces.count)
             main.railView.previewItems(index.map { main.model.workspaces[$0].items } ?? [])
@@ -117,6 +121,7 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
     // MARK: - ScrollWheelPageDelegate
 
     func pagerDidUpdateOffset(_ offset: CGFloat) {
+        shownOffset = offset
         // Swipe detection
         if !isSwiping {
             let isFractional = abs(offset - offset.rounded()) > 0.001
@@ -141,7 +146,12 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
             preloadIncomingPage(targetPage)
         }
 
-        if isRailSwipe {
+        if isRailSwipe, swipeStartPageIndex + swipeDirection < 1 {
+            // Nothing before the first workspace: the items themselves stretch and come back.
+            railOutgoingSnapshot?.isHidden = true
+            main.railView.setItemsOffset(-delta * main.view.bounds.width)
+        } else if isRailSwipe {
+            railOutgoingSnapshot?.isHidden = false
             let t = RailSwipe.translations(delta: delta, direction: swipeDirection == 0 ? 1 : swipeDirection, width: main.view.bounds.width)
             railOutgoingSnapshot?.layer?.transform = CATransform3DMakeTranslation(t.outgoing, 0, 0)
             main.railView.setItemsOffset(t.incoming)
@@ -232,6 +242,7 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
     }
 
     func pagerDidSnapToPage(_ pageIndex: Int) {
+        shownOffset = CGFloat(pageIndex)
         main.workspaceSwitcher.visualPageOffset = nil
 
         cleanupSwipeTransition()

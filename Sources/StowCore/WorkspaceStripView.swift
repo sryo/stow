@@ -28,7 +28,9 @@ final class WorkspaceStripView: NSView {
     var showsShortcutHints = false { didSet { updateColors() } }
 
     var onWorkspaceSelected: ((UUID) -> Void)?
-    var onWorkspaceRightClick: ((UUID, NSPoint) -> Void)?
+    /// A right-click (or ⌃Return, or VoiceOver's Show Menu) on a workspace: its tab, or
+    /// its row in the "+N" list, as the view to anchor the workspace editor on.
+    var onWorkspaceRightClick: ((UUID, NSView) -> Void)?
     var onWorkspaceRename: ((UUID, String) -> Void)?
     var onWorkspaceReorder: ((UUID, Int) -> Void)?
     /// An item (node id) dropped on a workspace's tab (workspace id).
@@ -41,7 +43,7 @@ final class WorkspaceStripView: NSView {
     private let overflowButton = NSButton()
     private var overflowIds: [UUID] = []
     /// The "+N" list of workspaces that don't fit, below the button.
-    private let overflowFlyout = FlyoutListPresenter()
+    let overflowFlyout = FlyoutListPresenter()
     private var renameField: NSTextField?
     private var renamingId: UUID?
     private var drag: (id: UUID, startX: CGFloat, originX: CGFloat, moved: Bool)?
@@ -62,6 +64,7 @@ final class WorkspaceStripView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        wireOverflowRowMenu()
         overflowButton.isBordered = false
         overflowButton.wantsLayer = true
         overflowButton.layer?.cornerRadius = WorkspaceStripLayout.K.radius
@@ -91,7 +94,10 @@ final class WorkspaceStripView: NSView {
         for ws in workspaces where tabViews[ws.id] == nil {
             let tab = StripTabView()
             tab.onMouseDown = { [weak self] event in self?.tabMouseDown(ws.id, event) }
-            tab.onRightClick = { [weak self] point in self?.onWorkspaceRightClick?(ws.id, point) }
+            tab.onRightClick = { [weak self, weak tab] in
+                guard let self, let tab else { return }
+                self.onWorkspaceRightClick?(ws.id, tab)
+            }
             addSubview(tab, positioned: .below, relativeTo: overflowButton)
             tabViews[ws.id] = tab
         }
@@ -236,6 +242,21 @@ final class WorkspaceStripView: NSView {
         }
     }
 
+    /// A row's right-click opens the editor where the row is, then the list gives way to it.
+    private func wireOverflowRowMenu() {
+        overflowFlyout.onWorkspaceMenu = { [weak self] id, row in
+            guard let self else { return }
+            self.onWorkspaceRightClick?(id, row)
+            self.overflowFlyout.closeAll()
+        }
+    }
+
+    /// A workspace's tab, while it's shown in the strip.
+    func tabView(for id: UUID) -> NSView? {
+        guard let view = tabViews[id], !view.isHidden else { return nil }
+        return view
+    }
+
     // MARK: - Dropping an item on a tab
 
     /// A shown tab's frame, in the strip's coordinates.
@@ -353,7 +374,7 @@ private final class StripTabView: NSView {
     private var tracking: NSTrackingArea?
     private var last: (own: StowTheme.Colors, page: StowTheme.Colors, selection: CGFloat)?
     var onMouseDown: ((NSEvent) -> Void)?
-    var onRightClick: ((NSPoint) -> Void)?
+    var onRightClick: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -448,7 +469,12 @@ private final class StripTabView: NSView {
     override func mouseEntered(with event: NSEvent) { isHovered = true; paint() }
     override func mouseExited(with event: NSEvent) { isHovered = false; paint() }
     override func mouseDown(with event: NSEvent) { onMouseDown?(event) }
-    override func rightMouseDown(with event: NSEvent) { onRightClick?(event.locationInWindow) }
+    override func rightMouseDown(with event: NSEvent) { onRightClick?() }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        onRightClick?()
+        return true
+    }
     override var mouseDownCanMoveWindow: Bool { false }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); paint() }
 }

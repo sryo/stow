@@ -1,8 +1,9 @@
 import AppKit
 
-/// The 258pt editor that flies out beside a tile: name, color, icon, "Opens in", then
-/// Open, Share… and Delete (which deletes at once, with an undo toast). Every change is
-/// reported at once, so the tile behind it updates as you edit.
+/// The 258pt workspace editor: name, color, icon, "Opens in", then Open, Share…, Export…
+/// and Delete (which deletes at once, with an undo toast). Every change is reported at
+/// once, so the workspace behind it updates as you edit. A new workspace, not created
+/// yet, shows only Create.
 @MainActor
 final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     struct Content {
@@ -21,6 +22,8 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         /// Shown muted after "Browser I'm using": the browser it picks right now.
         var opensInNow: String?
         var canDelete: Bool
+        /// Not created yet: committing creates it.
+        var isNew = false
     }
 
     static let width: CGFloat = 258
@@ -34,6 +37,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     var opensInMenu: (() -> NSMenu?)?
     var onOpen: (() -> Void)?
     var onShare: (() -> Void)?
+    var onExport: (() -> Void)?
     var onDelete: (() -> Void)?
     var onHeightChange: (() -> Void)?
 
@@ -54,6 +58,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let footerLine = NSView()
     private let openButton = FlyoutButton("Open ↩", style: .primary)
     private let shareButton = FlyoutButton("Share…")
+    private let exportButton = FlyoutButton("Export…")
     private let deleteButton = FlyoutButton("Delete", style: .danger)
 
     init() {
@@ -111,6 +116,10 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         shareButton.target = self
         shareButton.action = #selector(shareTapped)
         addSubview(shareButton)
+        exportButton.target = self
+        exportButton.action = #selector(exportTapped)
+        exportButton.toolTip = "Save this workspace as a .stow file"
+        addSubview(exportButton)
         deleteButton.target = self
         deleteButton.action = #selector(deleteTapped)
         deleteButton.toolTip = "Deletes now; Undo brings it back"
@@ -149,6 +158,8 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         profileRow.set(title: content.opensIn.title, detail: content.opensInNow.map { "\($0) now" }, icon: content.opensIn.icon)
         profileHint.stringValue = Self.opensInHint(content)
         deleteButton.isEnabled = content.canDelete
+        openButton.title = content.isNew ? "Create ↩" : "Open ↩"
+        for button in [shareButton, exportButton, deleteButton] { button.isHidden = content.isNew }
         deleteButton.toolTip = content.canDelete ? nil : "The only workspace can't be deleted"
         let symbolsShown = { (c: Content?) -> Bool in if case .symbol = c?.icon { return true } else { return false } }
         if previous == nil || symbolsShown(previous) != symbolsShown(content) {
@@ -250,9 +261,13 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         y += hintHeight + 12
         place(footerLine, NSRect(x: pad, y: y, width: w, height: 1))
         y += 1 + 10
-        let o = openButton.fittingWidth, sh = shareButton.fittingWidth, dl = deleteButton.fittingWidth
+        let o = openButton.fittingWidth, sh = shareButton.fittingWidth, ex = exportButton.fittingWidth
+        let dl = deleteButton.fittingWidth
+        // Tight footers close the gaps before anything would overlap Delete.
+        let gap = min(6, max(2, (w - o - sh - ex - dl) / 3))
         place(openButton, NSRect(x: pad, y: y, width: o, height: 24))
-        place(shareButton, NSRect(x: pad + o + 6, y: y, width: sh, height: 24))
+        place(shareButton, NSRect(x: pad + o + gap, y: y, width: sh, height: 24))
+        place(exportButton, NSRect(x: pad + o + gap + sh + gap, y: y, width: ex, height: 24))
         place(deleteButton, NSRect(x: Self.width - pad - dl, y: y, width: dl, height: 24))
         y += 24
         return y + 12
@@ -280,6 +295,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     @objc private func symbolTapped(_ sender: SymbolButton) { onIcon?(.symbol(sender.symbol)) }
     @objc private func openTapped() { onOpen?() }
     @objc private func shareTapped() { onShare?() }
+    @objc private func exportTapped() { onExport?() }
     @objc private func deleteTapped() { onDelete?() }
 
     func controlTextDidChange(_ notification: Notification) {

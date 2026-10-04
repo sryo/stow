@@ -535,6 +535,8 @@ final class FlyoutListPresenter {
     /// the row view it came from.
     var onAction: ((FlyoutListRow.Action, FlyoutListRow, NSView) -> Void)?
     var onRowMenu: ((FlyoutListRow, NSView) -> Void)?
+    /// A right-click on a workspace row ("More workspaces", the Tabline chip's list).
+    var onWorkspaceMenu: ((UUID, NSView) -> Void)?
     /// "Open all" for a pushed folder's footer; nil leaves the footer off.
     var onOpenAll: ((Folder) -> Void)?
     /// Runs after the stack closes from a pick, Esc or an outside click.
@@ -604,6 +606,7 @@ final class FlyoutListPresenter {
             self.onAction?(action, row, view)
         }
         list.onRowMenu = { [weak self] row, view in
+            if case .selectWorkspace(let id) = row.action { self?.onWorkspaceMenu?(id, view); return }
             guard row.node != nil else { return }
             self?.onRowMenu?(row, view)
         }

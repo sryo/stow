@@ -1,20 +1,20 @@
 import AppKit
 
-/// The Tabline's gear: the same app sheet the rail's sliders cell shows, in a flyout hung
-/// off the gear. It opens away from the edge the strip rides (below on the top edge, above
-/// on the bottom one), and All shortcuts is pushed beside it, as in the rail.
+/// The app sheet (Where Stow lives, Open at login, Keyboard, Appearance, iCloud, Import)
+/// in a flyout hung off a gear: the Tabline's, away from the edge the strip rides, and the
+/// rail's, beside the window. All shortcuts is pushed beside it.
 ///
 /// The sheet's panel can take the keyboard (the shortcut recorders need it) without
 /// activating Stow, so the browser stays the app in front.
 @MainActor
-final class TablineSettingsFlyout {
+final class AppSheetFlyout {
     enum FlyoutId: Hashable { case sheet, allShortcuts }
 
     let flyouts = FlyoutController()
     let sheet: AppSheetView
     let sheetPanel = FlyoutPanel(takesKey: true)
     private let shortcutsPanel = FlyoutPanel(takesKey: true)
-    private var lastShow: (anchor: NSRect, edge: TablineEdge, parent: NSWindow)?
+    private var lastShow: (anchor: NSRect, edge: FlyoutPanel.Edge, topInset: CGFloat, parent: NSWindow)?
     private weak var shortcutsAnchor: NSView?
 
     /// After the sheet closes, by any path.
@@ -42,14 +42,20 @@ final class TablineSettingsFlyout {
     }
 
     /// Opens the sheet from the gear at `anchor` (screen coordinates), or closes it when
-    /// it's open. `colorId` is the Tabline's workspace, for the page-color previews.
-    func toggle(anchor: NSRect, edge: TablineEdge, parent: NSWindow, colorId: WorkspaceColorId = .defaultColor()) {
+    /// it's open. `colorId` is the workspace on show, for the page-color previews.
+    func toggle(anchor: NSRect, edge: FlyoutPanel.Edge, topInset: CGFloat = 0, parent: NSWindow,
+                colorId: WorkspaceColorId = .defaultColor()) {
         if isOpen { return close() }
         sheet.previewColor = colorId
         sheet.refresh()
-        lastShow = (anchor, edge, parent)
+        lastShow = (anchor, edge, topInset, parent)
         reposition()
         sheet.footer.updateTimer()
+    }
+
+    /// The Tabline's gear: the sheet opens away from the edge the strip rides.
+    func toggle(anchor: NSRect, edge: TablineEdge, parent: NSWindow, colorId: WorkspaceColorId = .defaultColor()) {
+        toggle(anchor: anchor, edge: TablineController.flyoutEdge(for: edge), parent: parent, colorId: colorId)
     }
 
     func close() {
@@ -66,7 +72,7 @@ final class TablineSettingsFlyout {
         let height = sheet.preferredHeight
         sheet.frame.size.height = height
         flyouts.show(sheetPanel, id: FlyoutId.sheet, content: sheet, size: NSSize(width: AppSheetView.width, height: height),
-                     anchor: show.anchor, edge: TablineController.flyoutEdge(for: show.edge), topInset: 0, parent: show.parent,
+                     anchor: show.anchor, edge: show.edge, topInset: show.topInset, parent: show.parent,
                      onEscape: { [weak self] in self?.close() })
         if flyouts.isOpen(id: FlyoutId.allShortcuts) { showAllShortcuts() }
     }
