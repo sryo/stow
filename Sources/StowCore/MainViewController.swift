@@ -8,12 +8,12 @@ final class MainViewController: NSViewController {
     let model: AppModel
 
     // Coordinators and child view controllers
-    private let searchCoordinator = SearchCoordinator()
-    private let nodeListViewController = NodeListViewController()
+    let searchCoordinator = SearchCoordinator()
+    let nodeListViewController = NodeListViewController()
     let settingsViewController = SettingsContentViewController()
 
     // UI Components
-    private let workspaceSwitcher = WorkspaceStripView()
+    let workspaceSwitcher = WorkspaceStripView()
     private let titleSettingsButton = NSButton()
     /// The workspace rail and the Settings rail.
     private(set) lazy var rail = RailCoordinator(main: self)
@@ -41,9 +41,9 @@ final class MainViewController: NSViewController {
         view.constraints.filter { ($0.firstItem as? NSView) === settingsViewController.view || ($0.secondItem as? NSView) === settingsViewController.view }
     }
     private let titleAddButton = NSButton()
-    private let searchField = SearchBarView(style: .defaultSearch)
+    let searchField = SearchBarView(style: .defaultSearch)
     private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S", symbolName: "plus")
-    private let pasteButton = FooterButton(title: "Paste", symbolName: "doc.on.clipboard")
+    let pasteButton = FooterButton(title: "Paste", symbolName: "doc.on.clipboard")
     /// Open browser tabs, for the rail's and the list's open dots.
     private let openTabs = OpenTabsMonitor.shared
     private var openTabsSubscription: AnyCancellable?
@@ -69,13 +69,8 @@ final class MainViewController: NSViewController {
     private var railOutgoingSnapshot: NSImageView?
     private var isRailSwipe: Bool { elasticMode == .rail && !railView.isHidden }
 
-    // Key event monitor
-    nonisolated(unsafe) private var keyEventMonitor: Any?
-    nonisolated(unsafe) private var flagsMonitor: Any?
-    /// Pending reveal of jump letters while ⌘ is held on its own.
-    private var commandHoldReveal: DispatchWorkItem?
-    /// True while the letters are showing because ⌘ is held (as opposed to ⌘J mode).
-    private var isCommandHoldJump = false
+    /// Jump letters, ⌘-hold, "/" and Esc.
+    private lazy var keyboard = KeyboardRouter(main: self)
 
     // State
     private var isReloadScheduled = false
@@ -110,12 +105,6 @@ final class MainViewController: NSViewController {
     }
 
     deinit {
-        if let monitor = keyEventMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        if let monitor = flagsMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -161,17 +150,7 @@ final class MainViewController: NSViewController {
             object: nil
         )
 
-        // Plain a-z key monitor for item activation
-        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if self.handleCommandHoldKey(event) { return nil }
-            if self.handlePlainKeyEvent(event) { return nil }
-            return event
-        }
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleFlagsChanged(event)
-            return event
-        }
+        keyboard.start()
     }
 
     override func viewDidAppear() {
@@ -1058,7 +1037,7 @@ final class MainViewController: NSViewController {
         empty.onDropText = { [weak self] text in self?.importText(text) }
     }
 
-    private func clearSearch() {
+    func clearSearch() {
         searchField.text = ""
         revealArchivedMatches = false
         searchCoordinator.updateQuery("")
@@ -1265,7 +1244,7 @@ final class MainViewController: NSViewController {
 
     // MARK: - Task & Snippet Actions
 
-    private func copySnippetToClipboard(_ snippetId: UUID) {
+    func copySnippetToClipboard(_ snippetId: UUID) {
         guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(snippet.content, forType: .string)
@@ -1332,141 +1311,6 @@ final class MainViewController: NSViewController {
         NSPasteboard.general.setString(joined, forType: .string)
     }
 
-    // MARK: - Keyboard Hotkeys
-
-    /// Handles plain a-z key presses for item activation.
-    /// Returns true if the event was consumed.
-    /// Holding ⌘ alone reveals the a–z jump letters after a short pause, so quick ⌘
-    /// shortcuts never flash them. Releasing ⌘ hides them again.
-    private func handleFlagsChanged(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
-        if flags == .command {
-            // Modifier events often arrive without a window, so check key status instead.
-            guard commandHoldReveal == nil, !isCommandHoldJump, acceptsListShortcuts,
-                  view.window?.isKeyWindow == true,
-                  !model.state.isSettingsSelected, !isSwiping,
-                  !(view.window?.firstResponder is NSTextView),
-                  nodeListViewController.hasNodeRows,
-                  !nodeListViewController.isJumpModeActive else { return }
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.commandHoldReveal = nil
-                self.isCommandHoldJump = true
-                self.nodeListViewController.jumpLetters = Self.commandSafeLetters
-                self.nodeListViewController.isJumpModeActive = true
-                self.setShortcutHintsVisible(true)
-            }
-            commandHoldReveal = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
-        } else {
-            endCommandHold()
-        }
-    }
-
-    private func endCommandHold() {
-        commandHoldReveal?.cancel()
-        commandHoldReveal = nil
-        if isCommandHoldJump {
-            isCommandHoldJump = false
-            nodeListViewController.isJumpModeActive = false
-            nodeListViewController.jumpLetters = Array("abcdefghijklmnopqrstuvwxyz")
-            setShortcutHintsVisible(false)
-        }
-    }
-
-    /// Letters free of ⌘ shortcuts (⌘A C F H J M N Q T V W X Z and system ones are taken),
-    /// so ⌘ + letter can open a row without stealing a command.
-    private static let commandSafeLetters: [Character] = Array("bdegiklopsruy")
-
-    /// Shows keycaps on every control that has a shortcut while ⌘ is held.
-    private func setShortcutHintsVisible(_ visible: Bool) {
-        pasteButton.keycapText = visible ? "⌘V" : nil
-        workspaceSwitcher.showsShortcutHints = visible
-        searchField.showsShortcutHint = visible
-    }
-
-    /// ⌘ + letter while the hold hints are showing opens that row. Any key pressed
-    /// before the hints appear is a normal shortcut and cancels the reveal.
-    private func handleCommandHoldKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command) else { return false }
-        guard isCommandHoldJump else {
-            commandHoldReveal?.cancel()
-            commandHoldReveal = nil
-            return false
-        }
-        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
-        guard flags == .command, let chars = event.charactersIgnoringModifiers?.lowercased(), chars.count == 1,
-              let letter = chars.first, let index = nodeListViewController.rowIndex(forJumpLetter: letter) else {
-            // Not a row letter: let the menu shortcut (⌘V, ⌘F, ⌘1…) run as usual.
-            endCommandHold()
-            return false
-        }
-        endCommandHold()
-        activateRow(at: index)
-        return true
-    }
-
-    private func activateRow(at index: Int) {
-        guard let node = nodeListViewController.visibleNode(at: index) else { return }
-        switch node {
-        case .link(let link):
-            links.openLink(link)
-        case .folder(let folder):
-            if !searchCoordinator.isSearchActive {
-                model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
-            }
-        case .task(let task):
-            model.toggleTaskCompletion(id: task.id)
-        case .snippet(let snippet):
-            copySnippetToClipboard(snippet.id)
-        }
-    }
-
-    private func handlePlainKeyEvent(_ event: NSEvent) -> Bool {
-        guard event.window === view.window, view.window?.isKeyWindow == true else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.isEmpty || flags == .capsLock || flags == .shift else { return false }
-        if event.keyCode == 53, elasticMode == .rail, model.state.isSettingsSelected, !isSwiping,
-           !(view.window?.firstResponder is NSTextView) {
-            return settingsRail.handleEscape()
-        }
-        guard !model.state.isSettingsSelected, !isSwiping else { return false }
-        let isEditingText = view.window?.firstResponder is NSTextView
-
-        // Esc leaves jump mode, or clears an active search and returns to the list.
-        if event.keyCode == 53 {
-            if nodeListViewController.isJumpModeActive {
-                nodeListViewController.isJumpModeActive = false
-                return true
-            }
-            if searchCoordinator.isSearchActive || isEditingText && searchField.isFocused {
-                clearSearch()
-                return true
-            }
-            return false
-        }
-
-        if isEditingText { return false }
-
-        guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
-              let scalar = chars.unicodeScalars.first else { return false }
-
-        if chars == "/" && flags.isEmpty && acceptsListShortcuts {
-            focusSearch()
-            return true
-        }
-
-        // Letters activate rows only in jump mode, so a stray keystroke can't open a link.
-        guard nodeListViewController.isJumpModeActive, flags.isEmpty || flags == .capsLock,
-              scalar.value >= 97 && scalar.value <= 122 else { return false }
-
-        nodeListViewController.isJumpModeActive = false
-        if let index = nodeListViewController.rowIndex(forJumpLetter: Character(chars)) {
-            activateRow(at: index)
-        }
-        return true
-    }
-
     @objc private func tintModeChanged() {
         nodeListViewController.tintMode = StowTheme.displayTint
         workspaceSwitcher.workspaceColor = workspaceSwitcher.workspaceColor
@@ -1480,7 +1324,7 @@ final class MainViewController: NSViewController {
     }
 
     @objc private func windowDidResignKey(_ note: Notification) {
-        endCommandHold()
+        keyboard.endCommandHold()
     }
 
     private var hasFocusedListOnFirstKey = false
@@ -1524,13 +1368,9 @@ final class MainViewController: NSViewController {
 
     private static let listWidthFromRail: CGFloat = 220
 
+    /// ⌘J (AppDelegate).
     func toggleJumpMode() {
-        guard !model.state.isSettingsSelected else { return }
-        guard acceptsListShortcuts, nodeListViewController.hasNodeRows else {
-            NSSound.beep()
-            return
-        }
-        nodeListViewController.isJumpModeActive.toggle()
+        keyboard.toggleJumpMode()
     }
 
     /// Switches to workspace at the given index (0-based). Called from AppDelegate Cmd+1-9.
