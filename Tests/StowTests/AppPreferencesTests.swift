@@ -86,7 +86,7 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: TablineController.defaultsKey))
         XCTAssertEqual(defaults.string(forKey: TablineController.edgeKey), "top")
         XCTAssertEqual(tablineApplied, [.top])
-        XCTAssertEqual(preferences.windowMode, .floating, "the Tabline leaves the window where it is")
+        XCTAssertEqual(preferences.windowMode, .attached, "the Tabline is the Attached card's top edge")
 
         preferences.setDock(.bottom)
         XCTAssertEqual(defaults.string(forKey: TablineController.edgeKey), "bottom")
@@ -106,8 +106,9 @@ final class AppPreferencesTests: XCTestCase {
     func testTablineKeepsTheWindowOnTopIfChosen() {
         preferences.setKeepOnTop(true)
         preferences.setDock(.top)
-        XCTAssertEqual(preferences.windowMode, .onTop)
-        XCTAssertTrue(defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled))
+        XCTAssertEqual(preferences.windowMode, .attached)
+        XCTAssertTrue(defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled),
+                      "the window Toggle Stow brings back stays on top")
         preferences.setDock(.right)
         XCTAssertEqual(preferences.windowMode, .attached)
         XCTAssertFalse(defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled), "On top only applies when not attached")
@@ -156,11 +157,11 @@ final class AppPreferencesTests: XCTestCase {
 
         preferences.setDock(.bottom)
         preferences.setWindowMode(.onTop)
-        XCTAssertEqual(preferences.dock, .bottom, "Floating and On top don't touch the Tabline")
+        XCTAssertEqual(preferences.dock, .none, "On top detaches from the Tabline too, like the cards")
         XCTAssertEqual(preferences.windowMode, .onTop)
         preferences.attachSide = { 1 }
         preferences.setWindowMode(.attached)
-        XCTAssertEqual(preferences.dock, .right, "Attached replaces the Tabline")
+        XCTAssertEqual(preferences.dock, .bottom, "Attached goes back to the last edge")
     }
 
     func testOptionCommandTSwitchesBetweenOnTopAndFloating() {
@@ -174,8 +175,8 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.dock, .none)
         preferences.setDock(.top)
         preferences.toggleOnTop()
-        XCTAssertEqual(preferences.windowMode, .floating)
-        XCTAssertEqual(preferences.dock, .top, "the Tabline stays")
+        XCTAssertEqual(preferences.windowMode, .onTop, "the Tabline is Attached, so ⌥⌘T goes On top")
+        XCTAssertEqual(preferences.dock, .none)
     }
 
     func testOptionCommandLTogglesTheTablineAndBack() {
@@ -240,7 +241,7 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(AppSheet.permissionNeeds(dock: .none, hasAccessibility: false, automationDenied: nil), [])
         XCTAssertEqual(AppSheet.permissionNeeds(dock: .left, hasAccessibility: true, automationDenied: nil), [])
         XCTAssertEqual(AppSheet.permissionNeeds(dock: .left, hasAccessibility: false, automationDenied: nil),
-                       [.accessibility(reason: "The sidebar needs Accessibility")])
+                       [.accessibility(reason: "Attached needs Accessibility")])
         XCTAssertEqual(AppSheet.permissionNeeds(dock: .bottom, hasAccessibility: false, automationDenied: nil),
                        [.accessibility(reason: "The Tabline needs Accessibility")])
         XCTAssertEqual(AppSheet.permissionNeeds(dock: .top, hasAccessibility: false, automationDenied: "Chrome"),

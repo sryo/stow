@@ -125,6 +125,7 @@ final class AppPreferences {
             defaults.set(old.rawValue, forKey: Self.dockBeforeTablineKey)
         }
         defaults.set(newDock.rawValue, forKey: Self.dockKey)
+        if newDock != .none { defaults.set(newDock.rawValue, forKey: Self.lastEdgeKey) }
 
         if let position = newDock.sidebarPosition {
             let moved = defaults.string(forKey: UserDefaultsKeys.sidebarPosition) != position
@@ -151,20 +152,60 @@ final class AppPreferences {
         changed()
     }
 
-    // MARK: Window
+    // MARK: Where Stow lives
 
-    /// Floating, On top or Attached, as the Window ▸ Window Mode submenu shows it. The
-    /// Tabline leaves the window where it is, so with it Stow is Floating or On top.
-    var windowMode: AppWindowMode {
-        if dock.isSidebar { return .attached }
-        return keepsOnTop ? .onTop : .floating
+    /// The edge Attached goes back to: the last one chosen.
+    static let lastEdgeKey = "browserDockLastEdge"
+
+    /// The last edge chosen, or nil before the first.
+    private var storedLastEdge: BrowserDock? {
+        defaults.string(forKey: Self.lastEdgeKey).flatMap(BrowserDock.init(rawValue:)).flatMap { $0 == .none ? nil : $0 }
     }
 
-    /// On top for the free-floating window; it doesn't apply while attached.
+    /// The edge the Attached card draws and goes back to: the last one chosen, else the
+    /// side the sidebar was last on.
+    var lastEdge: BrowserDock {
+        storedLastEdge ?? ((defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right") == "left" ? .left : .right)
+    }
+
+    /// The card that's chosen and the edge it draws.
+    var placement: WindowPlacement {
+        WindowPlacement(dock: dock, keepsOnTop: keepsOnTop, lastEdge: lastEdge)
+    }
+
+    /// A card: the same as Window ▸ Window Mode.
+    func choose(_ mode: AppWindowMode) {
+        setWindowMode(mode)
+    }
+
+    /// An edge in the picker under Attached. It never detaches; the cards do.
+    func choose(edge: BrowserDock) {
+        guard edge != .none else { return }
+        setDock(edge)
+    }
+
+    /// Whether a browser window is on screen for Stow to dock to.
+    var hasBrowserWindow: Bool {
+        #if DEBUG
+        // STOW_NO_BROWSER shows the "no browser in front" note with a browser open.
+        if ProcessInfo.processInfo.environment["STOW_NO_BROWSER"] != nil { return false }
+        #endif
+        guard let attachSide else { return true }
+        return attachSide() != nil
+    }
+
+    // MARK: Window
+
+    /// Floating, On top or Attached, as the cards and the Window ▸ Window Mode submenu show
+    /// it. Any edge is Attached, the Tabline's included.
+    var windowMode: AppWindowMode { placement.mode }
+
+    /// On top for Stow's own window. The Tabline keeps it for the window Toggle Stow
+    /// brings back; the sidebar drops it.
     var keepsOnTop: Bool { defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) }
 
     func setKeepOnTop(_ enabled: Bool) {
-        if enabled, dock.isSidebar { setDock(.none) }
+        if enabled, dock != .none { setDock(.none) }
         setAlwaysOnTop(enabled)
         changed()
     }
@@ -179,16 +220,18 @@ final class AppPreferences {
 
     var hasAccessibility: Bool { accessibilityCheck() }
 
-    /// Window ▸ Window Mode: Floating and On top leave a Tabline alone and drop the
-    /// sidebar; Attached docks on the side Stow sits on (or the last side).
+    /// The cards and Window ▸ Window Mode: Floating and On top detach from any edge, the
+    /// Tabline's included; Attached goes back to the last edge, or the first time to the
+    /// side Stow sits on (or the last side).
     func setWindowMode(_ mode: AppWindowMode) {
         switch mode {
         case .floating, .onTop:
-            if dock.isSidebar { setDock(.none) }
+            if dock != .none { setDock(.none) }
             setAlwaysOnTop(mode == .onTop)
             changed()
         case .attached:
-            if dock.isSidebar { return setDock(dock) }
+            if dock != .none { return setDock(dock) }
+            if let storedLastEdge { return setDock(storedLastEdge) }
             let side = attachSide?() ?? ((defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right") == "left" ? 0 : 1)
             setDock(side == 0 ? .left : .right)
         }
