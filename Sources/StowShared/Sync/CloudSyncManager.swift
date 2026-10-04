@@ -17,6 +17,15 @@ public final class CloudSyncManager {
 
     public private(set) var availability: SyncAvailability = .notConfigured
 
+    /// When a fetch or upload last finished cleanly. Kept across launches so a status
+    /// line can say "Synced 2 min ago" right after the app starts.
+    public private(set) var lastSyncDate: Date? = UserDefaults.standard.object(forKey: CloudSyncManager.lastSyncDateKey) as? Date
+    /// The most recent failure, cleared by the next success.
+    public private(set) var lastSyncError: String?
+    /// Posted on the default center whenever `lastSyncDate` or `lastSyncError` changes.
+    public static let statusDidChangeNotification = Notification.Name("StowCloudSyncStatusDidChange")
+    private static let lastSyncDateKey = "StowLastCloudSyncDate"
+
     private let logger = Logger(subsystem: "com.stow.app", category: "sync")
     private let containerID = "iCloud.com.stow.app"
     private let zoneName = "StowZone"
@@ -116,8 +125,32 @@ public final class CloudSyncManager {
     public func fetchChanges() {
         guard let syncEngine else { return }
         Task {
-            try? await syncEngine.fetchChanges()
+            do {
+                try await syncEngine.fetchChanges()
+            } catch {
+                recordSyncFailure(error.localizedDescription)
+            }
         }
+    }
+
+    // MARK: - Status
+
+    func recordSyncSuccess(at date: Date = Date()) {
+        lastSyncDate = date
+        lastSyncError = nil
+        UserDefaults.standard.set(date, forKey: Self.lastSyncDateKey)
+        NotificationCenter.default.post(name: Self.statusDidChangeNotification, object: nil)
+    }
+
+    func recordSyncFailure(_ message: String) {
+        lastSyncError = message
+        NotificationCenter.default.post(name: Self.statusDidChangeNotification, object: nil)
+    }
+
+    func resetSyncStatusForTesting() {
+        lastSyncDate = nil
+        lastSyncError = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastSyncDateKey)
     }
 
     // MARK: - Upload Scheduling
@@ -419,6 +452,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             scheduleFullUpload()
         case .signOut:
             logger.info("iCloud account signed out")
+            recordSyncFailure("Not signed in to iCloud")
         case .switchAccounts:
             logger.info("iCloud account switched")
             lastKnownRecords.removeAll()
@@ -580,6 +614,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         saveLastKnownRecords()
         model.onChange?()
         isMergingRemoteChanges = false
+        recordSyncSuccess()
     }
 
     private func handleSentRecordZoneChanges(_ changes: CKSyncEngine.Event.SentRecordZoneChanges) {
@@ -587,6 +622,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
 
         var newPendingChanges: [CKSyncEngine.PendingRecordZoneChange] = []
         var newPendingDatabaseChanges: [CKSyncEngine.PendingDatabaseChange] = []
+        var unrecoveredFailure: String?
 
         // Cache successfully saved records
         for savedRecord in changes.savedRecords {
@@ -628,7 +664,13 @@ extension CloudSyncManager: CKSyncEngineDelegate {
 
             default:
                 logger.error("Failed to save \(failedRecord.recordID.recordName, privacy: .public) code=\(failure.error.code.rawValue, privacy: .public) desc=\(failure.error.localizedDescription, privacy: .public)")
+                unrecoveredFailure = failure.error.localizedDescription
             }
+        }
+        if let unrecoveredFailure {
+            recordSyncFailure(unrecoveredFailure)
+        } else if !changes.savedRecords.isEmpty || !changes.deletedRecordIDs.isEmpty {
+            recordSyncSuccess()
         }
 
         if !newPendingDatabaseChanges.isEmpty {
