@@ -71,4 +71,26 @@ final class RailDragTests: XCTestCase {
         XCTAssertNil(RailDrag.workspaceDrop(at: NSPoint(x: 26, y: 20), dots: dots, current: current))
         XCTAssertNil(RailDrag.workspaceDrop(at: NSPoint(x: 26, y: 200), dots: dots, current: current))
     }
+
+    // MARK: - text drop index
+
+    func testTextDropIndex_beforeARailItemLandsBeforeItInItems() {
+        XCTAssertEqual(RailDrag.textDropIndex(forSlot: 0, railIds: rail, itemIds: items), 0)
+        XCTAssertEqual(RailDrag.textDropIndex(forSlot: 2, railIds: rail, itemIds: items), 4)
+    }
+
+    func testTextDropIndex_endLandsAfterTheLastRailItemAndAnEmptyRailAtTheTop() {
+        XCTAssertEqual(RailDrag.textDropIndex(forSlot: 3, railIds: rail, itemIds: items), 5)
+        XCTAssertEqual(RailDrag.textDropIndex(forSlot: 0, railIds: [], itemIds: [t1, s1]), 0)
+    }
+
+    // MARK: - workspace target (tabs)
+
+    func testWorkspaceTarget_takesTheTabUnderThePointerWithoutTolerance() {
+        let current = UUID(), other = UUID()
+        let tabs = [(current, NSRect(x: 0, y: 0, width: 100, height: 26)), (other, NSRect(x: 102, y: 0, width: 60, height: 26))]
+        XCTAssertEqual(RailDrag.workspaceTarget(at: NSPoint(x: 130, y: 13), targets: tabs, current: current), other)
+        XCTAssertNil(RailDrag.workspaceTarget(at: NSPoint(x: 50, y: 13), targets: tabs, current: current))
+        XCTAssertNil(RailDrag.workspaceTarget(at: NSPoint(x: 165, y: 13), targets: tabs, current: current))
+    }
 }
