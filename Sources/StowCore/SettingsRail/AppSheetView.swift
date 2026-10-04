@@ -14,6 +14,8 @@ final class AppSheetView: RailFlippedView {
     var onHeightChange: (() -> Void)?
     /// Import…, from the footer: the same source picker as File ▸ Import….
     var onImport: (() -> Void)?
+    /// "All shortcuts…", from Keyboard: the owner pushes AllShortcutsView beside the sheet.
+    var onShowAllShortcuts: ((NSView) -> Void)?
 
     private let preferences = AppPreferences.shared
     private let title = FlyoutLabel.text("App settings", size: 13, weight: .bold)
@@ -194,7 +196,7 @@ final class AppSheetView: RailFlippedView {
     }
 
     @objc private func showAllShortcuts(_ sender: NSView) {
-        AllShortcutsPopover.show(relativeTo: sender)
+        onShowAllShortcuts?(sender)
     }
 
     // MARK: Layout
@@ -516,51 +518,148 @@ final class AppSheetFooterView: RailFlippedView {
 
 // MARK: - All shortcuts
 
-/// "All shortcuts…": every Stow shortcut in one list. Menu shortcuts can be changed in
-/// System Settings › Keyboard › Keyboard Shortcuts › App Shortcuts.
+/// "All shortcuts…": every Stow shortcut, read from the main menu (AppMenus) and the
+/// list's own keys, so the list can't go stale. Menu shortcuts can be changed in System
+/// Settings › Keyboard › Keyboard Shortcuts › App Shortcuts.
 @MainActor
-enum AllShortcutsPopover {
-    static func rows() -> [(String, String)] {
-        let store = ShortcutStore()
-        var rows: [(String, String)] = HotkeyAction.allCases.map { action in
-            (action.title + " (any app)", store.shortcut(for: action)?.displayString ?? "None")
-        }
-        rows += [
-            ("Settings", "⌘,"), ("New workspace", "⌘N"), ("New folder", "⇧⌘N"), ("Find", "⌘F"),
-            ("Jump to item", "⌘J"), ("Workspace 1–9", "⌘1–9"), ("Next workspace", "⌃⇥"),
-            ("Previous workspace", "⌃⇧⇥"), ("On top ↔ Floating", "⌥⌘T"), ("Show Tabline", "⌥⌘L"),
-            ("Paste link", "⌘V"), ("Open item by letter", "a–z"),
-        ]
-        return rows
+enum AllShortcuts {
+    struct Row: Equatable {
+        var title: String
+        var keys: String
     }
 
-    static func show(relativeTo anchor: NSView) {
-        let rows = rows()
-        let width: CGFloat = 280, rowHeight: CGFloat = 20
-        let content = RailFlippedView(frame: NSRect(x: 0, y: 0, width: width, height: CGFloat(rows.count) * rowHeight + 46))
-        let heading = FlyoutLabel.section("All shortcuts")
-        heading.frame = NSRect(x: 14, y: 12, width: width - 28, height: 12)
-        content.addSubview(heading)
-        for (i, row) in rows.enumerated() {
-            let y = 30 + CGFloat(i) * rowHeight
-            let name = FlyoutLabel.text(row.0, size: 12)
-            name.frame = NSRect(x: 12, y: y, width: 160, height: 16)
-            let keys = FlyoutLabel.text(row.1, size: 12, weight: .medium, color: FlyoutColors.inkSecondary)
-            keys.alignment = .right
-            keys.frame = NSRect(x: width - 92, y: y, width: 80, height: 16)
-            content.addSubview(name)
-            content.addSubview(keys)
+    struct Section {
+        var title: String
+        var rows: [Row]
+    }
+
+    /// Keys the list handles itself (NodeListViewController, MainViewController).
+    static let listKeys: [Row] = [
+        Row(title: "Search", keys: "/"),
+        Row(title: "Rename", keys: "F2"),
+        Row(title: "Row actions", keys: "⌥↩"),
+        Row(title: "Archive", keys: "⌘⌫"),
+        Row(title: "Add to selection", keys: "⌥Space"),
+        Row(title: "Open by letter, after ⌘J", keys: "a–z"),
+    ]
+
+    /// Commands every Mac app has; listing them would bury Stow's own.
+    private static let standardActions: Set<String> = ["undo:", "redo:", "cut:", "copy:", "selectAll:",
+                                                       "performMiniaturize:", "terminate:"]
+
+    static func isStandard(_ item: NSMenuItem) -> Bool {
+        item.action.map { standardActions.contains(NSStringFromSelector($0)) } ?? false
+    }
+
+    private static let titleOverrides = ["Paste": "Paste a link"]
+
+    static func sections() -> [Section] {
+        let store = ShortcutStore()
+        let anyApp = HotkeyAction.allCases.map { action in
+            Row(title: action.title, keys: store.shortcut(for: action)?.displayString ?? "None")
         }
-        let note = FlyoutLabel.text("Change menu shortcuts in System Settings › Keyboard.", size: 10.5, color: FlyoutColors.inkSecondary)
-        note.frame = NSRect(x: 12, y: content.frame.height - 18, width: width - 24, height: 14)
-        content.addSubview(note)
-        let controller = NSViewController()
-        controller.view = content
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = controller
-        popover.contentSize = content.frame.size
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        var menus: [Row] = []
+        var workspaceRowAdded = false
+        func walk(_ menu: NSMenu) {
+            for item in menu.items {
+                if let submenu = item.submenu { walk(submenu); continue }
+                guard !item.isSeparatorItem, !item.keyEquivalent.isEmpty, !isStandard(item) else { continue }
+                let keys = display(key: item.keyEquivalent, modifiers: item.keyEquivalentModifierMask)
+                if item.action == #selector(AppMenuActions.switchToWorkspaceByTag(_:)) {
+                    // Workspace 1…9 read as one row.
+                    guard !workspaceRowAdded else { continue }
+                    workspaceRowAdded = true
+                    menus.append(Row(title: "Workspace 1–9", keys: String(keys.dropLast()) + "1–9"))
+                    continue
+                }
+                let title = item.title.replacingOccurrences(of: "…", with: "")
+                menus.append(Row(title: titleOverrides[title] ?? title, keys: keys))
+            }
+        }
+        walk(AppMenus.build(target: nil))
+        return [Section(title: "Any app", rows: anyApp), Section(title: "Menus", rows: menus),
+                Section(title: "In the list", rows: listKeys)]
+    }
+
+    static func rows() -> [Row] { sections().flatMap(\.rows) }
+
+    /// A menu key equivalent as the menu bar draws it: "⇧⌘N", "⌃⇥".
+    static func display(key: String, modifiers: NSEvent.ModifierFlags) -> String {
+        var mods = modifiers
+        // An uppercase key equivalent implies Shift.
+        if key.count == 1, let c = key.first, c.isLetter, c.isUppercase { mods.insert(.shift) }
+        var text = ""
+        if mods.contains(.control) { text += "⌃" }
+        if mods.contains(.option) { text += "⌥" }
+        if mods.contains(.shift) { text += "⇧" }
+        if mods.contains(.command) { text += "⌘" }
+        switch key {
+        case "\t": text += "⇥"
+        case "\r": text += "↩"
+        case "\u{8}", "\u{7f}": text += "⌫"
+        case " ": text += "Space"
+        default: text += key.uppercased()
+        }
+        return text
+    }
+}
+
+/// The All shortcuts flyout, pushed beside the app sheet.
+@MainActor
+final class AllShortcutsView: RailFlippedView {
+    static let width: CGFloat = 264
+    private static let rowHeight: CGFloat = 20
+    private static let pad: CGFloat = 12
+
+    let note = FlyoutLabel.wrapping("Change menu shortcuts in System Settings › Keyboard › Keyboard Shortcuts.", size: 10.5)
+    private(set) var preferredSize = NSSize(width: AllShortcutsView.width, height: 0)
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 0))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("All shortcuts")
+        build()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func build() {
+        let pad = Self.pad, width = Self.width
+        var y: CGFloat = 12
+        let title = FlyoutLabel.text("All shortcuts", size: 13, weight: .bold)
+        title.frame = NSRect(x: pad + 2, y: y, width: width - pad * 2, height: 16)
+        addSubview(title)
+        y += 16
+        for section in AllShortcuts.sections() where !section.rows.isEmpty {
+            y += 10
+            let header = FlyoutLabel.section(section.title)
+            header.frame = NSRect(x: pad + 2, y: y, width: width - pad * 2, height: 12)
+            addSubview(header)
+            y += 12 + 3
+            for row in section.rows {
+                let keys = FlyoutLabel.text(row.keys, size: 12, weight: .medium, color: FlyoutColors.inkSecondary)
+                keys.alignment = .right
+                let keyWidth = ceil(keys.intrinsicContentSize.width) + 2
+                keys.frame = NSRect(x: width - pad - keyWidth, y: y + 2, width: keyWidth, height: 16)
+                keys.setAccessibilityElement(false)
+                let name = FlyoutLabel.text(row.title, size: 12)
+                name.frame = NSRect(x: pad, y: y + 2, width: width - pad * 2 - keyWidth - 8, height: 16)
+                name.setAccessibilityLabel("\(row.title), \(row.keys)")
+                addSubview(name)
+                addSubview(keys)
+                y += Self.rowHeight
+            }
+        }
+        y += 10
+        let noteWidth = width - pad * 2
+        let needed = note.attributedStringValue.boundingRect(with: NSSize(width: noteWidth - 4, height: 200),
+                                                             options: [.usesLineFragmentOrigin]).height
+        note.frame = NSRect(x: pad, y: y, width: noteWidth, height: ceil(needed) + 1)
+        addSubview(note)
+        y += note.frame.height + 12
+        preferredSize = NSSize(width: width, height: y)
+        frame.size = preferredSize
     }
 }
 

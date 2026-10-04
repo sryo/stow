@@ -294,10 +294,12 @@ final class HoverDwell {
 // MARK: - Flyout placement
 
 /// The editor (258pt) and the app sheet (276pt) float beside the rail, never widening the
-/// window. They open to the right and flip left when the screen runs out.
+/// window. They open to the right and flip left when the screen runs out. Flyouts from a
+/// Tabline item or a title-bar button hang `below` their anchor instead.
 enum FlyoutPlacement {
     enum Side { case right, left }
     struct Vertical { var minY: CGFloat; var maxY: CGFloat; var arrowFromTop: CGFloat }
+    struct Below { var minX: CGFloat; var maxY: CGFloat; var arrowFromLeft: CGFloat }
 
     static let gap: CGFloat = 8
     /// The arrow keeps this far from the flyout's rounded corners.
@@ -324,6 +326,16 @@ enum FlyoutPlacement {
         top = max(top, screen.minY + height)
         let arrow = min(max(top - anchorMidY, arrowMargin), height - arrowMargin)
         return Vertical(minY: top - height, maxY: top, arrowFromTop: arrow)
+    }
+
+    /// AppKit coordinates (y up). The card's top sits `gap` under the anchor, centred on
+    /// it and clamped to the screen's sides; the arrow keeps pointing at the anchor.
+    static func below(width: CGFloat, anchor: NSRect, screen: NSRect) -> Below {
+        var x = anchor.midX - width / 2
+        x = min(x, screen.maxX - gap - width)
+        x = max(x, screen.minX + gap)
+        let arrow = min(max(anchor.midX - x, arrowMargin), width - arrowMargin)
+        return Below(minX: x, maxY: anchor.minY - gap, arrowFromLeft: arrow)
     }
 }
 

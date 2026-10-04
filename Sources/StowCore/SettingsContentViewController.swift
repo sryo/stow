@@ -58,6 +58,7 @@ final class SettingsContentViewController: NSViewController {
         pageView.addSubview(newWorkspaceRow)
         pageView.addSubview(sheet)
         sheet.onHeightChange = { [weak self] in self?.relayout() }
+        sheet.onShowAllShortcuts = { [weak self] link in self?.toggleAllShortcuts(from: link) }
         footer.onImport = { NotificationCenter.default.post(name: .stowShowImport, object: nil) }
         view.addSubview(footer)
         reloadWorkspaces()
@@ -72,6 +73,27 @@ final class SettingsContentViewController: NSViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         sheet.refresh()
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        flyouts.closeAll()
+    }
+
+    // MARK: All shortcuts
+
+    private let flyouts = FlyoutController()
+    private let shortcutsPanel = FlyoutPanel()
+
+    /// "All shortcuts…" opens the same flyout as in the rail, beside the window.
+    private func toggleAllShortcuts(from link: NSView) {
+        guard let window = view.window else { return }
+        let anchor = window.convertToScreen(link.convert(link.bounds, to: nil))
+        flyouts.toggle(id: "allShortcuts") {
+            let list = AllShortcutsView()
+            flyouts.show(shortcutsPanel, id: "allShortcuts", content: list, size: list.preferredSize, anchor: anchor,
+                         edge: .beside(column: window.frame), topInset: 24, parent: window)
+        }
     }
 
     override func viewDidLayout() {
@@ -127,26 +149,41 @@ final class SettingsContentViewController: NSViewController {
 
     // MARK: Layout
 
+    /// The page reads as one column: past this width it stops growing and centres, so
+    /// counts stay next to names and segmented controls keep their size.
+    static let maxContentWidth: CGFloat = 420
+
+    /// The column's horizontal extent in a page `width` wide.
+    static func contentColumn(width: CGFloat) -> ClosedRange<CGFloat> {
+        let column = min(width, maxContentWidth)
+        let x = floor((width - column) / 2)
+        return x...(x + column)
+    }
+
     /// Workspaces, then the sheet's groups, top to bottom; the footer stays pinned below.
     private func relayout() {
         guard isViewLoaded else { return }
-        let width = scrollView.contentSize.width
-        guard width > 0 else { return }
+        let pageWidth = scrollView.contentSize.width
+        guard pageWidth > 0 else { return }
+        let column = Self.contentColumn(width: pageWidth)
+        let x = column.lowerBound
+        let width = column.upperBound - column.lowerBound
         let pad = SettingsMetrics.rowPadding
         var y: CGFloat = 4
-        workspacesHeader.frame = NSRect(x: pad + 2, y: y, width: width - pad * 2, height: 12)
+        workspacesHeader.frame = NSRect(x: x + pad + 2, y: y, width: width - pad * 2, height: 12)
         y += 12 + 5
         let listHeight = CGFloat(appModel?.workspaces.count ?? 0) * SettingsMetrics.rowHeight
-        workspaceCollectionView.frame = NSRect(x: 0, y: y, width: width, height: listHeight)
+        workspaceCollectionView.frame = NSRect(x: x, y: y, width: width, height: listHeight)
         y += listHeight
-        newWorkspaceRow.frame = NSRect(x: 0, y: y, width: width, height: SettingsMetrics.rowHeight)
+        newWorkspaceRow.frame = NSRect(x: x, y: y, width: width, height: SettingsMetrics.rowHeight)
         y += SettingsMetrics.rowHeight + 2
         let sheetHeight = sheet.preferredHeight(forWidth: width)
-        sheet.frame = NSRect(x: 0, y: y, width: width, height: sheetHeight)
+        sheet.frame = NSRect(x: x, y: y, width: width, height: sheetHeight)
         y += sheetHeight + 12
-        pageView.frame = NSRect(x: 0, y: 0, width: width, height: y)
-        footer.frame = NSRect(x: pad, y: view.isFlipped ? view.bounds.height - Self.footerHeight : 0,
-                              width: view.bounds.width - pad * 2, height: AppSheetFooterView.height)
+        pageView.frame = NSRect(x: 0, y: 0, width: pageWidth, height: y)
+        let footerColumn = Self.contentColumn(width: view.bounds.width)
+        footer.frame = NSRect(x: footerColumn.lowerBound + pad, y: view.isFlipped ? view.bounds.height - Self.footerHeight : 0,
+                              width: footerColumn.upperBound - footerColumn.lowerBound - pad * 2, height: AppSheetFooterView.height)
         scheduleKeyViewLoop()
     }
 
@@ -307,7 +344,8 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
             itemCount: WorkspaceDeletion.itemCount(of: workspace),
             position: indexPath.item + 1,
             total: appModel.workspaces.count,
-            canDelete: appModel.workspaces.count > 1
+            canDelete: appModel.workspaces.count > 1,
+            identity: WorkspaceTileIdentity.resolve(appModel.workspaces)[workspace.id]
         )
         workspaceItem.configure(workspace: workspace, content: content, actions: .init(
             showMenu: { [weak self] id, anchor in self?.showWorkspaceMenu(for: id, anchor: anchor) },

@@ -1,7 +1,8 @@
 import AppKit
 
-/// One workspace in the Settings list: a fixed 28pt row with the workspace icon, name,
-/// "Opens in" chip, item count and a "…" menu button.
+/// One workspace in the Settings list: a fixed 28pt row with the workspace's tile (the
+/// same WorkspaceTileView as the Settings rail, at 16pt), name, "Opens in" chip, item
+/// count and a "…" menu button.
 ///
 /// At rest the row is neutral on the Settings surface. Hovering or focusing it fills it
 /// with that workspace's own page color in the current tint mode, so you see the page
@@ -17,9 +18,12 @@ final class WorkspaceRowView: BaseView {
         var position: Int
         var total: Int
         var canDelete: Bool
+        /// The workspace's tile, from WorkspaceTileIdentity.resolve over every workspace
+        /// so letters match the rail. Without it the row shows `iconLinks`.
+        var identity: WorkspaceTileIdentity? = nil
     }
 
-    private let iconView = WorkspaceIconView()
+    private let iconView = WorkspaceTileView(frame: NSRect(x: 0, y: 0, width: StowTheme.List.glyphSize, height: StowTheme.List.glyphSize))
     private let editableTitle = InlineEditableTextField()
     private let profileChip = ProfileChipButton()
     private let countLabel = NSTextField(labelWithString: "")
@@ -50,10 +54,9 @@ final class WorkspaceRowView: BaseView {
         layer?.cornerRadius = SettingsMetrics.rowRadius
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.onClick = { [weak self] in
-            guard let self else { return }
-            self.onShowColorMenu?(self.iconView)
-        }
+        iconView.toolTip = "Change color"
+        iconView.setAccessibilityElement(false)
+        iconView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(iconClicked)))
 
         editableTitle.translatesAutoresizingMaskIntoConstraints = false
         editableTitle.font = StowTheme.Font.row
@@ -128,7 +131,10 @@ final class WorkspaceRowView: BaseView {
         }
         editableTitle.textField.toolTip = content.name
 
-        iconView.configure(name: content.name, colorId: content.colorId, links: content.iconLinks)
+        iconView.colorId = content.colorId
+        iconView.identity = content.identity ?? (content.iconLinks.isEmpty
+            ? .letter(content.name.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
+            : .mosaic(content.iconLinks))
 
         if let opensIn = content.opensIn {
             profileChip.title = opensIn.title
@@ -184,7 +190,6 @@ final class WorkspaceRowView: BaseView {
         countLabel.textColor = secondary
         profileChip.tint = secondary
         menuButton.tint = active ? ink : nil
-        iconView.ringColor = palette?.inkSecondary ?? SettingsColors.edge
         menuButton.alphaValue = (active && !editableTitle.isEditing) ? 1 : 0
     }
 
@@ -239,6 +244,10 @@ final class WorkspaceRowView: BaseView {
 
     override func rightMouseDown(with event: NSEvent) {
         onShowMenu?(menuButton)
+    }
+
+    @objc private func iconClicked() {
+        onShowColorMenu?(iconView)
     }
 
     @objc private func menuButtonClicked() {
@@ -328,95 +337,6 @@ final class WorkspaceRowView: BaseView {
     override func accessibilityPerformPress() -> Bool {
         onShowMenu?(menuButton)
         return true
-    }
-}
-
-// MARK: - Workspace icon
-
-/// The workspace's icon in a 16pt slot: a 2×2 mosaic of its most representative
-/// favicons, or a dot in the workspace color with its first letter when it has none.
-final class WorkspaceIconView: NSView {
-    private var colorId: WorkspaceColorId = .defaultColor()
-    private var letter = ""
-    private var images: [NSImage] = []
-    var onClick: (() -> Void)?
-    var ringColor: NSColor = SettingsColors.edge {
-        didSet { needsDisplay = true }
-    }
-
-    private static let imageCache = NSCache<NSString, NSImage>()
-
-    override var isFlipped: Bool { true }
-
-    func configure(name: String, colorId: WorkspaceColorId, links: [Link]) {
-        self.colorId = colorId
-        letter = name.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? ""
-        images = links.compactMap { link in
-            guard let path = link.faviconPath else { return nil }
-            if let cached = Self.imageCache.object(forKey: path as NSString) { return cached }
-            guard let image = NSImage(contentsOfFile: path) else { return nil }
-            Self.imageCache.setObject(image, forKey: path as NSString)
-            return image
-        }
-        setAccessibilityElement(false)
-        toolTip = "Change color"
-        needsDisplay = true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds
-        if images.isEmpty {
-            let dot = NSRect(x: rect.midX - 7, y: rect.midY - 7, width: 14, height: 14)
-            let path = NSBezierPath(ovalIn: dot.insetBy(dx: 0.5, dy: 0.5))
-            colorId.color.setFill()
-            path.fill()
-            ringColor.setStroke()
-            path.lineWidth = 1
-            path.stroke()
-            guard !letter.isEmpty else { return }
-            let ink = StowTheme.colors(for: colorId, tint: .full).light.inkPrimary.platformColor
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 8, weight: .bold),
-                .foregroundColor: ink,
-            ]
-            let size = (letter as NSString).size(withAttributes: attributes)
-            (letter as NSString).draw(at: NSPoint(x: dot.midX - size.width / 2, y: dot.midY - size.height / 2), withAttributes: attributes)
-            return
-        }
-        if images.count == 1 {
-            draw(images[0], in: rect.insetBy(dx: 1, dy: 1), radius: 3)
-            return
-        }
-        let gap: CGFloat = 1
-        let cell = (rect.width - gap) / 2
-        for index in 0..<4 {
-            let frame = NSRect(x: rect.minX + CGFloat(index % 2) * (cell + gap),
-                               y: rect.minY + CGFloat(index / 2) * (cell + gap),
-                               width: cell, height: cell)
-            if index < images.count {
-                draw(images[index], in: frame, radius: 1.5)
-            } else {
-                let path = NSBezierPath(roundedRect: frame.insetBy(dx: 1, dy: 1), xRadius: 1.5, yRadius: 1.5)
-                colorId.color.setFill()
-                path.fill()
-            }
-        }
-    }
-
-    private func draw(_ image: NSImage, in frame: NSRect, radius: CGFloat) {
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: frame, xRadius: radius, yRadius: radius).addClip()
-        image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onClick?()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
     }
 }
 
