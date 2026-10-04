@@ -340,10 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func setupGlobalHotkey() {
         GlobalHotkeyService.shared.delegate = self
-
-        if let shortcut = KeyboardShortcut.load() {
-            GlobalHotkeyService.shared.register(shortcut: shortcut)
-        }
+        GlobalHotkeyService.shared.apply()
 
         NotificationCenter.default.addObserver(
             self,
@@ -354,14 +351,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     @objc private func handleShortcutChanged() {
-        if let shortcut = KeyboardShortcut.load() {
-            GlobalHotkeyService.shared.register(shortcut: shortcut)
-        } else {
-            GlobalHotkeyService.shared.unregister()
+        GlobalHotkeyService.shared.apply()
+    }
+
+    func hotkeyService(_ service: GlobalHotkeyService, didTrigger action: HotkeyAction) {
+        switch action {
+        case .toggleStow: toggleStowWindow()
+        case .stowFrontTab: mainViewController?.stowFrontTab()
         }
     }
 
-    func hotkeyServiceDidTrigger(_ service: GlobalHotkeyService) {
+    private func toggleStowWindow() {
         guard let window = window else { return }
 
         if isUserHidden || !window.isVisible {

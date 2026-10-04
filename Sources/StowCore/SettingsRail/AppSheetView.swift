@@ -25,7 +25,7 @@ final class AppSheetView: RailFlippedView {
     private let grantButton = FlyoutButton("Open Settings…", height: 20, fontSize: 11)
     private var sideControl: FlyoutSegmented!
     private let browserRow = FlyoutPopRow(symbol: nil, accessibilityLabel: "Open links in")
-    private let shortcutRecorder = ShortcutRecorderView()
+    private let shortcutRecorder = FlyoutShortcutRecorder(action: .toggleStow)
     private let shortcutStatus = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private let footerLine = NSView()
     private let importLabel = FlyoutLabel.text("Import", size: 11.5, color: FlyoutColors.inkSecondary)
@@ -78,7 +78,7 @@ final class AppSheetView: RailFlippedView {
         sideControl.onChange = { [weak self] index in self?.preferences.setBrowserSide(index) }
 
         browserRow.menuProvider = { [weak self] in self?.browserMenu() }
-        shortcutRecorder.onShortcutChanged = { _ in
+        shortcutRecorder.onShortcutChanged = {
             NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
         }
         shortcutRecorder.onStatusChanged = { [weak self] text, _ in

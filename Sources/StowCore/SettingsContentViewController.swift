@@ -101,7 +101,7 @@ final class SettingsContentViewController: NSViewController {
     private let preferences = AppPreferences.shared
 
     // Shortcut
-    private let shortcutRecorderView = ShortcutRecorderView()
+    private let shortcutRecorderView = FlyoutShortcutRecorder(action: .toggleStow)
     private let shortcutStatus = SettingsStatusLine()
 
     // Browser
@@ -270,11 +270,11 @@ final class SettingsContentViewController: NSViewController {
         window.add(browserSideRow)
 
         // Shortcut
-        shortcutRecorderView.onShortcutChanged = { _ in
+        shortcutRecorderView.onShortcutChanged = {
             NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
         }
         shortcutRecorderView.onStatusChanged = { [weak self] text, kind in
-            self?.shortcutStatus.set(text, kind: kind)
+            self?.shortcutStatus.set(text, kind: kind == .danger ? .danger : (kind == .success ? .success : .help))
             self?.relayout()
         }
         let shortcut = SettingsGroupView(section: .shortcut)

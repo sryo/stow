@@ -154,7 +154,6 @@ final class MainViewController: NSViewController {
         // Plain a-z key monitor for item activation
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            if self.handleStowTabKey(event) { return nil }
             if self.handleCommandHoldKey(event) { return nil }
             if self.handlePlainKeyEvent(event) { return nil }
             return event
@@ -1425,7 +1424,8 @@ final class MainViewController: NSViewController {
     private var stowTabFullWidth: CGFloat?
 
     /// Saves the front tab of the browser the user was last in to the current workspace.
-    private func stowFrontTab() {
+    /// Runs from the footer, the rail's "+" and the global Stow front tab shortcut.
+    func stowFrontTab() {
         guard let bundleId = ActiveBrowserTracker.shared.lastActiveBundleId else { NSSound.beep(); return }
         Task.detached(priority: .userInitiated) { [weak self] in
             let tab = BrowserTabService.frontTab(bundleId: bundleId)
@@ -1764,15 +1764,6 @@ final class MainViewController: NSViewController {
         }
         endCommandHold()
         activateRow(at: index)
-        return true
-    }
-
-    /// ⌥⌘S stows the front browser tab, matching the footer button's keycap.
-    private func handleStowTabKey(_ event: NSEvent) -> Bool {
-        guard event.window === view.window, !model.state.isSettingsSelected,
-              event.modifierFlags.intersection([.command, .option, .shift, .control]) == [.command, .option],
-              event.keyCode == 1 else { return false }
-        stowFrontTab()
         return true
     }
 
