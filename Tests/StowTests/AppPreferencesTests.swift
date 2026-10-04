@@ -181,6 +181,30 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(StowTheme.TintMode.allCases.map(AppPreferences.tintTitle), ["Full", "Soft", "None"])
     }
 
+    private func preferences(tint: SyncedTintPreference) -> AppPreferences {
+        AppPreferences(defaults: defaults, loginItem: login, hasAccessibility: { true }, applyTabline: { _ in },
+                       tintPreference: tint)
+    }
+
+    func testPageColorIsPublishedToICloud() {
+        let local = scratchDefaults(), cloud = scratchDefaults()
+        let prefs = preferences(tint: SyncedTintPreference(local: local, cloud: cloud))
+        prefs.setTint(.subtle)
+        XCTAssertEqual(cloud.string(forKey: SyncedTintPreference.key), "subtle")
+        XCTAssertEqual(prefs.tint, .subtle)
+    }
+
+    func testPageColorChosenOnAnotherDeviceRepaints() {
+        let local = scratchDefaults(), cloud = scratchDefaults()
+        let tint = SyncedTintPreference(local: local, cloud: cloud)
+        let prefs = preferences(tint: tint)
+        let repainted = expectation(forNotification: .stowTintModeChanged, object: nil)
+        cloud.set("off", forKey: SyncedTintPreference.key)
+        tint.handleExternalChange(changedKeys: [SyncedTintPreference.key])
+        wait(for: [repainted], timeout: 1)
+        XCTAssertEqual(prefs.tint, .off)
+    }
+
     func testIncreaseContrastDropsFullToSoft() {
         XCTAssertEqual(AppPreferences.displayTint(preferred: .full, increaseContrast: true), .subtle)
         XCTAssertEqual(AppPreferences.displayTint(preferred: .full, increaseContrast: false), .full)

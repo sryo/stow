@@ -35,13 +35,32 @@ final class AppPreferences {
     private let loginItem: LoginItemControlling
     private let accessibilityCheck: () -> Bool
     private let applyTabline: (Bool) -> Void
+    /// Page color, mirrored to iCloud so the iPhone shows the same one.
+    private let tintPreference: SyncedTintPreference
+    private var tintObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults, loginItem: LoginItemControlling,
-         hasAccessibility: @escaping () -> Bool, applyTabline: @escaping (Bool) -> Void) {
+         hasAccessibility: @escaping () -> Bool, applyTabline: @escaping (Bool) -> Void,
+         tintPreference: SyncedTintPreference = .shared) {
         self.defaults = defaults
         self.loginItem = loginItem
         self.accessibilityCheck = hasAccessibility
         self.applyTabline = applyTabline
+        self.tintPreference = tintPreference
+        // Fires for a local choice and for one made on another device alike.
+        tintObserver = NotificationCenter.default.addObserver(
+            forName: SyncedTintPreference.didChangeNotification, object: tintPreference, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
+                self?.changed()
+            }
+        }
+    }
+
+    /// Reconciles page color with iCloud and follows changes from other devices.
+    func startTintSync() {
+        tintPreference.start()
     }
 
     private func changed() {
@@ -64,14 +83,12 @@ final class AppPreferences {
     }
 
     /// The user's choice, as the segment shows it.
-    var tint: StowTheme.TintMode { StowTheme.preferredTint }
+    var tint: StowTheme.TintMode { tintPreference.tint }
 
+    /// Saves locally and to iCloud; the preference's change notification repaints.
     func setTint(_ tint: StowTheme.TintMode) {
-        guard tint != StowTheme.preferredTint else { return }
-        StowTheme.preferredTint = tint
-        PageColorSync().publish(tint)
-        NotificationCenter.default.post(name: .stowTintModeChanged, object: nil)
-        changed()
+        guard tint != tintPreference.tint else { return }
+        tintPreference.set(tint)
     }
 
     // MARK: Window

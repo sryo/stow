@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// What the Tabline shows: the current workspace's top-level nodes plus the workspace list
 /// for the chip's menu. Archived nodes are filtered out by the controller.
@@ -21,7 +22,7 @@ struct TablineContent {
     var workspaces: [WorkspaceEntry]
 }
 
-/// Tabline: the current workspace as a row of tabs riding whichever browser window is in
+/// Tabline: the active workspace as a row of tabs riding whichever browser window is in
 /// front. It never takes focus, so clicking a tab opens the site in the browser you're using.
 ///
 /// Docking follows the window: 3pt above a floating window (below it when there's no room
@@ -29,32 +30,10 @@ struct TablineContent {
 /// the window down to make room; a thin lip at the top of a full-screen window that expands
 /// while the pointer is over it.
 ///
-/// The tab for the page in front is raised; tabs whose host is open in any browser carry a
-/// live dot; a page not saved in the workspace gets a dashed ghost tab. Both are read via
-/// AppleScript off the main thread (front page every 1.5s, open tabs every 4.5s).
-///
-/// MainViewController must wire:
-/// ```
-/// let tabline = TablineController.shared
-/// tabline.provider = { [weak self] in
-///     guard let self else { return nil }
-///     let ws = self.model.currentWorkspace
-///     return TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
-///                           workspaces: self.model.state.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
-/// }
-/// tabline.onOpenLink = { [weak self] link in self?.openLink(link) }                  // already wired
-/// tabline.onSelectWorkspace = { [weak self] id in self?.model.selectWorkspace(id: id) }
-/// tabline.onStowURL = { [weak self] url, title in
-///     guard let self else { return }
-///     let id = self.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
-///     self.fetchTitleForNewLink(id: id, url: url)
-/// }
-/// tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
-/// tabline.onCopySnippet = { snippet in /* optional; defaults to copying `content` */ }
-/// tabline.onSearch = { ... }   // optional; shows the ⌕ tool when set
-/// ```
-/// and keep calling `reload()` after model changes (already done). Once `provider` is set,
-/// the legacy `contentProvider` is ignored and can be removed.
+/// The tab for the page in front is raised; tabs whose page is open in any browser carry a
+/// live dot; a page not saved in the workspace gets a dashed ghost tab. Both come from
+/// OpenTabsMonitor. The content follows the model through `bind(model:)`, so edits made
+/// anywhere (Settings included) show up without being pushed.
 @MainActor
 final class TablineController {
     static let shared = TablineController()
@@ -66,10 +45,6 @@ final class TablineController {
     /// Room made under the menu bar for a window that fills the screen's height.
     private static let band: CGFloat = gap + height + gap
 
-    /// Supplies the current workspace and the workspace list.
-    var provider: (() -> TablineContent?)?
-    /// Legacy provider (links only). Used only while `provider` is nil.
-    var contentProvider: (() -> (name: String, colorId: WorkspaceColorId, links: [Link]))?
     var onOpenLink: ((Link) -> Void)?
     var onSelectWorkspace: ((UUID) -> Void)?
     var onStowURL: ((URL, String) -> Void)?
@@ -84,20 +59,18 @@ final class TablineController {
     private let strip = TablineStripView()
     private var trackTimer: Timer?
     private var hoverTimer: Timer?
-    private var stateTimer: Timer?
     private var lastFrame: NSRect = .zero
 
-    private var content = TablineContent(workspaceId: nil, name: "", colorId: .defaultColor(), nodes: [], workspaces: [])
+    private weak var model: AppModel?
+    private var modelSubscription: AnyCancellable?
+    private var monitorSubscriptions: Set<AnyCancellable> = []
+    private(set) var content = TablineContent(workspaceId: nil, name: "", colorId: .defaultColor(), nodes: [], workspaces: [])
     private var entries: [TablineEntry] = []
     private var pocketTasks: [TaskItem] = []
     private var pocketSnippets: [Snippet] = []
 
-    private var frontPage: TablineFrontPage.Page?
-    private var liveHosts: Set<String> = []
-    private var isFetchingFront = false
-    private var isFetchingLive = false
+    private let monitor = OpenTabsMonitor.shared
     private var lastFrontBundleId: String?
-    private var stateTicks = 0
 
     private enum Dock: Equatable { case above, below, inside, band, lip, peek }
     private var dock: Dock = .above
@@ -122,6 +95,16 @@ final class TablineController {
         }
     }
 
+    /// Follows `model`: the active workspace's items and the workspace list, refreshed on
+    /// every change.
+    func bind(model: AppModel) {
+        self.model = model
+        modelSubscription = model.changes.sink { _ in
+            MainActor.assumeIsolated { TablineController.shared.reload() }
+        }
+        reload()
+    }
+
     func startIfEnabled() {
         AppPreferences.shared.applyPendingTabline()
     }
@@ -138,23 +121,27 @@ final class TablineController {
         }
         if panel == nil { makePanel() }
         reload()
+        if monitorSubscriptions.isEmpty {
+            monitor.$openKeys.removeDuplicates().dropFirst().sink { _ in
+                MainActor.assumeIsolated { TablineController.shared.refreshStripSoon() }
+            }.store(in: &monitorSubscriptions)
+            monitor.$frontPage.removeDuplicates().dropFirst().sink { _ in
+                MainActor.assumeIsolated { TablineController.shared.refreshStripSoon() }
+            }.store(in: &monitorSubscriptions)
+        }
         trackTimer?.invalidate()
         trackTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             MainActor.assumeIsolated { TablineController.shared.track() }
         }
-        stateTimer?.invalidate()
-        stateTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            MainActor.assumeIsolated { TablineController.shared.pollBrowserState() }
-        }
         track()
-        pollBrowserState(forceLive: true)
     }
 
     private func stop() {
         trackTimer?.invalidate()
         trackTimer = nil
-        stateTimer?.invalidate()
-        stateTimer = nil
+        monitor.setDemand(.tabline, false)
+        monitor.frontBundleId = nil
+        lastFrontBundleId = nil
         hoverTimer?.invalidate()
         hoverTimer = nil
         panel?.orderOut(nil)
@@ -179,17 +166,12 @@ final class TablineController {
 
     // MARK: - Content
 
-    /// Refreshes the tabs from the current workspace.
+    /// Refreshes the tabs from the model's active workspace.
     func reload() {
-        if let provider {
-            guard let fresh = provider() else { return }
-            content = fresh
-        } else if let legacy = contentProvider?() {
-            content = TablineContent(workspaceId: nil, name: legacy.name, colorId: legacy.colorId,
-                                     nodes: legacy.links.map { .link($0) }, workspaces: [])
-        } else {
-            return
-        }
+        guard let model else { return }
+        let ws = model.activeWorkspace
+        content = TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
+                                 workspaces: model.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
         let nodes = Self.unarchived(content.nodes)
         entries = nodes.compactMap { node in
             switch node {
@@ -245,10 +227,8 @@ final class TablineController {
         model.pocketCount = pocketTasks.count + pocketSnippets.count
         model.showsSearch = onSearch != nil
 
-        for (i, entry) in entries.enumerated() where entry.links.contains(where: { liveHosts.contains(TablineGlyph.host(of: $0.url)) }) {
-            if case .link = entry { model.liveIndices.insert(i) }
-        }
-        if let page = frontPage, page.bundleId == lastFrontBundleId {
+        model.liveIndices = Self.liveIndices(entries: entries, openKeys: monitor.openKeys)
+        if let page = monitor.frontPage, page.bundleId == lastFrontBundleId {
             if let raised = bestEntry(for: page.url) {
                 model.raisedIndex = raised
             } else if let scheme = page.url.scheme, scheme == "http" || scheme == "https" {
@@ -260,19 +240,32 @@ final class TablineController {
         panel?.invalidateShadow()
     }
 
+    /// Links whose exact page (by canonical URL) is open in a browser. Folders get no dot.
+    static func liveIndices(entries: [TablineEntry], openKeys: Set<String>) -> Set<Int> {
+        Set(entries.indices.filter { i in
+            guard case .link(let link) = entries[i], let key = URLCanonical.key(link.url) else { return false }
+            return openKeys.contains(key)
+        })
+    }
+
+    /// `@Published` sinks run before the value is stored, so redraw once it is.
+    private func refreshStripSoon() {
+        DispatchQueue.main.async { MainActor.assumeIsolated { TablineController.shared.refreshStrip() } }
+    }
+
     /// The entry whose site is the page in front: an exact URL wins, then the longest
     /// saved path that prefixes the page's path, then any link on the same host.
     private func bestEntry(for url: URL) -> Int? {
         let host = TablineGlyph.host(of: url.absoluteString)
         guard !host.isEmpty else { return nil }
-        let canonical = BrowserTabService.canonicalize(url)
+        let canonical = URLCanonical.key(url)
         let path = url.path
         var best: (index: Int, score: Int)?
         for (i, entry) in entries.enumerated() {
             for link in entry.links {
                 guard let linkURL = URL(string: link.url), TablineGlyph.host(of: link.url) == host else { continue }
                 var score = 1
-                if BrowserTabService.canonicalize(linkURL) == canonical {
+                if URLCanonical.key(linkURL) == canonical {
                     score = 10_000
                 } else if !linkURL.path.isEmpty, linkURL.path != "/", path.hasPrefix(linkURL.path) {
                     score = 10 + linkURL.path.count
@@ -281,41 +274,6 @@ final class TablineController {
             }
         }
         return best?.index
-    }
-
-    // MARK: - Browser state (front page and open tabs), off the main thread
-
-    private func pollBrowserState(forceLive: Bool = false) {
-        guard panel?.isVisible == true || forceLive else { return }
-        stateTicks += 1
-        if let bundleId = lastFrontBundleId, !isFetchingFront {
-            isFetchingFront = true
-            Task.detached(priority: .utility) {
-                let page = TablineFrontPage.read(bundleId: bundleId)
-                await MainActor.run {
-                    let controller = TablineController.shared
-                    controller.isFetchingFront = false
-                    if page != controller.frontPage {
-                        controller.frontPage = page
-                        controller.refreshStrip()
-                    }
-                }
-            }
-        }
-        if (forceLive || stateTicks % 3 == 0), !isFetchingLive {
-            isFetchingLive = true
-            Task.detached(priority: .utility) {
-                let hosts = TablineFrontPage.openHosts()
-                await MainActor.run {
-                    let controller = TablineController.shared
-                    controller.isFetchingLive = false
-                    if hosts != controller.liveHosts {
-                        controller.liveHosts = hosts
-                        controller.refreshStrip()
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Clicks and menus
@@ -469,14 +427,16 @@ final class TablineController {
               let window = frontWindow(of: front) else {
             if panel.isVisible { panel.orderOut(nil) }
             lastFrontBundleId = nil
+            monitor.setDemand(.tabline, false)
+            monitor.frontBundleId = nil
             return
         }
         if bundleId != lastFrontBundleId {
             lastFrontBundleId = bundleId
-            frontPage = nil
+            monitor.frontBundleId = bundleId
             refreshStrip()
-            pollBrowserState()
         }
+        monitor.setDemand(.tabline, true)
         let target = placement(for: window)
         setPanelFrame(target)
         updateHoverTimer()
@@ -647,83 +607,4 @@ final class TablineController {
 private final class TablineMenuItem: NSMenuItem {
     var handler: (() -> Void)?
     @objc func fire() { handler?() }
-}
-
-/// Reads the URL and title of the front tab of the front window, per browser, via AppleScript.
-enum TablineFrontPage {
-    struct Page: Equatable, Sendable {
-        let bundleId: String
-        let url: URL
-        let title: String
-    }
-
-    private static let chromiumApps: [String: String] = [
-        "com.google.Chrome": "Google Chrome",
-        "com.google.Chrome.canary": "Google Chrome Canary",
-        "com.brave.Browser": "Brave Browser",
-        "com.microsoft.edgemac": "Microsoft Edge",
-        "com.vivaldi.Vivaldi": "Vivaldi",
-        "company.thebrowser.Browser": "Arc",
-    ]
-
-    // Inside a `tell application` block `tab` names the browser's tab class, not the tab
-    // character, so the separator is bound before the block.
-    static func read(bundleId: String) -> Page? {
-        let source: String
-        if bundleId == "com.apple.Safari" {
-            source = """
-            set sep to character id 9
-            tell application "Safari"
-                if (count of windows) is 0 then return ""
-                set t to current tab of front window
-                return (URL of t) & sep & (name of t)
-            end tell
-            """
-        } else if let app = chromiumApps[bundleId] {
-            source = """
-            set sep to character id 9
-            tell application "\(app)"
-                if (count of windows) is 0 then return ""
-                set t to active tab of front window
-                return (URL of t) & sep & (title of t)
-            end tell
-            """
-        } else {
-            return nil
-        }
-        guard let output = run(source) else { return nil }
-        let parts = output.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let first = parts.first, let url = URL(string: String(first)), url.host != nil else { return nil }
-        return Page(bundleId: bundleId, url: url, title: parts.count > 1 ? String(parts[1]) : "")
-    }
-
-    /// Hosts of every tab open in every running supported browser.
-    ///
-    /// Not built on `BrowserTabService.tabsByCanonicalURL()`: its scripts join columns with
-    /// `tab` inside the `tell` block (see above), so rows come back as "1tab2tab…" and none
-    /// parse. Listing only URLs needs no column separator.
-    static func openHosts() -> Set<String> {
-        var hosts: Set<String> = []
-        let apps = [("com.apple.Safari", "Safari")] + chromiumApps.map { ($0.key, $0.value) }
-        for (bundleId, app) in apps where !NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).isEmpty {
-            let source = """
-            tell application "\(app)" to set urls to URL of every tab of every window
-            set AppleScript's text item delimiters to linefeed
-            return urls as text
-            """
-            guard let output = run(source) else { continue }
-            for line in output.split(separator: "\n") {
-                let host = TablineGlyph.host(of: String(line))
-                if !host.isEmpty { hosts.insert(host) }
-            }
-        }
-        return hosts
-    }
-
-    private static func run(_ source: String) -> String? {
-        guard let script = NSAppleScript(source: source) else { return nil }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        return error == nil ? result.stringValue : nil
-    }
 }

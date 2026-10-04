@@ -96,19 +96,23 @@ final class ReviewRedSharedTests: XCTestCase {
 
     // MARK: patterns-12
 
+    /// Rewritten for C14: the Mac now syncs page color through SyncedTintPreference and
+    /// PageColorSync is gone. The assertion is unchanged: an empty iCloud store gets the
+    /// Mac's local choice.
+    @MainActor
     func testMacPublishesItsPageColorWhenICloudHasNone() {
-        let store = RedMemoryStore()
+        let cloud = RedMemoryStore()
         let local = scratchDefaults()
-        local.set("subtle", forKey: PageColorSync.key)
-        PageColorSync(store: store, defaults: local).adoptRemote()
-        XCTAssertEqual(store.values[PageColorSync.key], "subtle",
-                       "patterns-12: PageColorSync.adoptRemote never publishes the local choice, unlike SyncedTintPreference.start()")
+        local.set("subtle", forKey: SyncedTintPreference.key)
+        SyncedTintPreference(local: local, cloud: cloud, notificationCenter: NotificationCenter()).start()
+        XCTAssertEqual(cloud.values[SyncedTintPreference.key], "subtle",
+                       "patterns-12: the Mac's page color never reached an empty iCloud store")
     }
 }
 
-private final class RedMemoryStore: PageColorKeyValueStore {
+private final class RedMemoryStore: StringKeyValueStore {
     var values: [String: String] = [:]
     func string(forKey key: String) -> String? { values[key] }
-    func set(_ value: Any?, forKey key: String) { values[key] = value as? String }
+    func setString(_ value: String, forKey key: String) { values[key] = value }
     @discardableResult func synchronize() -> Bool { true }
 }

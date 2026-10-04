@@ -9,7 +9,8 @@ public struct OpenTab: Equatable, Sendable {
     public let title: String
 }
 
-/// Reads and focuses browser tabs via AppleScript.
+/// Reads and focuses browser tabs via AppleScript. The only table of supported browsers:
+/// OpenTabsMonitor, the Tabline and opening links all go through here.
 ///
 /// Requires `NSAppleEventsUsageDescription` in Info.plist. macOS prompts the
 /// user once per (Stow → target browser) pair the first time AppleScript
@@ -36,7 +37,17 @@ public enum BrowserTabService {
     private static let safariBundleId = "com.apple.Safari"
     private static let safariAppName  = "Safari"
 
-    private static var supportedBundleIds: [String] { chromiumBrowsers.map(\.bundleId) + [arcBundleId, safariBundleId] }
+    static var supportedBundleIds: [String] { chromiumBrowsers.map(\.bundleId) + [arcBundleId, safariBundleId] }
+
+    /// Whether any browser this service can script is running.
+    static func anySupportedBrowserRunning() -> Bool {
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        return supportedBundleIds.contains { running.contains($0) }
+    }
+
+    /// NSAppleScript isn't safe to run from several threads at once, and the lookups here
+    /// fan out across browsers, so every script runs under this lock.
+    private static let scriptLock = NSLock()
 
     // MARK: - Public
 
@@ -224,6 +235,8 @@ public enum BrowserTabService {
     // MARK: - AppleScript runner
 
     private static func runAppleScriptSucceeded(_ source: String) -> Bool {
+        scriptLock.lock()
+        defer { scriptLock.unlock() }
         guard let script = NSAppleScript(source: source) else { return false }
         var err: NSDictionary?
         script.executeAndReturnError(&err)
@@ -231,6 +244,8 @@ public enum BrowserTabService {
     }
 
     private static func runAppleScript(_ source: String) -> String? {
+        scriptLock.lock()
+        defer { scriptLock.unlock() }
         guard let script = NSAppleScript(source: source) else { return nil }
         var err: NSDictionary?
         let result = script.executeAndReturnError(&err)
@@ -261,20 +276,10 @@ public enum BrowserTabService {
         return tabs
     }
 
-    // MARK: - URL canonicalization (internal for tests)
+    // MARK: - URL canonicalization
 
-    /// Canonical form used for tab-matching. Lowercases scheme + host, strips
-    /// the fragment, normalizes empty root path. Query string is preserved —
-    /// many SPAs encode page identity in `?id=`.
+    /// Forwards to `URLCanonical.key`, the shared definition of "the same page".
     static func canonicalize(_ url: URL) -> String {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let _ = components.scheme else {
-            return url.absoluteString.lowercased()
-        }
-        components.scheme = components.scheme?.lowercased()
-        components.host = components.host?.lowercased()
-        components.fragment = nil
-        if components.path == "/" { components.path = "" }
-        return components.string ?? url.absoluteString.lowercased()
+        URLCanonical.key(url)
     }
 }

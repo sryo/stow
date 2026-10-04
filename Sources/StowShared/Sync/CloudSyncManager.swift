@@ -634,9 +634,10 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         recordSyncSuccess()
     }
 
-    /// Tells the model's observers that a fetch cycle changed it.
+    /// Tells the model's subscribers that a fetch cycle changed it. The change is marked
+    /// external, so hosts refresh without scheduling an upload of what just arrived.
     static func notifyMergeFinished(_ model: AppModel) {
-        model.onChange?()
+        model.notifyExternalChange()
     }
 
     private func handleSentRecordZoneChanges(_ changes: CKSyncEngine.Event.SentRecordZoneChanges) {
@@ -645,6 +646,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         var newPendingChanges: [CKSyncEngine.PendingRecordZoneChange] = []
         var newPendingDatabaseChanges: [CKSyncEngine.PendingDatabaseChange] = []
         var unrecoveredFailure: String?
+        var appliedServerRecord = false
 
         // Cache successfully saved records
         for savedRecord in changes.savedRecords {
@@ -666,6 +668,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                 if let serverRecord = failure.error.serverRecord {
                     cacheRecord(serverRecord)
                     applyServerRecord(serverRecord)
+                    appliedServerRecord = true
                     logger.info("Conflict for \(failedRecord.recordID.recordName, privacy: .public) - accepted server version")
                 }
 
@@ -688,6 +691,9 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                 logger.error("Failed to save \(failedRecord.recordID.recordName, privacy: .public) code=\(failure.error.code.rawValue, privacy: .public) desc=\(failure.error.localizedDescription, privacy: .public)")
                 unrecoveredFailure = failure.error.localizedDescription
             }
+        }
+        if appliedServerRecord, let model {
+            Self.notifyMergeFinished(model)
         }
         if let unrecoveredFailure {
             recordSyncFailure(unrecoveredFailure)

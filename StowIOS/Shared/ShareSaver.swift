@@ -48,37 +48,42 @@ enum ShareSaver {
         return state.workspaces.first?.id
     }
 
-    /// Saves through AppModel (so the link lands in data.json like any other edit) and
-    /// queues it for the app. Returns the new link's id.
+    /// Saves through AppModel (so the link lands in data.json like any other edit), at the
+    /// top of the workspace and only once per page, and queues it for the app. Returns the
+    /// link's id, or the id of the link already saved for that page.
     @discardableResult
     static func save(url: URL, title: String, toWorkspace workspaceId: UUID, model: AppModel, inbox: ShareInbox) -> UUID? {
         guard !model.workspaces.isEmpty else { return nil }
         let target = model.workspaces.contains(where: { $0.id == workspaceId })
             ? workspaceId
-            : (defaultWorkspaceId(in: model.state) ?? model.currentWorkspace.id)
+            : (defaultWorkspaceId(in: model.state) ?? model.activeWorkspaceId)
 
-        let id = model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
-        if target != model.currentWorkspace.id {
-            model.moveNodeToWorkspace(id: id, workspaceId: target)
+        switch model.stowLink(url: url, title: title, workspaceId: target) {
+        case .alreadyPresent(let id):
+            return id
+        case .added(let id):
+            if let node = node(id, in: model) {
+                inbox.append(PendingShare(workspaceId: target, node: node))
+            }
+            return id
         }
-        if let node = node(id, in: model) {
-            inbox.append(PendingShare(workspaceId: target, node: node))
-        }
-        return id
     }
 
-    /// Adds every queued link the app doesn't already hold. Returns how many were added.
+    /// Adds every queued link the app doesn't already hold and tells the model's
+    /// subscribers. Returns how many were added.
     @discardableResult
     static func absorb(inbox: ShareInbox, into model: AppModel) -> Int {
         var added = 0
         for share in inbox.drain() where node(share.node.id, in: model) == nil {
             let workspaceId = model.workspaces.contains(where: { $0.id == share.workspaceId })
                 ? share.workspaceId
-                : model.currentWorkspace.id
-            if model.upsertNodeFromSync(node: share.node, workspaceId: workspaceId, parentId: nil) {
+                : model.activeWorkspaceId
+            // At the top, where the extension's save put it.
+            if model.upsertNodeFromSync(node: share.node, workspaceId: workspaceId, parentId: nil, index: 0) {
                 added += 1
             }
         }
+        if added > 0 { model.notifyExternalChange() }
         return added
     }
 

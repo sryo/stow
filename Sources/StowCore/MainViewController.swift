@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import ObjectiveC
 
 
@@ -39,9 +40,10 @@ final class MainViewController: NSViewController {
     private let searchField = SearchBarView(style: .defaultSearch)
     private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S")
     private let pasteButton = FooterButton(title: "Paste")
-    /// Polls open browser tabs for the rail's and the list's open dots while visible.
-    private var openTabsTimer: Timer?
-    private var isPollingOpenTabs = false
+    /// Open browser tabs, for the rail's and the list's open dots.
+    private let openTabs = OpenTabsMonitor.shared
+    private var openTabsSubscription: AnyCancellable?
+    private var modelSubscription: AnyCancellable?
 
     // Page navigation
     private let pageController = ScrollWheelPageController()
@@ -52,6 +54,8 @@ final class MainViewController: NSViewController {
 
     // Swipe state
     private var isSwiping = false
+    /// A reload asked for mid-swipe, run once the swipe ends.
+    private var needsReloadAfterSwipe = false
     private var lastAddNewHapticTime: TimeInterval = 0
     private var outgoingSnapshotView: NSImageView?
     private var swipeStartPageIndex: Int = 0
@@ -127,19 +131,15 @@ final class MainViewController: NSViewController {
         reloadData()
         observeAppearanceChanges()
         let tabline = TablineController.shared
-        tabline.provider = { [weak self] in
-            guard let self else { return nil }
-            let ws = self.model.currentWorkspace
-            return TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
-                                  workspaces: self.model.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
-        }
+        tabline.bind(model: model)
         tabline.onOpenLink = { [weak self] link in self?.openLink(link) }
         tabline.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
+        // The Tabline shows the active workspace, so that's where its ghost tab is stowed.
         tabline.onStowURL = { [weak self] url, title in
             guard let self else { return }
-            let id = self.model.addLink(urlString: url.absoluteString, title: title, parentId: nil)
-            self.fetchTitleForNewLink(id: id, url: url)
+            self.stow(url: url, title: title, into: tabline.content.workspaceId)
         }
+        // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
@@ -190,6 +190,10 @@ final class MainViewController: NSViewController {
             NotificationCenter.default.addObserver(
                 self, selector: #selector(windowDidResignKey(_:)),
                 name: NSWindow.didResignKeyNotification, object: window
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowOcclusionChanged(_:)),
+                name: NSWindow.didChangeOcclusionStateNotification, object: window
             )
         }
     }
@@ -575,23 +579,37 @@ final class MainViewController: NSViewController {
     }
 
     private func bindModel() {
-        model.onChange = { [weak self] in
-            guard let self else { return }
-            if self.isReloadScheduled { return }
-            self.isReloadScheduled = true
-            DispatchQueue.main.async { [weak self] in
+        modelSubscription = model.changeOrigins.sink { [weak self] origin in
+            MainActor.assumeIsolated {
                 guard let self else { return }
-                self.isReloadScheduled = false
-                self.reloadData()
+                // Only local edits go up to iCloud; a fetch arriving isn't echoed back.
+                if origin == .local { CloudSyncManager.shared.scheduleLocalChanges() }
+                if self.isReloadScheduled { return }
+                self.isReloadScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.isReloadScheduled = false
+                    self.reloadData()
+                }
             }
-            CloudSyncManager.shared.scheduleLocalChanges()
+        }
+        openTabsSubscription = openTabs.$openKeys.removeDuplicates().sink { [weak self] keys in
+            MainActor.assumeIsolated {
+                self?.railView.setOpenKeys(keys)
+                self?.nodeListViewController.openKeys = keys
+            }
         }
     }
 
     // MARK: - Data Reload
 
-    private func reloadData() {
-        if isSwiping { return }
+    /// `animated: false` swaps the list without a diff, for content a swipe preview replaced.
+    private func reloadData(animated: Bool = true) {
+        if isSwiping {
+            needsReloadAfterSwipe = true
+            return
+        }
+        needsReloadAfterSwipe = false
 
         // Cancel any in-progress inline rename if node is deleted
         if let renameId = nodeListViewController.inlineRenameNodeId,
@@ -682,7 +700,6 @@ final class MainViewController: NSViewController {
             }
             if case .noMatches = kind, kind != lastEmptyStateKind { announceNoMatches() }
             lastEmptyStateKind = kind
-            TablineController.shared.reload()
             reloadRail()
             lastEmptyStateWorkspaceId = workspace.id
             refreshPasteAvailability()
@@ -694,6 +711,7 @@ final class MainViewController: NSViewController {
                 nodeListViewController.reloadData(
                     with: filteredNodes,
                     forceExpand: forceExpand,
+                    animated: animated,
                     archivedNodes: archiveRows,
                     isArchiveExpanded: showArchivedMatches || workspace.isArchiveExpanded,
                     showArchiveDuringSearch: showArchivedMatches
@@ -1072,19 +1090,17 @@ final class MainViewController: NSViewController {
         }
     }
 
-    /// Open dots need the browsers' tab lists. They're read every 5s off the main thread,
-    /// only while a workspace (rail, list, sidebar or mosaic) is showing.
+    /// Open dots need the browsers' tab lists, read by OpenTabsMonitor only while a workspace
+    /// with items (rail, list, sidebar or mosaic) is on a visible window.
     private func updateOpenTabsPolling() {
-        let wanted = !model.state.isSettingsSelected && view.window != nil
-        if wanted, openTabsTimer == nil {
-            openTabsTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshOpenTabs() }
-            }
-            refreshOpenTabs()
-        } else if !wanted {
-            openTabsTimer?.invalidate()
-            openTabsTimer = nil
-        }
+        let wanted = !model.state.isSettingsSelected
+            && view.window?.occlusionState.contains(.visible) == true
+            && model.activeWorkspace.items.contains(where: { !$0.isArchived })
+        openTabs.setDemand(.list, wanted)
+    }
+
+    @objc private func windowOcclusionChanged(_ note: Notification) {
+        updateOpenTabsPolling()
     }
 
     private func reloadRail() {
@@ -1101,30 +1117,6 @@ final class MainViewController: NSViewController {
             FaviconService.shared.favicon(for: url, cachedPath: nil) { _, path in
                 guard let path else { return }
                 NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
-            }
-        }
-    }
-
-    private func refreshOpenTabs() {
-        guard !isPollingOpenTabs, let window = view.window, window.occlusionState.contains(.visible),
-              model.currentWorkspace.items.contains(where: { !$0.isArchived }) else { return }
-        #if DEBUG
-        // STOW_OPEN_TABS (comma-separated URLs) stands in for the browsers, for screenshots.
-        if let seeded = ProcessInfo.processInfo.environment["STOW_OPEN_TABS"] {
-            let keys = Set(seeded.split(separator: ",").compactMap { URL(string: String($0)) }.map(BrowserTabService.canonicalize))
-            railView.setOpenKeys(keys)
-            nodeListViewController.openKeys = keys
-            return
-        }
-        #endif
-        isPollingOpenTabs = true
-        Task.detached(priority: .utility) { [weak self] in
-            let keys = Set(await BrowserTabService.tabsByCanonicalURL().keys)
-            await MainActor.run {
-                guard let self else { return }
-                self.isPollingOpenTabs = false
-                self.railView.setOpenKeys(keys)
-                self.nodeListViewController.openKeys = keys
             }
         }
     }
@@ -1198,25 +1190,30 @@ final class MainViewController: NSViewController {
     private var bottomBar: NSView?
     private var stowTabFullWidth: CGFloat?
 
-    /// Saves the front tab of the browser the user was last in to the current workspace.
-    /// Runs from the footer, the rail's "+" and the global Stow front tab shortcut.
+    /// Saves the front tab of the browser the user was last in to the active workspace (on
+    /// Settings, the one you came from). Runs from the footer, the rail's "+" and the global
+    /// Stow front tab shortcut.
     func stowFrontTab() {
         guard let bundleId = ActiveBrowserTracker.shared.lastActiveBundleId else { NSSound.beep(); return }
+        let workspaceId = model.activeWorkspaceId
         Task.detached(priority: .userInitiated) { [weak self] in
             let tab = BrowserTabService.frontTab(bundleId: bundleId)
             await MainActor.run {
                 guard let self, let tab else { NSSound.beep(); return }
-                let key = BrowserTabService.canonicalize(tab.url)
-                let alreadySaved = self.model.currentWorkspace.items.flattenLinks().contains {
-                    URL(string: $0.url).map(BrowserTabService.canonicalize) == key
-                }
-                if alreadySaved { NSSound.beep(); return }
-                // Stowed tabs land at the top, where the rail shows them first.
-                let id = self.model.addLink(urlString: tab.url.absoluteString, title: tab.title, parentId: nil)
-                self.model.moveNode(id: id, toParentId: nil, index: 0)
-                self.fetchTitleForNewLink(id: id, url: tab.url)
+                self.stow(url: tab.url, title: tab.title, into: workspaceId)
             }
         }
+    }
+
+    /// The one stow path: top of the workspace, once per page, then a title fetch.
+    @discardableResult
+    private func stow(url: URL, title: String, into workspaceId: UUID?) -> AppModel.StowResult {
+        let result = model.stowLink(url: url, title: title, workspaceId: workspaceId)
+        switch result {
+        case .added(let id): fetchTitleForNewLink(id: id, url: url)
+        case .alreadyPresent: NSSound.beep()
+        }
+        return result
     }
 
     private func updateSettingsConstraints() {
@@ -1359,7 +1356,7 @@ final class MainViewController: NSViewController {
         guard let url = URL(string: link.url) else { return }
         let target = override.map {
             LinkTarget(bundleId: $0.bundleId, profile: $0.profile)
-        } ?? LinkTarget.forWorkspace(model.currentWorkspace.id)
+        } ?? LinkTarget.forWorkspace(model.activeWorkspaceId)
         Task.detached(priority: .userInitiated) {
             if target.focusesOpenTab, await BrowserTabService.focusIfOpen(url: url) { return }
             await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
@@ -1369,7 +1366,7 @@ final class MainViewController: NSViewController {
     private func openLinksInFolder(_ folder: Folder) {
         let links = collectLinks(in: folder)
         guard !links.isEmpty else { return }
-        let target = LinkTarget.forWorkspace(model.currentWorkspace.id)
+        let target = LinkTarget.forWorkspace(model.activeWorkspaceId)
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
         Task.detached(priority: .userInitiated) {
@@ -1421,7 +1418,12 @@ final class MainViewController: NSViewController {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = editor
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        editor.close = { [weak popover] in popover?.performClose(nil) }
+        let edge = DueDatePopoverController.preferredEdge(
+            rowInWindow: anchor.convert(anchor.bounds, to: nil),
+            windowHeight: view.window?.contentView?.bounds.height ?? view.bounds.height,
+            anchorIsFlipped: anchor.isFlipped)
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: edge)
     }
 
     private func showSnippetEditor(_ snippetId: UUID) {
@@ -1618,7 +1620,8 @@ final class MainViewController: NSViewController {
 
     @objc private func windowDidBecomeKey(_ note: Notification) {
         refreshPasteAvailability()
-        refreshOpenTabs()
+        updateOpenTabsPolling()
+        openTabs.refreshNow()
     }
 
     @objc private func windowDidResignKey(_ note: Notification) {
@@ -1884,6 +1887,7 @@ extension MainViewController: ScrollWheelPageDelegate {
             model.selectSettings()
         } else if pageIndex >= pageCount - 1 {
             isSwiping = false
+            if needsReloadAfterSwipe { reloadData(animated: false) }
             promptCreateWorkspace()
             return
         } else {
@@ -1893,9 +1897,12 @@ extension MainViewController: ScrollWheelPageDelegate {
             }
         }
 
-        reloadData()
-        applyBackgroundColor(for: colorForPage(pageIndex))
+        // The swipe ends before reloading, or reloadData would skip it as mid-swipe. This
+        // reload also covers anything recorded in needsReloadAfterSwipe. The list holds the
+        // previewed page, so there's nothing meaningful to animate from.
         isSwiping = false
+        reloadData(animated: false)
+        applyBackgroundColor(for: colorForPage(pageIndex))
     }
 
     func pagerPageCount() -> Int {

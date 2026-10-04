@@ -6,6 +6,11 @@ final class DueDatePopoverController: NSViewController {
     private let datePicker = NSDatePicker()
     private let initialDate: Date?
     private let onCommit: (Date?) -> Void
+    /// Closes the popover. The presenter sets it to the popover's `performClose`; by default
+    /// it closes the NSPopover found up the responder chain (a popover is its content view
+    /// controller's next responder). `dismiss(nil)` does nothing here, since the controller
+    /// was never presented, only set as the popover's content.
+    var close: (() -> Void)?
 
     init(dueDate: Date?, onCommit: @escaping (Date?) -> Void) {
         self.initialDate = dueDate
@@ -77,10 +82,33 @@ final class DueDatePopoverController: NSViewController {
 
     @objc private func saveTapped() { commit(Calendar.current.startOfDay(for: datePicker.dateValue)) }
     @objc private func clearTapped() { commit(nil) }
-    @objc private func cancelTapped() { dismiss(nil) }
+    @objc private func cancelTapped() { closePopover() }
+
+    /// Esc cancels, wherever focus is in the popover.
+    override func cancelOperation(_ sender: Any?) { closePopover() }
 
     private func commit(_ date: Date?) {
         onCommit(date)
-        dismiss(nil)
+        closePopover()
+    }
+
+    private func closePopover() {
+        if let close { return close() }
+        var responder = nextResponder
+        while let current = responder {
+            if let popover = current as? NSPopover { return popover.performClose(nil) }
+            responder = current.nextResponder
+        }
+    }
+
+    /// Opens toward whichever side of the row has more room in the window, so a row near
+    /// the top doesn't put the popover above the window. In a flipped anchor `maxY` is
+    /// the row's bottom edge.
+    static func preferredEdge(rowInWindow row: NSRect, windowHeight: CGFloat, anchorIsFlipped: Bool) -> NSRectEdge {
+        let roomBelow = row.minY
+        let roomAbove = windowHeight - row.maxY
+        let below: NSRectEdge = anchorIsFlipped ? .maxY : .minY
+        let above: NSRectEdge = anchorIsFlipped ? .minY : .maxY
+        return roomBelow >= roomAbove ? below : above
     }
 }
