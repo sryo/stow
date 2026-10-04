@@ -347,7 +347,7 @@ final class FlyoutKeycap: NSView {
 /// The field shown while recording: "Type a shortcut", or the refused keys, outlined
 /// in the accent color (danger while a shortcut is refused).
 private final class RecordingField: NSView {
-    private let placeholder = FlyoutLabel.text("Type a shortcut", size: 11.5, color: FlyoutColors.inkSecondary)
+    private let placeholder = FlyoutLabel.text("Press keys", size: 11.5, color: FlyoutColors.inkSecondary)
     private var caps: [FlyoutKeycap] = []
     private var isRejected = false
 

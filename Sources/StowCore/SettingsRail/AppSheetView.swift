@@ -476,7 +476,7 @@ final class AppSheetFooterView: RailFlippedView {
         cloud.frame = NSRect(x: 0, y: y, width: 16, height: 13)
         var right = bounds.width
         if showsVersion {
-            let v = ceil(version.intrinsicContentSize.width) + 2
+            let v = ceil(version.intrinsicContentSize.width) + 6
             version.frame = NSRect(x: right - v, y: y - 1, width: v, height: 15)
             right -= v + 2
             separator.frame = NSRect(x: right - 8, y: y - 1, width: 8, height: 15)
@@ -524,7 +524,7 @@ enum AllShortcutsPopover {
 
     static func show(relativeTo anchor: NSView) {
         let rows = rows()
-        let width: CGFloat = 250, rowHeight: CGFloat = 20
+        let width: CGFloat = 280, rowHeight: CGFloat = 20
         let content = RailFlippedView(frame: NSRect(x: 0, y: 0, width: width, height: CGFloat(rows.count) * rowHeight + 46))
         let heading = FlyoutLabel.section("All shortcuts")
         heading.frame = NSRect(x: 14, y: 12, width: width - 28, height: 12)

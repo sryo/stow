@@ -315,6 +315,8 @@ final class SettingsRailController: NSObject {
             guard let self, let id = self.editingId, self.model.workspaces.count > 1 else { return }
             self.editingId = nil
             self.editorPanel.dismiss()
+            // The main window takes the keyboard back, so ⌘Z reaches its undo manager.
+            self.view.window?.makeKey()
             WorkspaceDeletion.delete(id, model: self.model, in: self.view.window)
         }
     }

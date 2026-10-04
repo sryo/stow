@@ -12,8 +12,14 @@ enum UndoToast {
         guard let window else { onExpire(); return }
         let view = ToastView(message: message)
         let size = view.fittingSize
-        let width = min(size.width, max(140, window.frame.width - 12))
-        let frame = NSRect(x: window.frame.midX - width / 2, y: window.frame.minY + 14, width: width, height: size.height)
+        // Centered under the window; in the 52pt rail it's wider than the window, so it
+        // stays on screen rather than inside the window.
+        let width = size.width
+        var x = window.frame.midX - width / 2
+        if let screen = window.screen?.visibleFrame {
+            x = min(max(x, screen.minX + 8), screen.maxX - 8 - width)
+        }
+        let frame = NSRect(x: x, y: window.frame.minY + 14, width: width, height: size.height)
         let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -84,7 +90,7 @@ private final class ToastView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var fittingSize: NSSize {
-        NSSize(width: 14 + ceil(label.intrinsicContentSize.width) + 12 + undo.fittingWidth + 8, height: 36)
+        NSSize(width: 14 + ceil(label.intrinsicContentSize.width) + 6 + 12 + undo.fittingWidth + 8, height: 36)
     }
 
     override func layout() {
