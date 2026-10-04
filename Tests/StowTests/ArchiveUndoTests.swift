@@ -161,7 +161,7 @@ final class ArchiveUndoTests: XCTestCase {
         _ = model.addLink(urlString: "https://example.com/page", title: "Page", parentId: nil)
         harness.host(width: 400)
         let url = try XCTUnwrap(URL(string: "https://example.com/page"))
-        harness.controller.stow(url: url, title: "Page", into: model.currentWorkspace.id)
+        harness.controller.links.stow(url: url, title: "Page", into: model.currentWorkspace.id)
         XCTAssertEqual(Toast.currentMessage, "Already in \(workspaceName)")
     }
 
@@ -169,7 +169,7 @@ final class ArchiveUndoTests: XCTestCase {
         setenv("STOW_NO_AUTOMATION", "Arc", 1)
         defer { unsetenv("STOW_NO_AUTOMATION") }
         harness.host(width: 400)
-        harness.controller.reportFrontTabUnavailable()
+        harness.controller.links.reportFrontTabUnavailable()
         XCTAssertEqual(Toast.currentMessage, "Allow Stow to control Arc")
     }
 

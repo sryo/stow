@@ -132,8 +132,8 @@ final class RailCoordinator {
             self?.main.showWorkspaceMenu(for: id, in: dot, at: NSPoint(x: dot.bounds.width - 4, y: dot.isFlipped ? 0 : dot.bounds.height),
                                          editorAnchor: dot.bounds, edge: .besideWindow)
         }
-        railView.onOpenLink = { [weak self] link in self?.main.openLink(link) }
-        railView.onOpenFolder = { [weak self] folder in self?.main.openLinksInFolder(folder) }
+        railView.onOpenLink = { [weak self] link in self?.main.links.openLink(link) }
+        railView.onOpenFolder = { [weak self] folder in self?.main.links.openLinksInFolder(folder) }
         railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
         railView.onCopySnippet = { [weak self] id in
             guard let self, case .snippet(let snippet)? = self.model.nodeById(id) else { return }

@@ -17,6 +17,8 @@ final class MainViewController: NSViewController {
     private let titleSettingsButton = NSButton()
     /// The workspace rail and the Settings rail.
     private(set) lazy var rail = RailCoordinator(main: self)
+    /// Opening and stowing links.
+    private(set) lazy var links = LinkActions(model: model, window: { [weak self] in self?.view.window })
     private var railView: RailView { rail.railView }
     /// Rename, Edit URL, due date and snippet flyouts, for the list, the mosaic and the rail.
     let itemFlyouts = ItemFlyouts()
@@ -134,12 +136,12 @@ final class MainViewController: NSViewController {
         observeAppearanceChanges()
         let tabline = TablineController.shared
         tabline.bind(model: model)
-        tabline.onOpenLink = { [weak self] link in self?.openLink(link) }
+        tabline.onOpenLink = { [weak self] link in self?.links.openLink(link) }
         tabline.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         // The Tabline shows the active workspace, so that's where its ghost tab is stowed.
         tabline.onStowURL = { [weak self] url, title in
             guard let self else { return nil }
-            return self.stow(url: url, title: title, into: tabline.content.workspaceId)
+            return self.links.stow(url: url, title: title, into: tabline.content.workspaceId)
         }
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
@@ -229,7 +231,7 @@ final class MainViewController: NSViewController {
             }
         }
         nodeListViewController.onOpenLinkIn = { [weak self] link, choice in
-            self?.openLink(link, in: choice)
+            self?.links.openLink(link, in: choice)
         }
         workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
             guard let self else { return }
@@ -447,7 +449,7 @@ final class MainViewController: NSViewController {
             guard let self, let node = self.model.nodeById(nodeId) else { return }
             switch node {
             case .link(let link):
-                self.openLink(link)
+                self.links.openLink(link)
             case .snippet:
                 self.copySnippetToClipboard(nodeId)
             default:
@@ -514,13 +516,13 @@ final class MainViewController: NSViewController {
             self.model.updateLinkUrl(id: nodeId, newUrl: newUrl)
             // Fetch new title and favicon for the updated URL
             if let url = URL(string: newUrl) {
-                self.fetchTitleForNewLink(id: nodeId, url: url)
+                self.links.fetchTitleForNewLink(id: nodeId, url: url)
             }
         }
 
         nodeListViewController.onOpenFolderLinks = { [weak self] folderId in
             guard let self, let node = self.model.nodeById(folderId), case .folder(let folder) = node else { return }
-            self.openLinksInFolder(folder)
+            self.links.openLinksInFolder(folder)
         }
 
         nodeListViewController.onBulkOpenLinks = { [weak self] nodeIds in
@@ -528,7 +530,7 @@ final class MainViewController: NSViewController {
             for nodeId in nodeIds {
                 if let node = self.model.findNode(id: nodeId, in: self.model.currentWorkspace.items),
                    case .link(let link) = node {
-                    self.openLink(link)
+                    self.links.openLink(link)
                 }
             }
         }
@@ -601,8 +603,8 @@ final class MainViewController: NSViewController {
         actions.setDueDate = { [weak self] id in self?.showDatePickerForTask(id) }
         actions.editSnippet = { [weak self] id in self?.showSnippetEditor(id) }
         actions.copySnippet = { [weak self] id in self?.copySnippetToClipboard(id) }
-        actions.openIn = { [weak self] link, choice in self?.openLink(link, in: choice) }
-        actions.openFolder = { [weak self] folder in self?.openLinksInFolder(folder) }
+        actions.openIn = { [weak self] link, choice in self?.links.openLink(link, in: choice) }
+        actions.openFolder = { [weak self] folder in self?.links.openLinksInFolder(folder) }
         actions.newFolderInside = { [weak self] id in self?.createFolderAndBeginRename(parentId: id) }
         actions.moveToNewWorkspace = { [weak self] ids in self?.moveToNewWorkspace(ids) }
         actions.moveToNewFolder = { [weak self] ids in self?.moveToNewFolder(ids) }
@@ -1170,43 +1172,9 @@ final class MainViewController: NSViewController {
 
     private var bottomBar: NSView?
 
-    /// Saves the front tab of the browser the user was last in to the active workspace (on
-    /// Settings, the one you came from). Runs from the footer, the rail's "+" and the global
-    /// Stow front tab shortcut.
+    /// ⌥⌘S from any app (AppDelegate): stows the front browser tab.
     func stowFrontTab() {
-        guard let bundleId = ActiveBrowserTracker.shared.lastActiveBundleId else { NSSound.beep(); return }
-        let workspaceId = model.activeWorkspaceId
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let tab = BrowserTabService.frontTab(bundleId: bundleId)
-            await MainActor.run {
-                guard let self else { return }
-                guard let tab else { self.reportFrontTabUnavailable(); return }
-                self.stow(url: tab.url, title: tab.title, into: workspaceId)
-            }
-        }
-    }
-
-    /// The front tab couldn't be read: say so when it's Automation permission (with a
-    /// way to fix it), otherwise just beep.
-    func reportFrontTabUnavailable() {
-        guard let browser = AppPreferences.shared.automationDeniedBrowser() else { NSSound.beep(); return }
-        Toast.show("Allow Stow to control \(browser)", action: Toast.Action(title: "Fix") {
-            AppPreferences.shared.openAutomationSettings()
-        }, in: view.window)
-    }
-
-    /// The one stow path: top of the workspace, once per page, then a title fetch.
-    @discardableResult
-    func stow(url: URL, title: String, into workspaceId: UUID?) -> AppModel.StowResult {
-        let result = model.stowLink(url: url, title: title, workspaceId: workspaceId)
-        switch result {
-        case .added(let id):
-            fetchTitleForNewLink(id: id, url: url)
-        case .alreadyPresent(let id):
-            let name = model.workspaces.first { ws in ws.items.flattenIds().contains(id) }?.name ?? model.activeWorkspace.name
-            Toast.show("Already in \(name)", in: view.window, duration: Toast.briefDuration * 2)
-        }
-        return result
+        links.stowFrontTab()
     }
 
     private func updateSettingsConstraints() {
@@ -1269,7 +1237,7 @@ final class MainViewController: NSViewController {
                 if isCompleted { model.toggleTaskCompletion(id: id) }
             case .link(let url, let defaultTitle):
                 id = model.addLink(urlString: url.absoluteString, title: defaultTitle, parentId: parentId)
-                fetchTitleForNewLink(id: id, url: url)
+                links.fetchTitleForNewLink(id: id, url: url)
             case .snippet(let title, let content):
                 id = model.addSnippet(title: title, content: content, language: nil, parentId: parentId)
             }
@@ -1287,51 +1255,6 @@ final class MainViewController: NSViewController {
         // Don't paste when settings are showing
         if model.state.isSettingsSelected { return }
         importClipboardContent()
-    }
-
-    /// Switches to the link's tab if it's open in any browser; otherwise opens it in the
-    /// workspace's "Opens in" browser (by default the browser you're using). Holding Option
-    /// opens a fresh tab instead. `override` is a one-off Open in ▸ choice from the link's menu.
-    func openLink(_ link: Link, in override: OpensIn? = nil) {
-        guard let url = URL(string: link.url) else { return }
-        let target = override.map {
-            LinkTarget(bundleId: $0.bundleId, profile: $0.profile)
-        } ?? LinkTarget.forWorkspace(model.activeWorkspaceId)
-        Task.detached(priority: .userInitiated) {
-            if target.focusesOpenTab, await BrowserTabService.focusIfOpen(url: url) { return }
-            await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
-        }
-    }
-
-    func openLinksInFolder(_ folder: Folder) {
-        let links = collectLinks(in: folder)
-        guard !links.isEmpty else { return }
-        let target = LinkTarget.forWorkspace(model.activeWorkspaceId)
-        // One tabs snapshot covers every link — avoids 20 detached Tasks each
-        // re-querying every running browser on bulk open.
-        Task.detached(priority: .userInitiated) {
-            let tabs = await BrowserTabService.tabsByCanonicalURL()
-            for link in links {
-                guard let url = URL(string: link.url) else { continue }
-                let key = BrowserTabService.canonicalize(url)
-                if target.focusesOpenTab, let tab = tabs[key], BrowserTabService.focus(tab: tab) { continue }
-                await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
-            }
-        }
-    }
-
-    private func collectLinks(in folder: Folder) -> [Link] {
-        folder.children.flattenLinks()
-    }
-
-    // MARK: - URL Utilities
-
-    private func fetchTitleForNewLink(id: UUID, url: URL) {
-        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
-        LinkTitleService.shared.fetchTitle(for: url, linkId: id) { [weak self] title in
-            guard let self, let title else { return }
-            _ = self.model.updateLinkTitleIfDefault(id: id, newTitle: title)
-        }
     }
 
     @objc private func handleFaviconUpdate(_ notification: Notification) {
@@ -1487,7 +1410,7 @@ final class MainViewController: NSViewController {
         guard let node = nodeListViewController.visibleNode(at: index) else { return }
         switch node {
         case .link(let link):
-            openLink(link)
+            links.openLink(link)
         case .folder(let folder):
             if !searchCoordinator.isSearchActive {
                 model.setFolderExpanded(id: folder.id, isExpanded: !folder.isExpanded)
