@@ -19,6 +19,9 @@ final class ScrollWheelPageController {
     /// At most this many pages per gesture (nil: as far as the swipe goes).
     var maxPagesPerSwipe: Int?
 
+    /// Whether the system asks for reduced motion; replaceable in tests.
+    var reduceMotion: () -> Bool = { RailMotion.reduceMotion }
+
     /// Whether the pager should intercept scroll events.
     var isEnabled: Bool = true
 
@@ -51,12 +54,10 @@ final class ScrollWheelPageController {
 
     func attach(to window: NSWindow) {
         detach()
-        NSLog("[PAGER] attaching event monitor to window")
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self else { return event }
             return self.handleScrollEvent(event)
         }
-        NSLog("[PAGER] event monitor attached: \(eventMonitor != nil)")
     }
 
     func detach() {
@@ -95,9 +96,7 @@ final class ScrollWheelPageController {
     // MARK: - Event Handling
 
     private func handleScrollEvent(_ event: NSEvent) -> NSEvent? {
-        NSLog("[PAGER] scroll dX=%.1f dY=%.1f precise=%d phase=%lu momentum=%lu", event.scrollingDeltaX, event.scrollingDeltaY, event.hasPreciseScrollingDeltas ? 1 : 0, event.phase.rawValue, event.momentumPhase.rawValue)
-        guard isEnabled else { NSLog("[PAGER] disabled"); return event }
-        guard let delegate else { NSLog("[PAGER] no delegate"); return event }
+        guard isEnabled, let delegate else { return event }
 
         // Don't mutate pager state while the window is hidden — otherwise the
         // workspace appears on a different page than the user left it on.
@@ -116,30 +115,17 @@ final class ScrollWheelPageController {
         // Horizontal paging should always work regardless of focus state.
 
         // Only handle trackpad (continuous) scroll events
-        guard event.hasPreciseScrollingDeltas else {
-            NSLog("[PAGER] not precise deltas")
-            return event
-        }
+        guard event.hasPreciseScrollingDeltas else { return event }
 
         let deltaX = event.scrollingDeltaX
         let deltaY = event.scrollingDeltaY
 
         switch trackingState {
         case .idle:
-            let result = handleIdleEvent(event, deltaX: deltaX, deltaY: deltaY, delegate: delegate)
-            if trackingState != .idle {
-                NSLog("[PAGER] idle -> %@ dX=%.1f dY=%.1f", String(describing: trackingState), deltaX, deltaY)
-            }
-            return result
+            return handleIdleEvent(event, deltaX: deltaX, deltaY: deltaY, delegate: delegate)
         case .undecided:
-            let prevState = trackingState
-            let result = handleUndecidedEvent(event, deltaX: deltaX, deltaY: deltaY, delegate: delegate)
-            if trackingState != prevState {
-                NSLog("[PAGER] undecided -> %@ accX=%.1f accY=%.1f", String(describing: trackingState), accumulatedDeltaX, accumulatedDeltaY)
-            }
-            return result
+            return handleUndecidedEvent(event, deltaX: deltaX, deltaY: deltaY, delegate: delegate)
         case .trackingHorizontal:
-            NSLog("[PAGER] tracking dX=%.1f accX=%.1f", deltaX, accumulatedDeltaX)
             return handleTrackingEvent(event, deltaX: deltaX, deltaY: deltaY, delegate: delegate)
         }
     }
@@ -313,8 +299,8 @@ final class ScrollWheelPageController {
         snapTargetPage = page
         snapStartTime = CACurrentMediaTime()
 
-        // If already at target, finish immediately
-        if abs(currentOffset - snapTargetOffset) < 0.001 {
+        // Already at the target, or Reduce Motion: land on the page without the slide.
+        if abs(currentOffset - snapTargetOffset) < 0.001 || reduceMotion() {
             delegate?.pagerDidUpdateOffset(snapTargetOffset)
             delegate?.pagerDidSnapToPage(page)
             return

@@ -54,6 +54,8 @@ final class NodeListViewController: NSViewController {
     private var isDraggingItems = false
     private var pendingInsertedIds: Set<UUID> = []
     private let rowAnimationDuration: TimeInterval = 0.16
+    /// Whether the system asks for reduced motion; replaceable in tests.
+    var reduceMotion: () -> Bool = { RailMotion.reduceMotion }
     private let rowAnimationOffset: CGFloat = 10
 
     // Multi-selection support
@@ -655,7 +657,9 @@ final class NodeListViewController: NSViewController {
     }
 
     private func applyVisibleRows(_ newRows: [NodeListRow]) {
-        if isSearchActive || collectionView.window == nil {
+        let animates = RailMotion.animates(windowVisible: collectionView.window != nil, swiping: false,
+                                           reduceMotion: reduceMotion())
+        if isSearchActive || !animates {
             visibleRows = newRows
             collectionView.reloadData()
             return
@@ -767,6 +771,7 @@ final class NodeListViewController: NSViewController {
     }
 
     private func animateInsert(item: NSCollectionViewItem) {
+        guard !reduceMotion() else { return }
         let view = item.view
         view.wantsLayer = true
         let finalOrigin = view.frame.origin
