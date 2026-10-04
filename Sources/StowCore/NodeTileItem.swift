@@ -80,7 +80,13 @@ private final class NodeTileView: BaseView {
             meta = count == 1 ? "1 item" : "\(count) items"
         case .link(let favicon, let domain):
             style = .link
-            if let favicon { favicon.isTemplate = false; iconView.image = favicon; iconView.contentTintColor = nil } else { setSymbol("link", size: 15) }
+            if let favicon {
+                favicon.isTemplate = false
+                iconView.image = favicon
+            } else {
+                iconView.image = SiteGlyph.tileImage(title: content.title, host: domain ?? "", size: 26)
+            }
+            iconView.contentTintColor = nil
             meta = domain ?? ""
             openDot.isHidden = !content.isOpen
         case .task(let done, let due):
@@ -106,13 +112,14 @@ private final class NodeTileView: BaseView {
         metaLabel.stringValue = meta
         metaLabel.alignment = style == .link ? .left : .right
         if isDone {
-            titleLabel.attributedStringValue = NSAttributedString(string: content.title, attributes: [
+            titleLabel.attributedStringValue = NSAttributedString(string: content.title, attributes: StowTheme.singleLineAttributes([
                 .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                 .font: metrics.linkTitleFont,
                 .foregroundColor: metrics.secondaryColor,
-            ])
+            ]))
         }
-        setAccessibilityLabel("\(content.typeName), \(content.title)\(meta.isEmpty ? "" : ", \(meta)")")
+        let open = content.isOpen && style == .link ? ", open in browser" : ""
+        setAccessibilityLabel("\(content.typeName), \(content.title)\(meta.isEmpty ? "" : ", \(meta)")\(open)")
         layer?.cornerRadius = style == .task ? 10 : 12
         iconView.layer?.cornerRadius = style == .link ? 7 : 0
         needsLayout = true

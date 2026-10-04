@@ -308,18 +308,20 @@ final class NodeRowView: BaseView {
                 iconView.image = favicon
                 iconView.contentTintColor = nil
             } else {
-                setIcon(symbol: "link", tint: metrics.iconTintColor)
+                iconView.image = SiteGlyph.tileImage(title: content.title, host: domain ?? "",
+                                                     size: metrics.mode == .rail ? 28 : metrics.iconSize)
+                iconView.contentTintColor = nil
             }
             metaText = domain
 
         case .task(let isCompleted, let dueDate):
             setIcon(symbol: isCompleted ? "checkmark.circle.fill" : "circle", tint: isCompleted ? metrics.secondaryColor : metrics.iconTintColor)
             if isCompleted {
-                editableTitle.attributedText = NSAttributedString(string: content.title, attributes: [
+                editableTitle.attributedText = NSAttributedString(string: content.title, attributes: StowTheme.singleLineAttributes([
                     .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                     .foregroundColor: metrics.secondaryColor,
                     .font: titleFont,
-                ])
+                ]))
             }
             if isCompleted {
                 metaText = "done"
@@ -445,6 +447,7 @@ final class NodeRowView: BaseView {
         case .snippet(let language):
             if let language { parts.append(language) }
         }
+        if content.isOpen { parts.append("open in browser") }
         if content.isArchived { parts.append("archived") }
         if isSelected { parts.append("selected") }
         return parts.joined(separator: ", ")

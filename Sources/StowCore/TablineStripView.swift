@@ -64,29 +64,12 @@ struct TablinePalette {
     }
 }
 
-/// Favicon, or a colored letter tile when the site has none.
-enum TablineGlyph {
-    private static let tileColors = ["#5E6AD2", "#24292F", "#0A84FF", "#A259FF", "#1A73E8", "#5B3F8C",
-                                     "#4A154B", "#2684FC", "#D93025", "#188038", "#C2410C", "#D99A00",
-                                     "#FF6600", "#B31B1B", "#635BFF", "#0F8F86"]
+/// The Tabline's name for the shared site glyph.
+typealias TablineGlyph = SiteGlyph
+
+/// Drawing for the shared site glyph: the favicon, or the letter tile when there is none.
+extension SiteGlyph {
     nonisolated(unsafe) private static var imageCache: [String: NSImage] = [:]
-
-    static func host(of urlString: String) -> String {
-        let host = URL(string: urlString)?.host?.lowercased() ?? ""
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    static func tileColor(for host: String) -> NSColor {
-        // djb2: stable across launches, unlike Hasher.
-        var hash: UInt64 = 5381
-        for byte in host.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
-        return StowTheme.RGB(hex: tileColors[Int(hash % UInt64(tileColors.count))])!.platformColor
-    }
-
-    static func letter(title: String, host: String) -> String {
-        let source = title.isEmpty ? host : title
-        return source.first { $0.isLetter || $0.isNumber }.map { String($0).uppercased() } ?? "•"
-    }
 
     static func favicon(_ path: String?) -> NSImage? {
         guard let path else { return nil }
@@ -103,26 +86,44 @@ enum TablineGlyph {
             ring.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), xRadius: radius + 1.5, yRadius: radius + 1.5).fill()
         }
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         if let image = favicon(faviconPath) {
             NSGraphicsContext.saveGraphicsState()
-            path.addClip()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
             image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             NSGraphicsContext.restoreGraphicsState()
             return
         }
         let host = host(of: url)
+        drawTile(letters: letters(title: title, host: host), host: host, in: rect)
+    }
+
+    /// The letter tile alone: a rounded square in the host's color with a hairline edge.
+    static func drawTile(letters: String, host: String, in rect: NSRect) {
+        let radius = max(3, (rect.width * 0.26).rounded())
         tileColor(for: host).setFill()
-        path.fill()
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
         NSColor.black.withAlphaComponent(0.18).setStroke()
         let ringPath = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25), xRadius: radius, yRadius: radius)
         ringPath.lineWidth = 0.5
         ringPath.stroke()
-        let text = letter(title: title, host: host) as NSString
-        let font = NSFont.systemFont(ofSize: (rect.height * 0.62).rounded(), weight: .bold)
+        let text = letters as NSString
+        let scale: CGFloat = letters.count > 1 ? 0.46 : 0.62
+        let font = NSFont.systemFont(ofSize: max(5, (rect.height * scale).rounded()), weight: .bold)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
         let size = text.size(withAttributes: attrs)
         text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attrs)
+    }
+
+    /// A letter tile image for a site with no favicon, sized for list rows and tiles.
+    static func tileImage(title: String, host: String, size: CGFloat) -> NSImage {
+        let host = normalizedHost(host)
+        let letters = letters(title: title, host: host)
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
+            drawTile(letters: letters, host: host, in: rect)
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 
     /// A 16pt image for menus.
@@ -328,6 +329,52 @@ final class TablineStripView: NSView {
     }
 
     func rect(of kind: Kind) -> NSRect? { items.first { $0.kind == kind }?.rect }
+
+    // MARK: - Accessibility
+
+    /// The strip draws its parts, so VoiceOver gets one button element per drawn rect.
+    private final class PartElement: NSAccessibilityElement {
+        var onPress: (() -> Void)?
+        override func accessibilityPerformPress() -> Bool {
+            onPress?()
+            return true
+        }
+    }
+
+    override func isAccessibilityElement() -> Bool { false }
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    override func accessibilityLabel() -> String? { "Tabline, \(model.name)" }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard !isLip else { return [] }
+        return items.map { item in
+            let element = PartElement()
+            element.setAccessibilityParent(self)
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityLabel(accessibilityLabel(for: item.kind))
+            element.setAccessibilityFrameInParentSpace(item.rect)
+            element.onPress = { [weak self] in self?.onActivate?(item.kind, item.rect) }
+            return element
+        }
+    }
+
+    private func accessibilityLabel(for kind: Kind) -> String {
+        func open(_ i: Int) -> String { model.liveIndices.contains(i) ? ", open in browser" : "" }
+        switch kind {
+        case .chip: return "\(model.name), switch workspace"
+        case .tab(let i):
+            guard case .link(let link) = model.entries[i] else { return "" }
+            let host = TablineGlyph.host(of: link.url)
+            return "\(link.title), link\(host.isEmpty ? "" : ", \(host)")\(open(i))"
+        case .group(let i):
+            guard case .group(let folder, let links) = model.entries[i] else { return "" }
+            return "\(folder.name), folder, \(links.count) sites\(open(i))"
+        case .ghost: return model.ghost.map { "Stow this page, \($0.host), to \(model.name)" } ?? ""
+        case .overflow: return "\(hiddenEntryIndices.count) more"
+        case .search: return "Search all workspaces"
+        case .pocket: return "Tasks and snippets, \(model.pocketCount)"
+        }
+    }
 
     // MARK: - Drawing
 

@@ -115,9 +115,8 @@ struct NodeListView: View {
                     }
                     .onMove { indices, destination in
                         guard searchQuery.isEmpty else { return }
-                        guard let first = indices.first else { return }
-                        let nodeId = displayedItems[first].id
-                        viewModel.model.moveNode(id: nodeId, toParentId: nil, index: destination)
+                        RowMove.apply(indices, to: destination, shown: displayedItems, all: workspace.items,
+                                      parentId: nil, model: viewModel.model)
                     }
                 }
 
@@ -269,4 +268,16 @@ struct NodeListView: View {
 private struct FlatNode {
     let node: Node
     let depth: Int
+}
+
+/// Applies a SwiftUI `.onMove` to the model. `destination` is a gap among the rows the
+/// list shows, while `AppModel.moveNode` counts every item under the parent.
+enum RowMove {
+    static func apply(_ indices: IndexSet, to destination: Int, shown: [Node], all: [Node], parentId: UUID?, model: AppModel) {
+        guard let first = indices.first, shown.indices.contains(first) else { return }
+        let id = shown[first].id
+        guard let index = ListReorder.modelIndex(forSlot: destination, moving: id,
+                                                 visibleIds: shown.map(\.id), allIds: all.map(\.id)) else { return }
+        model.moveNode(id: id, toParentId: parentId, index: index)
+    }
 }

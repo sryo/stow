@@ -9,11 +9,7 @@ final class SnippetEditorView: NSView {
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
     private var onSave: ((String, String, String?) -> Void)?
 
-    private static let languages = [
-        "Plain Text", "Swift", "Python", "JavaScript", "TypeScript",
-        "HTML", "CSS", "JSON", "Bash", "Go", "Rust", "Java", "C", "C++",
-        "Ruby", "SQL", "Markdown", "YAML", "XML"
-    ]
+    private static let plainText = "Plain Text"
 
     init(snippet: Snippet, onSave: @escaping (String, String, String?) -> Void) {
         self.onSave = onSave
@@ -21,9 +17,10 @@ final class SnippetEditorView: NSView {
         setupViews()
         titleField.stringValue = snippet.title
         textView.string = snippet.content
-        if let language = snippet.language,
-           let index = Self.languages.firstIndex(of: language) {
-            languagePopup.selectItem(at: index)
+        let language = SnippetLanguage.normalized(snippet.language)
+        languagePopup.addItems(withTitles: [Self.plainText] + SnippetLanguage.choices(including: language))
+        if let language {
+            languagePopup.selectItem(withTitle: language)
         }
     }
 
@@ -42,7 +39,6 @@ final class SnippetEditorView: NSView {
 
         // Language selector
         languagePopup.translatesAutoresizingMaskIntoConstraints = false
-        languagePopup.addItems(withTitles: Self.languages)
 
         // Text view in scroll view
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -111,8 +107,7 @@ final class SnippetEditorView: NSView {
     @objc private func handleSave() {
         let title = titleField.stringValue
         let content = textView.string
-        let selectedLanguage = languagePopup.titleOfSelectedItem
-        let language = selectedLanguage == "Plain Text" ? nil : selectedLanguage
+        let language = languagePopup.indexOfSelectedItem > 0 ? languagePopup.titleOfSelectedItem : nil
         onSave?(title, content, language)
         window?.close()
     }

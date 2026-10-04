@@ -65,9 +65,8 @@ struct NodeRowView: View {
                     .environmentObject(viewModel)
             }
             .onMove { indices, destination in
-                guard let first = indices.first else { return }
-                let nodeId = folder.children[first].id
-                viewModel.model.moveNode(id: nodeId, toParentId: folder.id, index: destination)
+                RowMove.apply(indices, to: destination, shown: folder.children, all: folder.children,
+                              parentId: folder.id, model: viewModel.model)
             }
         } label: {
             nodeLabel(
@@ -92,9 +91,11 @@ struct NodeRowView: View {
             title: link.title,
             nodeId: link.id,
             meta: domain,
-            iconImage: favicon
+            iconImage: favicon,
+            site: (link.title, SiteGlyph.host(of: link.url))
         )
         .contentShape(Rectangle())
+        .accessibilityAddTraits(.isButton)
         .onTapGesture {
             let urlString = link.url.contains("://") ? link.url : "https://\(link.url)"
             if let url = URL(string: urlString) {
@@ -147,6 +148,7 @@ struct NodeRowView: View {
             badge: snippet.language
         )
         .contentShape(Rectangle())
+        .accessibilityAddTraits(.isButton)
         .onTapGesture {
             UIPasteboard.general.string = snippet.content
             snippetCopied.toggle()
@@ -189,7 +191,8 @@ struct NodeRowView: View {
         metaIsOverdue: Bool = false,
         badge: String? = nil,
         emphasized: Bool = false,
-        iconImage: UIImage? = nil
+        iconImage: UIImage? = nil,
+        site: (title: String, host: String)? = nil
     ) -> some View {
         if isEditing {
             HStack(spacing: 8) {
@@ -218,6 +221,8 @@ struct NodeRowView: View {
                             .scaledToFit()
                             .frame(width: 20, height: 20)
                             .clipShape(RoundedRectangle(cornerRadius: 5))
+                    } else if let site {
+                        SiteGlyphTile(title: site.title, host: site.host)
                     } else {
                         Image(systemName: systemImage)
                             .font(.body.weight(.medium))
@@ -465,18 +470,16 @@ struct SnippetEditorSheet: View {
     @State private var language: String
     private let originalTitle: String
 
-    private let languages = [
-        "", "Swift", "Python", "JavaScript", "TypeScript", "Go", "Rust",
-        "Java", "Kotlin", "C", "C++", "Ruby", "PHP", "HTML", "CSS",
-        "SQL", "Shell", "Markdown", "JSON", "YAML"
-    ]
+    private let languages: [String]
 
     init(snippetId: UUID, initialTitle: String, initialContent: String, initialLanguage: String?) {
         self.snippetId = snippetId
         self.originalTitle = initialTitle
         _title = State(initialValue: initialTitle)
         _content = State(initialValue: initialContent)
-        _language = State(initialValue: initialLanguage ?? "")
+        let language = SnippetLanguage.normalized(initialLanguage)
+        _language = State(initialValue: language ?? "")
+        languages = [""] + SnippetLanguage.choices(including: language)
     }
 
     var body: some View {
@@ -520,5 +523,28 @@ struct SnippetEditorSheet: View {
                 }
             }
         }
+    }
+}
+
+/// The shared site letter tile, for links without a favicon.
+struct SiteGlyphTile: View {
+    let title: String
+    let host: String
+    var size: CGFloat = 20
+
+    var body: some View {
+        let letters = SiteGlyph.letters(title: title, host: host)
+        RoundedRectangle(cornerRadius: (size * 0.26).rounded(), style: .continuous)
+            .fill(Color(SiteGlyph.tileColor(for: host)))
+            .overlay(
+                RoundedRectangle(cornerRadius: (size * 0.26).rounded(), style: .continuous)
+                    .stroke(Color.black.opacity(0.18), lineWidth: 0.5)
+            )
+            .overlay(
+                Text(letters)
+                    .font(.system(size: (size * (letters.count > 1 ? 0.46 : 0.62)).rounded(), weight: .bold))
+                    .foregroundStyle(.white)
+            )
+            .frame(width: size, height: size)
     }
 }

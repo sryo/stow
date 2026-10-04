@@ -61,6 +61,35 @@ final class TablineStripViewTests: XCTestCase {
         XCTAssertEqual(TablineGhost(url: url, title: "A page title without a site name", host: "example.com").label, "Stow example.com")
     }
 
+    func testEveryStripPartIsAVoiceOverButton() {
+        let view = strip(width: 1100)
+        let children = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+        // chip, five entries, ghost, search, pocket
+        XCTAssertEqual(children.count, 9)
+        XCTAssertTrue(children.allSatisfy { $0.accessibilityRole() == .button })
+        let labels = children.compactMap { $0.accessibilityLabel() }
+        XCTAssertTrue(labels.contains { $0.hasPrefix("GitHub") }, "labels: \(labels)")
+        XCTAssertTrue(labels.contains { $0.contains("open in browser") && $0.hasPrefix("Linear") }, "labels: \(labels)")
+        XCTAssertFalse(labels.contains { $0.contains("open in browser") && $0.hasPrefix("Vercel") }, "labels: \(labels)")
+        XCTAssertTrue(labels.contains { $0.hasPrefix("Design refs") }, "labels: \(labels)")
+        // Each element's frame is the drawn part, in screen space via the strip.
+        let tab = view.rect(of: .tab(1))!
+        guard let github = children.first(where: { $0.accessibilityLabel()?.hasPrefix("GitHub") == true }) else {
+            return XCTFail("no GitHub element")
+        }
+        XCTAssertEqual(github.accessibilityFrameInParentSpace(), tab)
+    }
+
+    func testPressingAStripElementActivatesThatPart() {
+        let view = strip(width: 1100)
+        var activated: TablineStripView.Kind?
+        view.onActivate = { kind, _ in activated = kind }
+        let children = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+        let github = children.first { $0.accessibilityLabel()?.hasPrefix("GitHub") == true }
+        XCTAssertEqual(github?.accessibilityPerformPress(), true)
+        XCTAssertEqual(activated, .tab(1))
+    }
+
     func testRenderForComparison() throws {
         guard let dir = ProcessInfo.processInfo.environment["TABLINE_RENDER_DIR"] else { throw XCTSkip("TABLINE_RENDER_DIR not set") }
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {

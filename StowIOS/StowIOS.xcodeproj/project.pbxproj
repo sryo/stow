@@ -35,6 +35,7 @@
 		A3000003 /* StowWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C3000001 /* StowWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		X6DE897640320624840B9390 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */; };
 		XA0EFCD0C65EA7DCE563E131 /* WorkspaceChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */; };
+		XB1D0A11E57C0DE0000F1D01 /* ListReorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = XF1D0A11E57C0DE0000F1D01 /* ListReorderTests.swift */; };
 		X7E5514A57A55A380441F661 /* LiveActivitySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */; };
 		XD4152DA553298167882548F /* ShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X3AB5277E663379A99C5DD6D /* ShareTests.swift */; };
 		X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X759387879FFABF26212B51D /* ShareSheetModelTests.swift */; };
@@ -138,6 +139,7 @@
 		C5000001 /* StowIOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StowIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChoiceTests.swift; sourceTree = "<group>"; };
+		XF1D0A11E57C0DE0000F1D01 /* ListReorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListReorderTests.swift; sourceTree = "<group>"; };
 		XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivitySettingsTests.swift; sourceTree = "<group>"; };
 		X3AB5277E663379A99C5DD6D /* ShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTests.swift; sourceTree = "<group>"; };
 		X759387879FFABF26212B51D /* ShareSheetModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetModelTests.swift; sourceTree = "<group>"; };
@@ -315,6 +317,7 @@
 			children = (
 				XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */,
 				X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */,
+				XF1D0A11E57C0DE0000F1D01 /* ListReorderTests.swift */,
 				XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */,
 				X3AB5277E663379A99C5DD6D /* ShareTests.swift */,
 				X759387879FFABF26212B51D /* ShareSheetModelTests.swift */,
@@ -592,6 +595,7 @@
 			files = (
 				X6DE897640320624840B9390 /* TestSupport.swift in Sources */,
 				XA0EFCD0C65EA7DCE563E131 /* WorkspaceChoiceTests.swift in Sources */,
+				XB1D0A11E57C0DE0000F1D01 /* ListReorderTests.swift in Sources */,
 				X7E5514A57A55A380441F661 /* LiveActivitySettingsTests.swift in Sources */,
 				XD4152DA553298167882548F /* ShareTests.swift in Sources */,
 				X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */,
