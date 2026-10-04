@@ -158,16 +158,26 @@ if [ "$PRODUCTION" = true ]; then
 else
     # Development signing — use Apple Development identity if available (required for CloudKit),
     # fall back to ad-hoc if none found. Uses SHA-1 hash to avoid ambiguity with duplicate names.
+    # iCloud entitlements on macOS need a matching provisioning profile in the bundle, or
+    # the system kills the app at launch. Xcode keeps the Mac Team profile for the app id
+    # in UserData; StowDev.entitlements is the subset that profile allows (no push).
     DEV_IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Development" | head -1 | awk '{print $2}')
-    if [ -n "$DEV_IDENTITY" ]; then
+    DEV_PROFILE=""
+    for p in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.provisionprofile; do
+        [ -f "$p" ] || continue
+        if security cms -D -i "$p" 2>/dev/null | grep -q "<string>CL6XWJCS9R.com.stow.app</string>"; then DEV_PROFILE="$p"; break; fi
+    done
+    if [ -n "$DEV_IDENTITY" ] && [ -n "$DEV_PROFILE" ]; then
+        cp "$DEV_PROFILE" ".build/bundler/Stow.app/Contents/embedded.provisionprofile"
         codesign --force --deep \
             --sign "$DEV_IDENTITY" \
-            --entitlements "Stow.entitlements" \
+            --entitlements "StowDev.entitlements" \
             ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
-        echo "  ✓ Signed with $DEV_IDENTITY"
+        echo "  ✓ Signed with $DEV_IDENTITY and the Mac Team profile (iCloud and page color sync on)"
     else
-        codesign --force --deep --sign - --entitlements "Stow.entitlements" ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
-        echo "  ✓ Signed with ad-hoc signature (CloudKit sync requires Apple Development identity)"
+        # Without a profile, iCloud entitlements would get the app killed; sign ad-hoc without them.
+        codesign --force --deep --sign - ".build/bundler/Stow.app" 2>&1 | grep -v "replacing existing signature" || true
+        echo "  ✓ Signed ad-hoc (no Mac Team profile for com.stow.app, so iCloud is off)"
     fi
 fi
 
