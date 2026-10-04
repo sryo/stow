@@ -85,7 +85,7 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         menu.addItem(item("Export workspace…", #selector(export)))
 
         menu.addItem(.separator())
-        let delete = item("Delete workspace…", #selector(delete))
+        let delete = item("Delete", #selector(delete))
         delete.isEnabled = count > 1
         if count <= 1 { delete.toolTip = "The only workspace can't be deleted" }
         menu.addItem(delete)
@@ -189,13 +189,13 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func delete() {
-        guard let model, let window = presentingView?.window else { return }
-        WorkspaceDeletion.confirm(workspaceId, model: model, in: window)
+        guard let model else { return }
+        WorkspaceDeletion.delete(workspaceId, model: model, in: presentingView?.window)
     }
 }
 
-/// The one delete path for workspaces in Settings: always asks, naming the workspace and
-/// how many items it holds. Cancel is the default button.
+/// The one delete path for workspaces: it deletes at once and shows an undo toast
+/// (⌘Z works too), instead of asking first.
 @MainActor
 enum WorkspaceDeletion {
     static func itemCount(of workspace: Workspace) -> Int {
@@ -208,28 +208,51 @@ enum WorkspaceDeletion {
         return count(workspace.items)
     }
 
-    static func confirm(_ workspaceId: UUID, model: AppModel, in window: NSWindow, onDeleted: (() -> Void)? = nil) {
-        guard model.workspaces.count > 1, let workspace = model.workspaces.first(id: workspaceId) else { return }
-        let count = itemCount(of: workspace)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        if count > 0 {
-            alert.messageText = "Delete “\(workspace.name)” and its \(count) \(count == 1 ? "item" : "items")?"
-            alert.informativeText = "Its links, tasks and snippets will be removed. This can't be undone."
-        } else if !workspace.items.isEmpty {
-            alert.messageText = "Delete “\(workspace.name)”?"
-            alert.informativeText = "Its empty folders will be removed. This can't be undone."
-        } else {
-            alert.messageText = "Delete “\(workspace.name)”?"
-            alert.informativeText = "It's empty. This can't be undone."
+    /// A deleted workspace that can still come back.
+    @MainActor
+    final class Pending {
+        let workspace: Workspace
+        let index: Int
+        private weak var model: AppModel?
+        private(set) var isOpen = true
+
+        init(workspace: Workspace, index: Int, model: AppModel) {
+            self.workspace = workspace
+            self.index = index
+            self.model = model
         }
-        alert.addButton(withTitle: "Cancel")
-        let delete = alert.addButton(withTitle: "Delete")
-        delete.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertSecondButtonReturn else { return }
-            model.deleteWorkspace(id: workspaceId)
-            onDeleted?()
+
+        var message: String { "Deleted “\(workspace.name.isEmpty ? "Untitled" : workspace.name)”" }
+
+        func undo() {
+            guard isOpen else { return }
+            isOpen = false
+            model?.restoreWorkspace(workspace, at: index)
+            CloudSyncManager.shared.scheduleLocalChanges()
         }
+
+        /// The undo window closed: its favicons can go.
+        func expire() {
+            guard isOpen else { return }
+            isOpen = false
+            model?.cleanOrphanedFavicons()
+        }
+    }
+
+    /// Deletes now and returns what an Undo needs, or nil for the only workspace.
+    static func deleteUndoably(_ workspaceId: UUID, model: AppModel) -> Pending? {
+        guard model.workspaces.count > 1, let index = model.workspaces.firstIndex(id: workspaceId) else { return nil }
+        let pending = Pending(workspace: model.workspaces[index], index: index, model: model)
+        model.deleteWorkspace(id: workspaceId, keepFavicons: true)
+        return pending
+    }
+
+    /// Deletes and shows the undo toast at the bottom of `window`.
+    static func delete(_ workspaceId: UUID, model: AppModel, in window: NSWindow?, onDeleted: (() -> Void)? = nil) {
+        guard let pending = deleteUndoably(workspaceId, model: model) else { return }
+        onDeleted?()
+        window?.undoManager?.registerUndo(withTarget: pending) { $0.undo() }
+        window?.undoManager?.setActionName("Delete Workspace")
+        UndoToast.show(pending.message, in: window, onUndo: { pending.undo() }, onExpire: { pending.expire() })
     }
 }

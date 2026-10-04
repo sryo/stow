@@ -7,9 +7,6 @@ import AppKit
 final class SettingsRailController: NSObject {
     let view = SettingsRailView()
     private let model: AppModel
-    /// Owns Import, so the sheet runs the same importer as the Settings page.
-    weak var settingsPage: SettingsContentViewController?
-
     private(set) var navigation = SettingsRailNavigation()
     /// Leave Settings for this workspace.
     var onLeave: ((UUID) -> Void)?
@@ -44,6 +41,8 @@ final class SettingsRailController: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(appResigned), name: NSApplication.didResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .stowAppPreferencesChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .workspaceOpensInChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .tablineSettingChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
 
     var isFlyoutOpen: Bool { editorPanel.isVisible || sheetPanel.isVisible }
@@ -91,7 +90,7 @@ final class SettingsRailController: NSObject {
         if let editingId, !workspaces.contains(where: { $0.id == editingId }) { closeEditor() }
         let returnName = returnTarget.flatMap { id in workspaces.first { $0.id == id }?.name }
         view.configure(tiles: tiles, cameFrom: navigation.cameFrom, selected: editingId, sheetOpen: isSheetOpen,
-                       badge: AppPreferences.shared.needsAccessibility, returnName: returnName)
+                       badge: AppSheet.showsBadge(needs: AppPreferences.shared.permissionNeeds), returnName: returnName)
         if let editingId, let ws = workspaces.first(where: { $0.id == editingId }) {
             editor.configure(editorContent(for: ws, identities: identities))
             positionEditor()
@@ -365,15 +364,8 @@ final class SettingsRailController: NSObject {
             guard let self, self.isSheetOpen else { return }
             self.positionSheet()
         }
-        sheet.onImportArc = { [weak self] in
-            guard let self, let page = self.settingsPage else { return }
-            page.onImportFinished = { [weak self] text, ok in self?.sheet.showImportStatus(text, success: ok) }
-            page.importFromArc()
-        }
-        sheet.onImportFile = { [weak self] in
-            guard let self, let page = self.settingsPage else { return }
-            page.onImportFinished = { [weak self] text, ok in self?.sheet.showImportStatus(text, success: ok) }
-            page.importWorkspaceFile()
+        sheet.onImport = {
+            NotificationCenter.default.post(name: .stowShowImport, object: nil)
         }
     }
 

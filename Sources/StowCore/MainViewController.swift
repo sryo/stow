@@ -1155,7 +1155,7 @@ final class MainViewController: NSViewController {
     }
 
     @objc private func importFromArcFromEmptyState() {
-        settingsViewController.importFromArc()
+        ImportCoordinator.shared.importFromArc()
     }
 
     private var isPasteAvailable: Bool {
@@ -1383,7 +1383,6 @@ final class MainViewController: NSViewController {
         }
         railView.onStowTab = { [weak self] in self?.stowFrontTab() }
         railView.onSettings = { [weak self] in self?.enterSettings() }
-        settingsRail.settingsPage = settingsViewController
         settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         settingsRail.onPreviewColor = { [weak self] colorId in
             self?.applyBackgroundColor(for: colorId ?? .settingsBackground)

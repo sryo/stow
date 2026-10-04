@@ -6,6 +6,7 @@ extension Notification.Name {
     public static let attachmentSettingChanged = Notification.Name("attachmentSettingChanged")
     public static let sidebarPositionChanged = Notification.Name("sidebarPositionChanged")
     public static let toggleSidebarShortcutChanged = Notification.Name("toggleSidebarShortcutChanged")
+    public static let cloudSyncStatusChanged = Notification.Name("cloudSyncStatusChanged")
 }
 
 public enum UserDefaultsKeys {

@@ -466,3 +466,96 @@ private final class FlyoutNameFieldCell: NSTextFieldCell {
         super.select(withFrame: inset(rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
     }
 }
+
+// MARK: - Switch
+
+/// The sheet's on/off switch: a 30×18 pill, system green when on, with a white knob.
+final class FlyoutSwitch: FlyoutControl {
+    var isOn: Bool { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
+    var onChange: ((Bool) -> Void)?
+    private let knob = CALayer()
+
+    init(isOn: Bool, accessibilityLabel: String) {
+        self.isOn = isOn
+        super.init(frame: NSRect(x: 0, y: 0, width: 30, height: 18))
+        layer?.cornerRadius = 9
+        knob.cornerRadius = 7
+        knob.shadowOpacity = 0.25
+        knob.shadowRadius = 1
+        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        layer?.addSublayer(knob)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(accessibilityLabel)
+        setAccessibilityValue(isOn ? 1 : 0)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 30, height: 18) }
+
+    override func updateLayer() {
+        let on = isOn
+        layer?.backgroundColor = on ? NSColor.systemGreen.cgColor : flyoutCG(FlyoutColors.field.withAlphaComponent(0.12))
+        layer?.borderWidth = on ? 0 : 1
+        layer?.borderColor = flyoutCG(FlyoutColors.line)
+        CATransaction.begin()
+        CATransaction.setDisableActions(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        knob.frame = NSRect(x: on ? bounds.width - 16 : 2, y: (bounds.height - 14) / 2, width: 14, height: 14)
+        knob.backgroundColor = NSColor.white.cgColor
+        CATransaction.commit()
+        alphaValue = isEnabled ? 1 : 0.45
+        applyFocusRing()
+    }
+
+    override func performAction() {
+        guard isEnabled else { return }
+        isOn.toggle()
+        onChange?(isOn)
+    }
+}
+
+// MARK: - Link
+
+/// "All shortcuts…", "Import…": 11.5pt secondary ink, underlined, ink on hover.
+final class FlyoutLink: FlyoutControl {
+    private let label = NSTextField(labelWithString: "")
+    var title: String { didSet { applyTitle() } }
+
+    init(_ title: String, fontSize: CGFloat = 11.5) {
+        self.title = title
+        super.init(frame: .zero)
+        label.font = FlyoutFonts.ui(fontSize)
+        label.setAccessibilityElement(false)
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.link)
+        applyTitle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func applyTitle() {
+        setAccessibilityLabel(title)
+        needsDisplay = true
+        invalidateIntrinsicContentSize()
+    }
+
+    var fittingWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 2 }
+    override var intrinsicContentSize: NSSize { NSSize(width: fittingWidth, height: 16) }
+
+    override func layout() {
+        super.layout()
+        let h = label.intrinsicContentSize.height
+        label.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width + 2, height: h)
+    }
+
+    override func updateLayer() {
+        let color = isHovered ? FlyoutColors.ink : FlyoutColors.inkSecondary
+        label.attributedStringValue = NSAttributedString(string: title, attributes: [
+            .font: label.font as Any, .foregroundColor: color,
+            .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: color.withAlphaComponent(0.5),
+        ])
+        applyFocusRing()
+    }
+}

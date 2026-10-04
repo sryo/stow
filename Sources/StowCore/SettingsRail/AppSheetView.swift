@@ -1,65 +1,79 @@
 import AppKit
 
-/// The app sheet behind the rail's quiet cell: everything that isn't about one
-/// workspace, in AppSheet.sections order. It changes settings through AppPreferences
-/// (shared with the Settings page) and hands Import to the Settings page's importer.
+/// The app sheet: Window, Keyboard and Appearance, plus a permissions line that shows
+/// only when something is missing. It's the flyout behind the rail's sliders cell and,
+/// in its `.page` style, the groups below Workspaces on the Settings page, so both
+/// widths share one look. Every change goes through AppPreferences.
 @MainActor
 final class AppSheetView: RailFlippedView {
+    enum Style { case flyout, page }
+
     static let width: CGFloat = 276
 
-    var onImportArc: (() -> Void)?
-    var onImportFile: (() -> Void)?
+    let style: Style
     var onHeightChange: (() -> Void)?
+    /// Import…, from the footer: the same source picker as File ▸ Import….
+    var onImport: (() -> Void)?
 
     private let preferences = AppPreferences.shared
     private let title = FlyoutLabel.text("App settings", size: 13, weight: .bold)
     private let version = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private var sectionLabels: [AppSheetSection: NSTextField] = [:]
+    private let syncsTag = SyncsTag()
 
-    private var themeControl: FlyoutSegmented!
+    // Window
+    private var windowControl: FlyoutSegmented!
+    private var permissionRows: [PermissionRow] = []
+    private let sideLabel = FlyoutLabel.text("Browser side", size: 11.5, color: FlyoutColors.inkSecondary)
+    private var sideControl: FlyoutSegmented!
+    private let windowHelp = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
+    private let tablineTitle = FlyoutLabel.text("Tabline", size: 13, weight: .medium)
+    private let tablineDetail = FlyoutLabel.text("Tabs ride above your browser · ⌥⌘L", size: 11, color: FlyoutColors.inkSecondary)
+    private let tablineSwitch = FlyoutSwitch(isOn: false, accessibilityLabel: "Tabline")
+    private let loginTitle = FlyoutLabel.text("Open at login", size: 13, weight: .medium)
+    private let loginDetail = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
+    private let loginSwitch = FlyoutSwitch(isOn: false, accessibilityLabel: "Open at login")
+    private var loginError: String?
+
+    // Keyboard
+    private let toggleLabel = FlyoutLabel.text("Toggle Stow", size: 11.5, color: FlyoutColors.inkSecondary)
+    private let frontTabLabel = FlyoutLabel.text("Stow front tab", size: 11.5, color: FlyoutColors.inkSecondary)
+    let toggleRecorder = FlyoutShortcutRecorder(action: .toggleStow)
+    let frontTabRecorder = FlyoutShortcutRecorder(action: .stowFrontTab)
+    private let keyboardHelp = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
+    private let allShortcuts = FlyoutLink("All shortcuts…", fontSize: 11)
+    private var keyboardStatus: (text: String, kind: FlyoutShortcutRecorder.StatusKind)?
+
+    // Appearance
+    private let tintLabel = FlyoutLabel.text("Page color", size: 11.5, color: FlyoutColors.inkSecondary)
     private var tintControl: FlyoutSegmented!
     private var tintSwatches: [TintSwatch] = []
-    private var windowControl: FlyoutSegmented!
-    private let windowHelp = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
-    private let warningMark = FlyoutLabel.text("!", size: 11, weight: .heavy, color: FlyoutColors.warning)
-    private let grantButton = FlyoutButton("Open Settings…", height: 20, fontSize: 11)
-    private var sideControl: FlyoutSegmented!
-    private let shortcutRecorder = FlyoutShortcutRecorder(action: .toggleStow)
-    private let shortcutStatus = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
-    private let footerLine = NSView()
-    private let importLabel = FlyoutLabel.text("Import", size: 11.5, color: FlyoutColors.inkSecondary)
-    private let arcButton = FlyoutButton("From Arc…", height: 22, fontSize: 11.5)
-    private let fileButton = FlyoutButton("From file…", height: 22, fontSize: 11.5)
-    private let importStatus = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
-    private var lineLabels: [NSTextField] = []
+
+    let footer = AppSheetFooterView(showsVersion: false)
 
     /// The workspace whose color the page-color previews use.
     var previewColor: WorkspaceColorId = .defaultColor() {
         didSet { tintSwatches.forEach { $0.colorId = previewColor } }
     }
 
-    init() {
+    init(style: Style = .flyout) {
+        self.style = style
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 388))
-        version.stringValue = "Stow " + ((Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "")
+        version.stringValue = "Stow " + AppSheetFooterView.versionString
         version.alignment = .right
-        addSubview(title)
-        addSubview(version)
-        for section in AppSheet.sections where section != .importing {
+        if style == .flyout {
+            addSubview(title)
+            addSubview(version)
+            addSubview(footer)
+            footer.onImport = { [weak self] in self?.onImport?() }
+        }
+        for section in AppSheet.sections {
             let label = FlyoutLabel.section(section.title)
             sectionLabels[section] = label
             addSubview(label)
         }
-
-        themeControl = FlyoutSegmented([.init(title: "System"), .init(title: "Light"), .init(title: "Dark")],
-                                       selected: preferences.theme.rawValue, accessibilityLabel: "Theme")
-        themeControl.onChange = { [weak self] index in
-            self?.preferences.setTheme(AppPreferences.Theme(rawValue: index) ?? .system)
-        }
-        let tints = StowTheme.TintMode.allCases
-        tintSwatches = tints.map { TintSwatch(tint: $0) }
-        tintControl = FlyoutSegmented(zip(["Full", "Soft", "None"], tintSwatches).map { .init(title: $0, leading: $1) },
-                                      selected: tints.firstIndex(of: preferences.tint) ?? 0, accessibilityLabel: "Page color")
-        tintControl.onChange = { [weak self] index in self?.preferences.setTint(tints[index]) }
+        syncsTag.text = style == .page ? "syncs with iPhone" : "syncs"
+        addSubview(syncsTag)
 
         windowControl = FlyoutSegmented([
             .init(title: "Floating", leading: Self.glyph("macwindow")),
@@ -69,42 +83,44 @@ final class AppSheetView: RailFlippedView {
         windowControl.onChange = { [weak self] index in
             self?.preferences.setWindowMode(AppWindowMode(rawValue: index) ?? .floating)
         }
-        grantButton.target = self
-        grantButton.action = #selector(grantTapped)
         sideControl = FlyoutSegmented([.init(title: "Left"), .init(title: "Right")],
                                       selected: preferences.browserSide, accessibilityLabel: "Browser side")
         sideControl.onChange = { [weak self] index in self?.preferences.setBrowserSide(index) }
-
-        shortcutRecorder.onShortcutChanged = {
-            NotificationCenter.default.post(name: .toggleSidebarShortcutChanged, object: nil)
-        }
-        shortcutRecorder.onStatusChanged = { [weak self] text, _ in
+        tablineDetail.toolTip = "The Tabline shows this workspace's links as tabs riding above your browser window."
+        tablineSwitch.onChange = { [weak self] on in self?.preferences.setTabline(on) }
+        loginSwitch.onChange = { [weak self] on in
             guard let self else { return }
-            self.shortcutStatus.stringValue = text ?? ""
-            self.needsLayout = true
-            self.onHeightChange?()
+            self.loginError = self.preferences.setOpenAtLogin(on)
+            self.refresh()
         }
-        shortcutRecorder.translatesAutoresizingMaskIntoConstraints = true
 
-        footerLine.wantsLayer = true
-        arcButton.target = self
-        arcButton.action = #selector(arcTapped)
-        fileButton.target = self
-        fileButton.action = #selector(fileTapped)
-
-        for (text, _) in [("Theme", 0), ("Page color", 1), ("Browser side", 2), ("Open links in", 3), ("Toggle Stow", 4)] {
-            let label = FlyoutLabel.text(text, size: 11.5, color: FlyoutColors.inkSecondary)
-            lineLabels.append(label)
-            addSubview(label)
+        for recorder in [toggleRecorder, frontTabRecorder] {
+            recorder.onStatusChanged = { [weak self] text, kind in
+                guard let self else { return }
+                self.keyboardStatus = text.map { ($0, kind) }
+                self.refreshKeyboardHelp()
+            }
         }
-        for view in [themeControl!, tintControl!, windowControl!, windowHelp, warningMark, grantButton, sideControl!,
-                     shortcutRecorder, shortcutStatus, footerLine, importLabel, arcButton, fileButton, importStatus] as [NSView] {
+        allShortcuts.target = self
+        allShortcuts.action = #selector(showAllShortcuts(_:))
+
+        let tints = StowTheme.TintMode.allCases
+        tintSwatches = tints.map { TintSwatch(tint: $0) }
+        tintControl = FlyoutSegmented(zip(tints.map(AppPreferences.tintTitle), tintSwatches).map { .init(title: $0, leading: $1) },
+                                      selected: tints.firstIndex(of: preferences.tint) ?? 0, accessibilityLabel: "Page color")
+        tintControl.onChange = { [weak self] index in self?.preferences.setTint(tints[index]) }
+
+        for view in [windowControl!, sideLabel, sideControl!, windowHelp, tablineTitle, tablineDetail, tablineSwitch,
+                     loginTitle, loginDetail, loginSwitch, toggleLabel, toggleRecorder, frontTabLabel, frontTabRecorder,
+                     keyboardHelp, allShortcuts, tintLabel, tintControl!] as [NSView] {
             addSubview(view)
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: .stowAppPreferencesChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: .alwaysOnTopSettingChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: .attachmentSettingChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSApplication.didBecomeActiveNotification, object: nil)
+        let center = NotificationCenter.default
+        for name in [Notification.Name.stowAppPreferencesChanged, .alwaysOnTopSettingChanged, .attachmentSettingChanged,
+                     .tablineSettingChanged, .stowTintModeChanged, NSApplication.didBecomeActiveNotification] {
+            center.addObserver(self, selector: #selector(refresh), name: name, object: nil)
+        }
+        center.addObserver(self, selector: #selector(shortcutsChanged), name: .toggleSidebarShortcutChanged, object: nil)
         refresh()
     }
 
@@ -123,144 +139,419 @@ final class AppSheetView: RailFlippedView {
     // MARK: State
 
     @objc func refresh() {
-        themeControl.selectedIndex = preferences.theme.rawValue
-        tintControl.selectedIndex = StowTheme.TintMode.allCases.firstIndex(of: preferences.tint) ?? 0
         let mode = preferences.windowMode
         windowControl.selectedIndex = mode.rawValue
-        let missing = preferences.needsAccessibility
-        warningMark.isHidden = !missing
-        grantButton.isHidden = !missing
-        if missing {
-            windowHelp.stringValue = "Needs Accessibility access"
-            windowHelp.textColor = FlyoutColors.ink
-        } else if mode == .attached {
-            windowHelp.stringValue = "Attached to the front browser window"
-            windowHelp.textColor = FlyoutColors.inkSecondary
-        } else {
-            windowHelp.stringValue = ""
-        }
         sideControl.selectedIndex = preferences.browserSide
-        sideControl.isEnabled = mode == .attached && !missing
+        windowHelp.stringValue = AppSheet.windowHelp(mode)
+        let needs = preferences.permissionNeeds
+        if needs.map(\.reason) != permissionRows.map(\.need.reason) {
+            permissionRows.forEach { $0.removeFromSuperview() }
+            permissionRows = needs.map { need in
+                let row = PermissionRow(need: need)
+                row.onFix = { [weak self] in self?.preferences.fix(need) }
+                addSubview(row)
+                return row
+            }
+        }
+        tablineSwitch.isOn = preferences.tablineEnabled
+        loginSwitch.isOn = preferences.openAtLogin
+        if let loginError {
+            loginDetail.stringValue = loginError
+            loginDetail.textColor = FlyoutColors.danger
+        } else if preferences.openAtLoginNeedsApproval {
+            loginDetail.stringValue = "Allow Stow in System Settings › Login Items"
+            loginDetail.textColor = FlyoutColors.warning
+        } else {
+            loginDetail.stringValue = ""
+        }
+        tintControl.selectedIndex = StowTheme.TintMode.allCases.firstIndex(of: preferences.tint) ?? 0
+        footer.refresh()
+        refreshKeyboardHelp()
+    }
+
+    @objc private func shortcutsChanged() {
+        toggleRecorder.reload()
+        frontTabRecorder.reload()
+    }
+
+    private func refreshKeyboardHelp() {
+        if let status = keyboardStatus {
+            keyboardHelp.stringValue = status.text
+            switch status.kind {
+            case .help: keyboardHelp.textColor = FlyoutColors.inkSecondary
+            case .success: keyboardHelp.textColor = FlyoutColors.inkSecondary
+            case .warning: keyboardHelp.textColor = FlyoutColors.warning
+            case .danger: keyboardHelp.textColor = FlyoutColors.danger
+            }
+            keyboardHelp.toolTip = status.text
+        } else {
+            keyboardHelp.stringValue = style == .page ? "Both work from any app" : "Works from any app."
+            keyboardHelp.textColor = FlyoutColors.inkSecondary
+            keyboardHelp.toolTip = nil
+        }
         needsLayout = true
         onHeightChange?()
     }
 
-    func showImportStatus(_ text: String, success: Bool) {
-        importStatus.stringValue = text
-        importStatus.textColor = success ? FlyoutColors.inkSecondary : FlyoutColors.danger
-        arcButton.title = "From Arc…"
-        needsLayout = true
-        onHeightChange?()
+    @objc private func showAllShortcuts(_ sender: NSView) {
+        AllShortcutsPopover.show(relativeTo: sender)
     }
-
-    @objc private func grantTapped() { preferences.openAccessibilitySettings() }
-
-    @objc private func arcTapped() {
-        arcButton.title = "Importing…"
-        needsLayout = true
-        onImportArc?()
-    }
-
-    @objc private func fileTapped() { onImportFile?() }
 
     // MARK: Layout
 
-    var preferredHeight: CGFloat {
-        layoutPieces(apply: false)
-    }
+    var preferredHeight: CGFloat { layoutPieces(apply: false, width: bounds.width) }
+
+    func preferredHeight(forWidth width: CGFloat) -> CGFloat { layoutPieces(apply: false, width: width) }
 
     override func layout() {
         super.layout()
-        _ = layoutPieces(apply: true)
+        layoutPieces(apply: true, width: bounds.width)
     }
 
-    /// Lays everything out top to bottom and returns the height it needs.
+    /// Lays everything out top to bottom and returns the height it needs. Below 236pt
+    /// of content, labels stack above their controls.
     @discardableResult
-    private func layoutPieces(apply: Bool) -> CGFloat {
-        let pad: CGFloat = 12, w = Self.width - pad * 2
+    private func layoutPieces(apply: Bool, width: CGFloat) -> CGFloat {
+        let pad: CGFloat = style == .flyout ? 12 : SettingsMetrics.rowPadding
+        let w = max(60, width - pad * 2)
+        let stacked = w < 236
         func place(_ view: NSView, _ rect: NSRect) { if apply { view.frame = rect } }
-        var y: CGFloat = 12
-        place(title, NSRect(x: pad + 2, y: y, width: 160, height: 16))
-        place(version, NSRect(x: Self.width - pad - 100, y: y + 2, width: 98, height: 14))
-        y += 16 + 2
+        var y: CGFloat = style == .flyout ? 12 : 0
+        if style == .flyout {
+            place(title, NSRect(x: pad + 2, y: y, width: 160, height: 16))
+            place(version, NSRect(x: width - pad - 100, y: y + 2, width: 98, height: 14))
+            y += 16 + 2
+        }
 
-        func header(_ section: AppSheetSection) {
-            y += 11
-            if let label = sectionLabels[section] { place(label, NSRect(x: pad + 2, y: y, width: w, height: 12)) }
+        func header(_ section: AppSheetSection, first: Bool = false) {
+            y += first && style == .page ? 4 : 11
+            if let label = sectionLabels[section] { place(label, NSRect(x: pad + 2, y: y, width: w - 2, height: 12)) }
             y += 12 + 5
         }
-        func line(_ labelIndex: Int, _ control: NSView, height: CGFloat) {
+        func line(_ label: NSTextField, _ control: NSView, height: CGFloat) {
             y += 6
-            place(lineLabels[labelIndex], NSRect(x: pad, y: y + (height - 14) / 2, width: 76, height: 14))
-            place(control, NSRect(x: pad + 76 + 8, y: y, width: w - 84, height: height))
+            if stacked {
+                place(label, NSRect(x: pad, y: y, width: w, height: 14))
+                y += 14 + 3
+                place(control, NSRect(x: pad, y: y, width: w, height: height))
+            } else {
+                place(label, NSRect(x: pad, y: y + (height - 14) / 2, width: 84, height: 14))
+                place(control, NSRect(x: pad + 84 + 4, y: y, width: w - 88, height: height))
+            }
             y += height
         }
+        func helpLine(_ label: NSTextField) {
+            y += 5
+            place(label, NSRect(x: pad + 2, y: y, width: w - 2, height: 14))
+            y += 14
+        }
+        func switchRow(_ titleLabel: NSTextField, _ detail: NSTextField, _ toggle: FlyoutSwitch) {
+            y += 8
+            let hasDetail = !detail.stringValue.isEmpty
+            let h: CGFloat = hasDetail ? 32 : 18
+            place(titleLabel, NSRect(x: pad, y: y, width: w - 40, height: 17))
+            detail.isHidden = !hasDetail
+            if hasDetail { place(detail, NSRect(x: pad, y: y + 17, width: w - 40, height: 14)) }
+            place(toggle, NSRect(x: pad + w - 30, y: y + (h - 18) / 2, width: 30, height: 18))
+            y += h
+        }
 
-        for section in AppSheet.sections {
+        for (index, section) in AppSheet.sections.enumerated() {
+            header(section, first: index == 0)
             switch section {
-            case .appearance:
-                header(section)
-                line(0, themeControl, height: 28)
-                line(1, tintControl, height: 28)
             case .window:
-                header(section)
                 place(windowControl, NSRect(x: pad, y: y, width: w, height: 28))
                 y += 28
-                if !windowHelp.stringValue.isEmpty {
-                    y += 5
-                    if preferences.needsAccessibility {
-                        // The warning wraps beside its button, as in the concept.
-                        let g = grantButton.fittingWidth
-                        windowHelp.maximumNumberOfLines = 2
-                        windowHelp.lineBreakMode = .byWordWrapping
-                        place(warningMark, NSRect(x: pad + 2, y: y + 7, width: 8, height: 14))
-                        place(windowHelp, NSRect(x: pad + 12, y: y, width: w - 12 - g - 10, height: 30))
-                        place(grantButton, NSRect(x: Self.width - pad - g, y: y + 5, width: g, height: 20))
-                        y += 30
-                    } else {
-                        windowHelp.maximumNumberOfLines = 1
-                        place(windowHelp, NSRect(x: pad + 2, y: y, width: w, height: 14))
-                        y += 14
-                    }
+                for row in permissionRows {
+                    y += 6
+                    let h = row.height(forWidth: w)
+                    place(row, NSRect(x: pad, y: y, width: w, height: h))
+                    y += h
                 }
-                windowHelp.isHidden = windowHelp.stringValue.isEmpty
-                line(2, sideControl, height: 28)
-            case .shortcut:
-                header(section)
-                line(4, shortcutRecorder, height: 26)
-                shortcutStatus.isHidden = shortcutStatus.stringValue.isEmpty
-                if !shortcutStatus.isHidden {
-                    y += 4
-                    place(shortcutStatus, NSRect(x: pad + 2, y: y, width: w - 2, height: 14))
-                    y += 14
-                }
-            case .importing:
-                y += 12
-                place(footerLine, NSRect(x: pad, y: y, width: w, height: 1))
-                y += 1 + 9
-                let f = fileButton.fittingWidth, a = arcButton.fittingWidth
-                place(fileButton, NSRect(x: Self.width - pad - f, y: y, width: f, height: 22))
-                place(arcButton, NSRect(x: Self.width - pad - f - 6 - a, y: y, width: a, height: 22))
-                place(importLabel, NSRect(x: pad, y: y + 4, width: 60, height: 14))
-                y += 22
-                importStatus.isHidden = importStatus.stringValue.isEmpty
-                if !importStatus.isHidden {
-                    y += 5
-                    place(importStatus, NSRect(x: pad, y: y, width: w, height: 14))
-                    y += 14
-                }
+                let attached = AppSheet.showsBrowserSide(preferences.windowMode)
+                sideLabel.isHidden = !attached
+                sideControl.isHidden = !attached
+                if attached { line(sideLabel, sideControl, height: 28) }
+                helpLine(windowHelp)
+                switchRow(tablineTitle, tablineDetail, tablineSwitch)
+                switchRow(loginTitle, loginDetail, loginSwitch)
+            case .keyboard:
+                line(toggleLabel, toggleRecorder, height: 26)
+                line(frontTabLabel, frontTabRecorder, height: 26)
+                y += 6
+                let link = allShortcuts.fittingWidth
+                let lines: CGFloat = keyboardStatus != nil && keyboardHelp.stringValue.count > 34 ? 2 : 1
+                keyboardHelp.maximumNumberOfLines = Int(lines)
+                keyboardHelp.lineBreakMode = lines > 1 ? .byWordWrapping : .byTruncatingTail
+                place(keyboardHelp, NSRect(x: pad + 2, y: y, width: w - link - 10, height: 14 * lines))
+                place(allShortcuts, NSRect(x: pad + w - link, y: y, width: link, height: 14))
+                y += 14 * lines
+            case .appearance:
+                let tag = syncsTag.fittingWidth
+                place(syncsTag, NSRect(x: pad + w - tag, y: y - 17, width: tag, height: 12))
+                line(tintLabel, tintControl, height: 28)
             }
         }
-        if apply { footerLine.layer?.backgroundColor = flyoutCG(FlyoutColors.line) }
-        return y + 10
+        if style == .flyout {
+            y += 12
+            place(footer, NSRect(x: pad, y: y, width: w, height: AppSheetFooterView.height))
+            y += AppSheetFooterView.height
+            return y + 10
+        }
+        return y + 4
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        footerLine.layer?.backgroundColor = flyoutCG(FlyoutColors.line)
         tintSwatches.forEach { $0.needsDisplay = true }
     }
 }
+
+// MARK: - Permission row
+
+/// "! Tabline and Attached need Accessibility   [Fix…]"
+private final class PermissionRow: RailFlippedView {
+    let need: PermissionNeed
+    var onFix: (() -> Void)?
+    private let mark = FlyoutLabel.text("!", size: 11, weight: .heavy, color: FlyoutColors.warning)
+    private let text = FlyoutLabel.wrapping("", size: 11.5, color: FlyoutColors.ink)
+    private let fix = FlyoutButton("Fix…", height: 22, fontSize: 11.5)
+
+    init(need: PermissionNeed) {
+        self.need = need
+        super.init(frame: .zero)
+        text.stringValue = need.reason
+        text.maximumNumberOfLines = 2
+        fix.target = self
+        fix.action = #selector(fixTapped)
+        fix.setAccessibilityLabel("Fix: \(need.reason)")
+        addSubview(mark)
+        addSubview(text)
+        addSubview(fix)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func fixTapped() { onFix?() }
+
+    private func textWidth(_ width: CGFloat) -> CGFloat { width - 12 - fix.fittingWidth - 10 }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        let h = text.attributedStringValue.boundingRect(with: NSSize(width: textWidth(width) - 4, height: 60),
+                                                        options: [.usesLineFragmentOrigin]).height
+        return max(22, ceil(h) + 2)
+    }
+
+    override func layout() {
+        super.layout()
+        let f = fix.fittingWidth
+        mark.frame = NSRect(x: 2, y: (bounds.height - 14) / 2, width: 8, height: 14)
+        text.frame = NSRect(x: 12, y: 0, width: textWidth(bounds.width), height: bounds.height)
+        fix.frame = NSRect(x: bounds.width - f, y: (bounds.height - 22) / 2, width: f, height: 22)
+    }
+}
+
+// MARK: - Syncs tag
+
+/// "☁ syncs": Appearance's note that page color follows you to the iPhone.
+private final class SyncsTag: NSView {
+    private let icon = NSImageView()
+    private let label = FlyoutLabel.text("", size: 10.5, color: FlyoutColors.inkSecondary)
+    var text: String = "" { didSet { label.stringValue = text; needsLayout = true } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        icon.image = NSImage(systemSymbolName: "icloud.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 8.5, weight: .medium))
+        icon.contentTintColor = FlyoutColors.inkSecondary
+        addSubview(icon)
+        addSubview(label)
+        toolTip = "Page color is the same on your Mac and iPhone."
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    var fittingWidth: CGFloat { 13 + ceil(label.intrinsicContentSize.width) }
+
+    override func layout() {
+        super.layout()
+        icon.frame = NSRect(x: 0, y: 1, width: 12, height: 10)
+        label.frame = NSRect(x: 13, y: -1, width: bounds.width - 13, height: 13)
+    }
+}
+
+// MARK: - Footer
+
+/// "☁ Synced · 2 min ago            Import…": the iCloud line (red with a fix when sync
+/// is off) and the Import… link. On the Settings page it adds "· Stow 0.4".
+@MainActor
+final class AppSheetFooterView: RailFlippedView {
+    static let height: CGFloat = 26
+    static var versionString: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+    }
+
+    var onImport: (() -> Void)?
+    private let line = NSView()
+    private let cloud = NSImageView()
+    private let status = FlyoutLabel.text("", size: 11.5, color: FlyoutColors.inkSecondary)
+    private let fixButton = FlyoutLink("Open iCloud Settings…", fontSize: 11)
+    private let importLink = FlyoutLink("Import…")
+    private let separator = FlyoutLabel.text("·", size: 11.5, color: FlyoutColors.inkSecondary)
+    private let version = FlyoutLabel.text("", size: 11.5, color: FlyoutColors.inkSecondary)
+    private let showsVersion: Bool
+    private var timer: Timer?
+    private var isError = false
+
+    init(showsVersion: Bool) {
+        self.showsVersion = showsVersion
+        super.init(frame: .zero)
+        line.wantsLayer = true
+        addSubview(line)
+        cloud.image = NSImage(systemSymbolName: "icloud", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
+        addSubview(cloud)
+        addSubview(status)
+        fixButton.target = self
+        fixButton.action = #selector(openICloudSettings)
+        addSubview(fixButton)
+        importLink.target = self
+        importLink.action = #selector(importTapped)
+        importLink.toolTip = "Import from Arc, Chrome, Safari, an HTML bookmarks file or a Stow file"
+        addSubview(importLink)
+        version.stringValue = "Stow " + Self.versionString
+        if showsVersion {
+            addSubview(separator)
+            addSubview(version)
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: .cloudSyncStatusChanged, object: nil)
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        timer?.invalidate()
+        guard window != nil else { return }
+        // "2 min ago" keeps counting while the sheet is open.
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        refresh()
+    }
+
+    @objc func refresh() {
+        let sync = CloudSyncManager.shared
+        let line = AppSheet.syncLine(availability: sync.availability, lastSync: sync.lastSyncDate, signedOut: sync.isSignedOut)
+        status.stringValue = line.text
+        status.toolTip = line.isError && sync.availability == .disabledNoProvisioningProfile
+            ? "Development builds aren't signed for iCloud." : nil
+        isError = line.isError
+        // A signed-out account can be fixed in System Settings; an unsigned build can't.
+        fixButton.isHidden = !(line.isError && sync.availability != .disabledNoProvisioningProfile)
+        applyColors()
+        needsLayout = true
+    }
+
+    private func applyColors() {
+        let color = isError ? FlyoutColors.danger : FlyoutColors.inkSecondary
+        status.textColor = color
+        cloud.contentTintColor = color
+        line.layer?.backgroundColor = flyoutCG(FlyoutColors.line)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func layout() {
+        super.layout()
+        line.frame = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
+        let y: CGFloat = 10
+        cloud.frame = NSRect(x: 0, y: y, width: 16, height: 13)
+        var right = bounds.width
+        if showsVersion {
+            let v = ceil(version.intrinsicContentSize.width)
+            version.frame = NSRect(x: right - v, y: y - 1, width: v, height: 15)
+            right -= v + 2
+            separator.frame = NSRect(x: right - 8, y: y - 1, width: 8, height: 15)
+            right -= 10
+        }
+        let i = importLink.fittingWidth
+        importLink.frame = NSRect(x: right - i, y: y - 1, width: i, height: 15)
+        right -= i + 8
+        if !fixButton.isHidden {
+            let f = fixButton.fittingWidth
+            fixButton.frame = NSRect(x: right - f, y: y - 1, width: f, height: 15)
+            right -= f + 6
+        }
+        status.frame = NSRect(x: 19, y: y - 1, width: max(0, right - 19), height: 15)
+    }
+
+    @objc private func importTapped() { onImport?() }
+
+    @objc private func openICloudSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+// MARK: - All shortcuts
+
+/// "All shortcuts…": every Stow shortcut in one list. Menu shortcuts can be changed in
+/// System Settings › Keyboard › Keyboard Shortcuts › App Shortcuts.
+@MainActor
+enum AllShortcutsPopover {
+    static func rows() -> [(String, String)] {
+        let store = ShortcutStore()
+        var rows: [(String, String)] = HotkeyAction.allCases.map { action in
+            (action.title + " (any app)", store.shortcut(for: action)?.displayString ?? "None")
+        }
+        rows += [
+            ("Settings", "⌘,"), ("New workspace", "⌘N"), ("New folder", "⇧⌘N"), ("Find", "⌘F"),
+            ("Jump to item", "⌘J"), ("Workspace 1–9", "⌘1–9"), ("Next workspace", "⌃⇥"),
+            ("Previous workspace", "⌃⇧⇥"), ("On top ↔ Floating", "⌥⌘T"), ("Show Tabline", "⌥⌘L"),
+            ("Paste link", "⌘V"), ("Open item by letter", "a–z"),
+        ]
+        return rows
+    }
+
+    static func show(relativeTo anchor: NSView) {
+        let rows = rows()
+        let width: CGFloat = 250, rowHeight: CGFloat = 20
+        let content = RailFlippedView(frame: NSRect(x: 0, y: 0, width: width, height: CGFloat(rows.count) * rowHeight + 46))
+        let heading = FlyoutLabel.section("All shortcuts")
+        heading.frame = NSRect(x: 14, y: 12, width: width - 28, height: 12)
+        content.addSubview(heading)
+        for (i, row) in rows.enumerated() {
+            let y = 30 + CGFloat(i) * rowHeight
+            let name = FlyoutLabel.text(row.0, size: 12)
+            name.frame = NSRect(x: 12, y: y, width: 160, height: 16)
+            let keys = FlyoutLabel.text(row.1, size: 12, weight: .medium, color: FlyoutColors.inkSecondary)
+            keys.alignment = .right
+            keys.frame = NSRect(x: width - 92, y: y, width: 80, height: 16)
+            content.addSubview(name)
+            content.addSubview(keys)
+        }
+        let note = FlyoutLabel.text("Change menu shortcuts in System Settings › Keyboard.", size: 10.5, color: FlyoutColors.inkSecondary)
+        note.frame = NSRect(x: 12, y: content.frame.height - 18, width: width - 24, height: 14)
+        content.addSubview(note)
+        let controller = NSViewController()
+        controller.view = content
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        popover.contentSize = content.frame.size
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+}
+
+// MARK: - Tint swatch
 
 /// The 16×11 page preview leading each Page color segment.
 private final class TintSwatch: NSView {
@@ -284,4 +575,9 @@ private final class TintSwatch: NSView {
         edge.lineWidth = 1
         edge.stroke()
     }
+}
+
+extension Notification.Name {
+    /// Import… from a Settings footer: AppDelegate shows the File ▸ Import… source picker.
+    static let stowShowImport = Notification.Name("StowShowImport")
 }

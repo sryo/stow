@@ -99,8 +99,8 @@ final class GlobalHotkeyServiceTests: XCTestCase {
     let a = KeyboardShortcut(keyCode: UInt32(kVK_F17), carbonModifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
     let b = KeyboardShortcut(keyCode: UInt32(kVK_F18), carbonModifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
 
-    override func tearDown() {
-        MainActor.assumeIsolated { GlobalHotkeyService.shared.unregisterAll() }
+    override func tearDown() async throws {
+        GlobalHotkeyService.shared.unregisterAll()
     }
 
     func testRegistersOneHotkeyPerAction() {

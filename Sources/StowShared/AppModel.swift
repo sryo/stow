@@ -159,7 +159,22 @@ public final class AppModel {
         }
     }
 
-    public func deleteWorkspace(id: UUID) {
+    /// Puts back a workspace removed by `deleteWorkspace` (an undo), with the same IDs, at
+    /// `index` or at the end. Does nothing if it's already there.
+    public func restoreWorkspace(_ workspace: Workspace, at index: Int) {
+        guard !state.workspaces.contains(where: { $0.id == workspace.id }) else { return }
+        state.workspaces.insert(workspace, at: min(max(index, 0), state.workspaces.count))
+        persist()
+    }
+
+    /// Removes icon files no workspace references, after a delete's undo window closes.
+    public func cleanOrphanedFavicons() {
+        store.cleanOrphanedFavicons(state: state)
+    }
+
+    /// `keepFavicons` leaves the workspace's icon files on disk so an undo can restore it
+    /// whole; call `cleanOrphanedFavicons()` once it can no longer be undone.
+    public func deleteWorkspace(id: UUID, keepFavicons: Bool = false) {
         guard state.workspaces.count > 1 else { return }
         // Collect all node IDs before removing the workspace so we can sync deletions
         let nodeIds: [UUID]
@@ -179,7 +194,7 @@ public final class AppModel {
         var scheduled: Set<UUID> = [id]
         scheduled.formUnion(nodeIds)
         deletionScheduler?(scheduled)
-        store.cleanOrphanedFavicons(state: state)
+        if !keepFavicons { store.cleanOrphanedFavicons(state: state) }
     }
 
     public func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {

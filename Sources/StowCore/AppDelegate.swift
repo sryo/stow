@@ -22,7 +22,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         setupMenus()
         registerURLHandler()
         ActiveBrowserTracker.shared.start()
-        AppPreferences.shared.applyStoredTheme()
         #if DEBUG
         switch ProcessInfo.processInfo.environment["STOW_APPEARANCE"] {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
