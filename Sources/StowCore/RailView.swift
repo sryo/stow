@@ -20,6 +20,10 @@ final class RailView: NSView {
     var onCopySnippet: ((UUID) -> Void)?
     var onStowTab: (() -> Void)?
     var onNodeMenu: ((Node, NSView) -> Void)?
+    /// A link or folder dragged to a new place: its id and the `AppModel.moveNode` index.
+    var onReorder: ((UUID, Int) -> Void)?
+    /// A link or folder dropped on another workspace's dot.
+    var onMoveToWorkspace: ((UUID, UUID) -> Void)?
 
     private let gear = RailGlyphButton(glyph: .gear)
     private let separator = NSView()
@@ -31,6 +35,16 @@ final class RailView: NSView {
     private var cells: [RailCell] = []
     private var colors = StowTheme.colors(for: .defaultColor())
     private var openKeys: Set<String> = []
+    private var currentWorkspaceId: UUID?
+    private var itemIds: [UUID] = []
+    private var dragGhost: NSImageView?
+    private let dropBar = NSView()
+    private var dropTargetDot: RailDotButton? {
+        didSet {
+            oldValue?.isDropTarget = false
+            dropTargetDot?.isDropTarget = true
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,6 +87,9 @@ final class RailView: NSView {
 
     func configure(workspaces: [WorkspaceDot], selectedId: UUID?, colorId: WorkspaceColorId, items: [Node]) {
         colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
+        currentWorkspaceId = selectedId
+        itemIds = items.map(\.id)
+        cancelDrag()
 
         dotButtons.forEach { $0.removeFromSuperview() }
         dotButtons = workspaces.enumerated().map { i, ws in
@@ -132,6 +149,10 @@ final class RailView: NSView {
                 guard let self, let cell, let node = cell.node else { return }
                 self.onNodeMenu?(node, cell)
             }
+            cell.onDrag = { [weak self, weak cell] phase, windowPoint in
+                guard let self, let cell else { return }
+                self.handleDrag(cell, phase: phase, windowPoint: windowPoint)
+            }
             column.addSubview(cell)
             y += 40
         }
@@ -186,6 +207,101 @@ final class RailView: NSView {
             guard case .link(let link, _) = cell.kind, let url = URL(string: link.url) else { continue }
             cell.isOpen = openKeys.contains(BrowserTabService.canonicalize(url))
         }
+    }
+
+    // MARK: - Dragging
+
+    /// Links and folders, in rail order: the cells a drag can reorder.
+    private var reorderableCells: [RailCell] { cells.filter { $0.node != nil } }
+
+    private func handleDrag(_ cell: RailCell, phase: RailCell.DragPhase, windowPoint: NSPoint) {
+        let point = convert(windowPoint, from: nil)
+        switch phase {
+        case .began:
+            beginDrag(cell)
+            moveDrag(cell, to: point)
+        case .moved:
+            moveDrag(cell, to: point)
+        case .ended:
+            endDrag(cell, at: point)
+        }
+    }
+
+    private func beginDrag(_ cell: RailCell) {
+        cancelDrag()
+        let ghost = PassThroughImageView(image: cell.snapshot())
+        ghost.frame = convert(cell.bounds, from: cell)
+        ghost.alphaValue = 0.9
+        ghost.wantsLayer = true
+        ghost.layer?.shadowOpacity = 0.25
+        ghost.layer?.shadowRadius = 6
+        ghost.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        addSubview(ghost)
+        dragGhost = ghost
+        cell.alphaValue = 0.3
+        dropBar.wantsLayer = true
+        dropBar.layer?.cornerRadius = 1
+        dropBar.layer?.backgroundColor = resolvedCGColor(colors.inkPrimary)
+        dropBar.isHidden = true
+        column.addSubview(dropBar)
+    }
+
+    private func moveDrag(_ cell: RailCell, to point: NSPoint) {
+        dragGhost?.frame.origin = NSPoint(x: point.x - cell.bounds.width / 2, y: point.y - cell.bounds.height / 2)
+        if let target = dotDrop(at: point) {
+            dropTargetDot = dotButtons.first { $0.workspaceId == target }
+            // Fade the lifted copy so the swelling dot under it shows through.
+            dragGhost?.alphaValue = 0.35
+            dropBar.isHidden = true
+            return
+        }
+        dropTargetDot = nil
+        dragGhost?.alphaValue = 0.9
+        let frames = reorderableCells.map(\.frame)
+        let columnPoint = column.convert(point, from: self)
+        let slot = RailDrag.targetSlot(dragY: columnPoint.y, cellFrames: frames)
+        guard let id = cell.node?.id, !frames.isEmpty,
+              RailDrag.modelIndex(forSlot: slot, moving: id, railIds: reorderableCells.compactMap { $0.node?.id }, itemIds: itemIds) != nil else {
+            dropBar.isHidden = true
+            return
+        }
+        let y = slot < frames.count ? frames[slot].minY - 2 : frames[frames.count - 1].maxY + 1
+        dropBar.frame = NSRect(x: 9, y: y, width: column.bounds.width - 18, height: 2)
+        dropBar.isHidden = false
+    }
+
+    private func endDrag(_ cell: RailCell, at point: NSPoint) {
+        defer {
+            dragGhost?.removeFromSuperview()
+            dragGhost = nil
+            dropBar.removeFromSuperview()
+            dropTargetDot = nil
+            cell.alphaValue = 1
+        }
+        guard let id = cell.node?.id else { return }
+        if let workspace = dotDrop(at: point) {
+            onMoveToWorkspace?(id, workspace)
+            return
+        }
+        let slot = RailDrag.targetSlot(dragY: column.convert(point, from: self).y, cellFrames: reorderableCells.map(\.frame))
+        if let index = RailDrag.modelIndex(forSlot: slot, moving: id, railIds: reorderableCells.compactMap { $0.node?.id }, itemIds: itemIds) {
+            onReorder?(id, index)
+        }
+    }
+
+    /// Clears any drag still on screen, e.g. when the rail reloads mid-drag.
+    private func cancelDrag() {
+        dragGhost?.removeFromSuperview()
+        dragGhost = nil
+        dropBar.removeFromSuperview()
+        dropTargetDot = nil
+        cells.forEach { $0.alphaValue = 1 }
+    }
+
+    private func dotDrop(at point: NSPoint) -> UUID? {
+        guard let current = currentWorkspaceId else { return nil }
+        let dots = dotButtons.compactMap { b in b.workspaceId.map { ($0, convert(b.dotRect, from: b)) } }
+        return RailDrag.workspaceDrop(at: point, dots: dots, current: current)
     }
 
     private func activate(_ cell: RailCell) {
@@ -294,6 +410,11 @@ final class RailView: NSView {
     }
 }
 
+/// The lifted copy that follows the pointer; clicks go through it to the rail.
+private final class PassThroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
@@ -309,7 +430,12 @@ private final class RailDotButton: NSButton {
     var gap: NSColor = .clear { didSet { needsDisplay = true } }
     var isCurrent = false { didSet { needsDisplay = true; invalidateIntrinsicContentSize() } }
     var onRightClick: (() -> Void)?
+    /// A dragged item is over this dot: it swells, like the mockup's drop state.
+    var isDropTarget = false { didSet { needsDisplay = true } }
     private var isHovered = false { didSet { needsDisplay = true } }
+
+    /// The 12pt dot itself, centered in the button.
+    var dotRect: NSRect { NSRect(x: bounds.midX - 6, y: bounds.midY - 6, width: 12, height: 12) }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -334,7 +460,7 @@ private final class RailDotButton: NSButton {
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let d: CGFloat = isHovered ? 15 : 12
+        let d: CGFloat = isDropTarget ? 18 : (isHovered ? 15 : 12)
         let dot = NSRect(x: bounds.midX - d / 2, y: bounds.midY - d / 2, width: d, height: d)
         if isCurrent {
             ink.setFill()
@@ -361,9 +487,27 @@ private final class RailCell: NSView {
         case snippets([Snippet])
     }
 
+    enum DragPhase { case began, moved, ended }
+
     let kind: Kind
     var onActivate: (() -> Void)?
     var onRightClick: (() -> Void)?
+    /// Drag phases with the pointer in window coordinates; only links and folders drag.
+    var onDrag: ((DragPhase, NSPoint) -> Void)?
+    private var mouseDownPoint: NSPoint?
+    private var isDragging = false
+
+    // The window moves by its background; a cell press must drag the cell instead.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    func snapshot() -> NSImage {
+        let image = NSImage(size: bounds.size)
+        if let rep = bitmapImageRepForCachingDisplay(in: bounds) {
+            cacheDisplay(in: bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        return image
+    }
     var isOpen = false { didSet { openDot.isHidden = !isOpen } }
 
     private let backgroundLayer = CALayer()
@@ -514,8 +658,30 @@ private final class RailCell: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = event.locationInWindow
+        isDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard node != nil, let start = mouseDownPoint else { return }
+        let point = event.locationInWindow
+        if !isDragging {
+            guard hypot(point.x - start.x, point.y - start.y) >= RailDrag.startThreshold else { return }
+            isDragging = true
+            onDrag?(.began, point)
+        } else {
+            onDrag?(.moved, point)
+        }
+    }
+
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onActivate?() }
+        defer { mouseDownPoint = nil; isDragging = false }
+        if isDragging {
+            onDrag?(.ended, event.locationInWindow)
+        } else if bounds.contains(convert(event.locationInWindow, from: nil)) {
+            onActivate?()
+        }
     }
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
 

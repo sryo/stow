@@ -1383,6 +1383,8 @@ final class MainViewController: NSViewController {
             NSPasteboard.general.setString(snippet.content, forType: .string)
         }
         railView.onStowTab = { [weak self] in self?.stowFrontTab() }
+        railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
+        railView.onMoveToWorkspace = { [weak self] id, workspaceId in self?.model.moveNodeToWorkspace(id: id, workspaceId: workspaceId) }
         railView.onSettings = { [weak self] in self?.enterSettings() }
         settingsRail.settingsPage = settingsViewController
         settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
