@@ -154,7 +154,8 @@ final class BrowserTabServiceTests: XCTestCase {
             guard let front = BrowserTabService.frontTab(bundleId: bundleId) else { continue }
             let mine = all.filter { $0.bundleId == bundleId }
             guard let original = mine.first(where: { $0.url == front.url }),
-                  let other = mine.first(where: { $0.windowId == original.windowId && $0.url != front.url }) else { continue }
+                  let other = mine.first(where: { $0.windowId == original.windowId && $0.url != front.url
+                      && ["http", "https"].contains($0.url.scheme ?? "") }) else { continue }
             XCTAssertTrue(BrowserTabService.focus(tab: other), "\(bundleId) failed to focus a background tab")
             XCTAssertEqual(BrowserTabService.frontTab(bundleId: bundleId)?.url, other.url, bundleId)
             XCTAssertTrue(BrowserTabService.focus(tab: original), "\(bundleId) failed to restore its front tab")
@@ -172,6 +173,38 @@ final class BrowserTabServiceTests: XCTestCase {
             guard let raise = lines.firstIndex(of: "set index to 1") else { return XCTFail("\(bundleId) never raises its window") }
             XCTAssertEqual(lines[raise - 1], "try", "\(bundleId) raises its window outside try")
             XCTAssertEqual(lines[raise + 1], "end try", bundleId)
+        }
+    }
+
+    // MARK: - front tab (Stow this tab)
+
+    /// Arc can't hold a tab in a variable, so the front tab's properties are read directly.
+    func testFrontTabScripts_readTheTabWithoutAVariable() {
+        for bundleId in supportedBrowsers {
+            guard let source = BrowserTabService.frontTabScript(bundleId: bundleId) else { return XCTFail("no script for \(bundleId)") }
+            XCTAssertFalse(source.contains("set t to"), "\(bundleId) holds the tab in a variable")
+        }
+    }
+
+    /// Only web pages get stowed: a start page (favorites://, chrome://newtab) is skipped.
+    func testParseFrontTab_keepsWebPagesOnly() {
+        XCTAssertEqual(BrowserTabService.parseFrontTab("https://linear.app/\tLinear")?.title, "Linear")
+        XCTAssertNil(BrowserTabService.parseFrontTab("favorites://\tFavorites"))
+        XCTAssertNil(BrowserTabService.parseFrontTab("chrome://newtab/\tNew Tab"))
+        XCTAssertNil(BrowserTabService.parseFrontTab(""))
+    }
+
+    /// Runs only with STOW_LIVE_BROWSER_TESTS=1: every running browser showing a web page
+    /// reports it as the front tab.
+    func testFrontTab_liveReadsEachRunningBrowser() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["STOW_LIVE_BROWSER_TESTS"] == "1")
+        let running = supportedBrowsers.filter { BrowserManager.isRunning(bundleId: $0) }
+        try XCTSkipIf(running.isEmpty, "no supported browser running")
+        for bundleId in running {
+            let tabs = BrowserTabService.listTabs().filter { $0.bundleId == bundleId && ["http", "https"].contains($0.url.scheme ?? "") }
+            guard !tabs.isEmpty else { continue }
+            if bundleId == "com.apple.Safari", BrowserTabService.frontTab(bundleId: bundleId) == nil { continue } // start page in front
+            XCTAssertNotNil(BrowserTabService.frontTab(bundleId: bundleId), "\(bundleId) front tab unreadable")
         }
     }
 }

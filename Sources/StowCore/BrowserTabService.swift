@@ -106,6 +106,11 @@ public enum BrowserTabService {
 
     /// URL and title of the active tab in the front window of `bundleId`'s browser.
     public static func frontTab(bundleId: String) -> (url: URL, title: String)? {
+        guard let script = frontTabScript(bundleId: bundleId), let output = runAppleScript(script) else { return nil }
+        return parseFrontTab(output)
+    }
+
+    static func frontTabScript(bundleId: String) -> String? {
         let appName: String
         let titleKey: String
         if bundleId == safariBundleId {
@@ -118,16 +123,20 @@ public enum BrowserTabService {
             return nil
         }
         let tabExpr = bundleId == safariBundleId ? "current tab of front window" : "active tab of front window"
-        let script = """
+        // Properties are read straight off the tab: Arc can't hold a tab in a variable.
+        return """
         set sep to character id 9
         tell application "\(appName)"
-            set t to \(tabExpr)
-            return (URL of t) & sep & (\(titleKey) of t)
+            return (URL of \(tabExpr)) & sep & (\(titleKey) of \(tabExpr))
         end tell
         """
-        guard let output = runAppleScript(script) else { return nil }
+    }
+
+    static func parseFrontTab(_ output: String) -> (url: URL, title: String)? {
         let cols = output.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let first = cols.first, let url = URL(string: String(first)), url.scheme != nil else { return nil }
+        // Only web pages: a start page (favorites://, chrome://newtab) isn't worth stowing.
+        guard let first = cols.first, let url = URL(string: String(first)),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         return (url, cols.count > 1 ? String(cols[1]) : url.host ?? url.absoluteString)
     }
 

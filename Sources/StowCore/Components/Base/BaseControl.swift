@@ -136,6 +136,17 @@ class BaseControl: NSControl {
     /// - Updates hover state after tracking completes
     ///
     /// The control is disabled during tracking if `isEnabled` is false.
+    /// Act on the click that brings Stow forward: its buttons are used from the browser.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Labels and icons inside the control are decoration: a click on them presses the
+    /// control. Without this the label (an NSTextField) takes the click and nothing fires.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        if hit === self || hit is NSControl && !(hit is NSTextField) { return hit }
+        return self
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         isPressed = true
