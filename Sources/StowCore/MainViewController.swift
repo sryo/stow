@@ -136,8 +136,8 @@ final class MainViewController: NSViewController {
         tabline.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         // The Tabline shows the active workspace, so that's where its ghost tab is stowed.
         tabline.onStowURL = { [weak self] url, title in
-            guard let self else { return }
-            self.stow(url: url, title: title, into: tabline.content.workspaceId)
+            guard let self else { return nil }
+            return self.stow(url: url, title: title, into: tabline.content.workspaceId)
         }
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }

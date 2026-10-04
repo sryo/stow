@@ -40,6 +40,8 @@ final class WorkspaceStripView: NSView {
     private var tabViews: [UUID: StripTabView] = [:]
     private let overflowButton = NSButton()
     private var overflowIds: [UUID] = []
+    /// The "+N" list of workspaces that don't fit, below the button.
+    private let overflowFlyout = FlyoutListPresenter()
     private var renameField: NSTextField?
     private var renamingId: UUID?
     private var drag: (id: UUID, startX: CGFloat, originX: CGFloat, moved: Bool)?
@@ -207,20 +209,22 @@ final class WorkspaceStripView: NSView {
     }
 
     @objc private func showOverflowMenu() {
-        let menu = NSMenu()
-        for id in overflowIds {
-            guard let ws = workspaces.first(where: { $0.id == id }), let i = workspaces.firstIndex(where: { $0.id == id }) else { continue }
-            let item = NSMenuItem(title: ws.name, action: #selector(overflowPicked(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
-            item.target = self
-            item.representedObject = id
-            item.image = WorkspaceBarView.dotImage(color: StowTheme.colors(for: ws.colorId).light.surface.platformColor)
-            menu.addItem(item)
+        guard let window else { return }
+        let hidden = Set(overflowIds)
+        // Built over every workspace so each row keeps its real ⌘-number.
+        let rows = FlyoutListModel.rows(forWorkspaces: workspaces.map { ($0.id, $0.name, $0.colorId) },
+                                        current: isSettingsSelected ? nil : selectedWorkspaceId,
+                                        shortcut: { WorkspaceShortcut.label(position: $0) })
+            .filter { row in hidden.contains { $0.uuidString == row.id } }
+        guard !rows.isEmpty else { return }
+        overflowFlyout.onAction = { [weak self] action, _, _ in
+            if case .selectWorkspace(let id) = action { self?.onWorkspaceSelected?(id) }
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: overflowButton.bounds.height + 4), in: overflowButton)
-    }
-
-    @objc private func overflowPicked(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? UUID { onWorkspaceSelected?(id) }
+        overflowFlyout.toggle(id: "overflow") {
+            let list = FlyoutListView(title: "More workspaces", detail: "\(rows.count)", rows: rows)
+            let anchor = window.convertToScreen(overflowButton.convert(overflowButton.bounds, to: nil))
+            overflowFlyout.show(list, id: "overflow", anchor: anchor, edge: .below, topInset: 0, parent: window)
+        }
     }
 
     // MARK: - Rename

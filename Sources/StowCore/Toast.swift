@@ -14,6 +14,9 @@ enum Toast {
         static func undo(_ handler: @escaping () -> Void) -> Action { Action(title: "Undo", handler: handler) }
     }
 
+    /// Inside the window's bottom edge, or just below the window (under the Tabline strip).
+    enum Placement { case bottom, below }
+
     /// Identifies one showing, so a caller only closes its own toast.
     struct Token: Equatable { fileprivate let id: Int }
 
@@ -37,7 +40,8 @@ enum Toast {
     /// or is replaced, not when its action is clicked or it's closed with `expired: false`.
     @discardableResult
     static func show(_ message: String, action: Action? = nil, in window: NSWindow?,
-                     duration: TimeInterval = Toast.duration, onExpire: (() -> Void)? = nil) -> Token? {
+                     duration: TimeInterval = Toast.duration, placement: Placement = .bottom,
+                     onExpire: (() -> Void)? = nil) -> Token? {
         dismiss(expired: true)
         guard let window else { onExpire?(); return nil }
         nextId += 1
@@ -50,7 +54,12 @@ enum Toast {
         if let screen = window.screen?.visibleFrame {
             x = min(max(x, screen.minX + 8), screen.maxX - 8 - size.width)
         }
-        let frame = NSRect(x: x, y: window.frame.minY + 14, width: size.width, height: size.height)
+        var y = window.frame.minY + 14
+        if placement == .below {
+            y = window.frame.minY - 6 - size.height
+            if let screen = window.screen?.visibleFrame, y < screen.minY { y = window.frame.maxY + 6 }
+        }
+        let frame = NSRect(x: x, y: y, width: size.width, height: size.height)
         let panel = ToastPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear

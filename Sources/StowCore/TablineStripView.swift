@@ -47,7 +47,6 @@ struct TablinePalette {
     let surface: NSColor
     let ink: NSColor
     let raised: NSColor
-    let menuDot: NSColor
 
     init(colorId: WorkspaceColorId, dark: Bool) {
         typealias RGB = StowTheme.RGB
@@ -59,7 +58,6 @@ struct TablinePalette {
         self.surface = surface.platformColor
         self.ink = ink.platformColor
         self.raised = (dark ? RGB(hex: "#34353A")! : RGB.white).platformColor
-        self.menuDot = hue.platformColor
     }
 }
 

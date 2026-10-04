@@ -168,18 +168,9 @@ final class WorkspaceBarView: NSView {
     // MARK: - Menu
 
     @objc private func showWorkspaceMenu() {
-        let menu = NSMenu()
-        let header = NSMenuItem(title: "Workspaces", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        for (i, ws) in workspaces.enumerated() {
-            let item = NSMenuItem(title: ws.name, action: #selector(menuSelectWorkspace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
-            item.keyEquivalentModifierMask = .command
-            item.target = self
-            item.representedObject = ws.id
-            item.image = Self.dotImage(color: ws.colorId.color)
-            item.state = (!isSettingsSelected && ws.id == selectedWorkspaceId) ? .on : .off
-            menu.addItem(item)
+        let entries = workspaces.map { WorkspaceSwitcherMenu.Entry(id: $0.id, name: $0.name, colorId: $0.colorId) }
+        let menu = WorkspaceSwitcherMenu.make(workspaces: entries, current: isSettingsSelected ? nil : selectedWorkspaceId) { [weak self] id in
+            self?.onWorkspaceSelected?(id)
         }
         menu.addItem(.separator())
         let newItem = NSMenuItem(title: "New Workspace…", action: #selector(addTapped), keyEquivalent: "n")
@@ -197,22 +188,9 @@ final class WorkspaceBarView: NSView {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: workspaceButton.bounds.height + 4), in: workspaceButton)
     }
 
+    /// Forwards to the shared WorkspaceDot until this view is retired.
     static func dotImage(color: NSColor, diameter: CGFloat = 10) -> NSImage {
-        let image = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
-            NSColor.black.withAlphaComponent(0.25).setStroke()
-            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-            ring.lineWidth = 1
-            ring.stroke()
-            return true
-        }
-        return image
-    }
-
-    @objc private func menuSelectWorkspace(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        onWorkspaceSelected?(id)
+        WorkspaceDot.image(color: color, diameter: diameter)
     }
 
     @objc private func menuRename(_ sender: NSMenuItem) {
