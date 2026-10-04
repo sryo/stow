@@ -1,6 +1,7 @@
 import XCTest
 import Carbon
 @testable import StowCore
+import StowShared
 
 // MARK: - Main menu
 
@@ -219,5 +220,106 @@ final class ExportAndBackupTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: dataURL, encoding: .utf8), "old")
         XCTAssertTrue(backups.list().contains { (try? String(contentsOf: $0.url, encoding: .utf8)) == "new" },
                       "the data being replaced is kept as a backup too")
+    }
+}
+
+// MARK: - Favicon prefetching (C15)
+
+@MainActor
+final class FaviconPrefetcherTests: XCTestCase {
+    private final class FakeFetch {
+        var requested: [URL] = []
+        var completions: [(String?) -> Void] = []
+        func fetch(_ url: URL, _ done: @escaping (String?) -> Void) {
+            requested.append(url)
+            completions.append(done)
+        }
+    }
+
+    private var clock = Date(timeIntervalSince1970: 1_000_000)
+    private final class Received: @unchecked Sendable {
+        var items: [(UUID, String)] = []
+    }
+
+    private let received = Received()
+    private var fetched: [(UUID, String)] { received.items }
+    private var observer: NSObjectProtocol?
+
+    override func setUp() async throws {
+        received.items = []
+        let received = received
+        observer = NotificationCenter.default.addObserver(forName: .stowLinkFaviconFetched, object: nil, queue: nil) { note in
+            guard let id = note.userInfo?["linkId"] as? UUID, let path = note.userInfo?["path"] as? String else { return }
+            received.items.append((id, path))
+        }
+    }
+
+    override func tearDown() async throws {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    private func link(_ n: Int, favicon: String? = nil) -> StowShared.Link {
+        StowShared.Link(id: UUID(), title: "\(n)", url: "https://site\(n).example", faviconPath: favicon)
+    }
+
+    private func prefetcher(_ fake: FakeFetch, cap: Int = 24, exists: @escaping (String) -> Bool = { _ in true }) -> FaviconPrefetcher {
+        FaviconPrefetcher(fetch: fake.fetch, fileExists: exists, now: { [unowned self] in self.clock },
+                          perWorkspaceCap: cap, cooldown: 600)
+    }
+
+    func testEachLinkIsRequestedOnceAndTheResultIsPosted() {
+        let fake = FakeFetch()
+        let prefetch = prefetcher(fake)
+        let a = link(1)
+        prefetch.request(links: [a, link(2, favicon: "/has/one.png")], in: UUID())
+        prefetch.request(links: [a], in: UUID())
+        XCTAssertEqual(fake.requested.count, 1, "already requested, and links with a favicon are skipped")
+        fake.completions[0]("/icons/1.png")
+        XCTAssertEqual(fetched.first?.0, a.id)
+        XCTAssertEqual(fetched.first?.1, "/icons/1.png")
+    }
+
+    func testAWorkspaceGetsAtMostItsCapPerCooldown() {
+        let fake = FakeFetch()
+        let prefetch = prefetcher(fake, cap: 3)
+        let ws = UUID()
+        prefetch.request(links: (0..<10).map { link($0) }, in: ws)
+        XCTAssertEqual(fake.requested.count, 3)
+        prefetch.request(links: (10..<12).map { link($0) }, in: UUID())
+        XCTAssertEqual(fake.requested.count, 5, "another workspace has its own cap")
+        clock += 601
+        prefetch.request(links: (20..<30).map { link($0) }, in: ws)
+        XCTAssertEqual(fake.requested.count, 8, "the cap refills after the cooldown")
+    }
+
+    func testAFailedLinkIsRetriedOnlyAfterTheCooldown() {
+        let fake = FakeFetch()
+        let prefetch = prefetcher(fake)
+        let a = link(1)
+        let ws = UUID()
+        prefetch.request(links: [a], in: ws)
+        fake.completions[0](nil)
+        prefetch.request(links: [a], in: ws)
+        XCTAssertEqual(fake.requested.count, 1)
+        clock += 601
+        prefetch.request(links: [a], in: ws)
+        XCTAssertEqual(fake.requested.count, 2)
+    }
+
+    func testAFaviconWhoseFileIsGoneIsFetchedAgain() {
+        let fake = FakeFetch()
+        let prefetch = prefetcher(fake, exists: { _ in false })
+        prefetch.request(links: [link(1, favicon: "/gone.png")], in: UUID())
+        XCTAssertEqual(fake.requested.count, 1)
+    }
+
+    func testTheMainViewWritesAFetchedFaviconIntoTheLibrary() {
+        let harness = RedHarness()
+        defer { harness.tearDown() }
+        let id = harness.model.addLink(urlString: "https://example.com", title: "Example", parentId: nil)
+        harness.host(width: 300)
+        NotificationCenter.default.post(name: .stowLinkFaviconFetched, object: nil, userInfo: ["linkId": id, "path": "/icons/x.png"])
+        guard case .link(let link)? = harness.model.nodeById(id) else { return XCTFail("no link") }
+        XCTAssertEqual(link.faviconPath, "/icons/x.png")
     }
 }

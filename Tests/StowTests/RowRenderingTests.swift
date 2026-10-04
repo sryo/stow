@@ -124,7 +124,7 @@ final class RowRenderingTests: XCTestCase {
     func testSavingWithoutChangesKeepsShell() {
         var saved: String?? = .none
         let (view, _) = editor(language: "Shell") { saved = .some($0) }
-        view.descendants(of: NSButton.self).first { $0.title == "Save" }!.performClick(nil)
+        view.saveButton.performAction()
         XCTAssertEqual(saved, .some("Shell"))
     }
 
@@ -137,7 +137,7 @@ final class RowRenderingTests: XCTestCase {
         var saved: String?? = .none
         let (view, popup) = editor(language: "Elixir") { saved = .some($0) }
         XCTAssertEqual(popup.titleOfSelectedItem, "Elixir")
-        view.descendants(of: NSButton.self).first { $0.title == "Save" }!.performClick(nil)
+        view.saveButton.performAction()
         XCTAssertEqual(saved, .some("Elixir"))
     }
 
@@ -145,7 +145,7 @@ final class RowRenderingTests: XCTestCase {
         var saved: String?? = .none
         let (view, popup) = editor(language: nil) { saved = .some($0) }
         XCTAssertEqual(popup.titleOfSelectedItem, "Plain Text")
-        view.descendants(of: NSButton.self).first { $0.title == "Save" }!.performClick(nil)
+        view.saveButton.performAction()
         XCTAssertEqual(saved, .some(nil))
     }
 }

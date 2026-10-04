@@ -106,49 +106,43 @@ final class StateAndSyncMacTests: XCTestCase {
 
     // MARK: B5
 
-    private func showDueDatePopover() throws -> (DueDatePopoverController, NSPopover, NSWindow) {
+    // The due date editor is a flyout now (C5); these keep B5's guarantees on it.
+    private func showDueDateFlyout() throws -> (DueDateFlyout, ItemFlyouts, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.orderFront(nil)
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 100, height: 20))
         window.contentView?.addSubview(anchor)
-        let editor = DueDatePopoverController(dueDate: nil) { _ in }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentViewController = editor
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        let flyouts = ItemFlyouts()
+        let editor = try XCTUnwrap(DueDateFlyout.present(in: flyouts, title: "Task", dueDate: nil, from: anchor) { _ in })
         harness.spin(0.1)
-        try XCTSkipUnless(popover.isShown, "the popover couldn't be shown in this test session")
-        return (editor, popover, window)
+        try XCTSkipUnless(flyouts.panel(for: .dueDate).isVisible, "the flyout couldn't be shown in this test session")
+        return (editor, flyouts, window)
     }
 
     func testDueDatePopoverClosesOnCancel() throws {
-        let (editor, popover, window) = try showDueDatePopover()
+        let (editor, flyouts, window) = try showDueDateFlyout()
         defer { window.orderOut(nil) }
-        editor.view.descendants(of: NSButton.self).first { $0.title == "Cancel" }?.performClick(nil)
-        harness.spin(0.3)
-        XCTAssertFalse(popover.isShown)
+        editor.cancelButton.performAction()
+        XCTAssertFalse(flyouts.panel(for: .dueDate).isVisible)
     }
 
     func testDueDatePopoverClosesOnEscape() throws {
-        let (editor, popover, window) = try showDueDatePopover()
+        let (_, flyouts, window) = try showDueDateFlyout()
         defer { window.orderOut(nil) }
-        editor.cancelOperation(nil)
-        harness.spin(0.3)
-        XCTAssertFalse(popover.isShown)
+        flyouts.panel(for: .dueDate).cancelOperation(nil)
+        XCTAssertFalse(flyouts.panel(for: .dueDate).isVisible)
     }
 
-    func testDueDatePopoverOpensTowardTheRoomierSideOfTheWindow() {
-        // A row near the top of a 600pt window (unflipped: high y) opens below it.
-        XCTAssertEqual(DueDatePopoverController.preferredEdge(rowInWindow: NSRect(x: 0, y: 560, width: 200, height: 24),
-                                                              windowHeight: 600, anchorIsFlipped: false), .minY)
-        XCTAssertEqual(DueDatePopoverController.preferredEdge(rowInWindow: NSRect(x: 0, y: 560, width: 200, height: 24),
-                                                              windowHeight: 600, anchorIsFlipped: true), .maxY)
-        // A row near the bottom opens above it.
-        XCTAssertEqual(DueDatePopoverController.preferredEdge(rowInWindow: NSRect(x: 0, y: 20, width: 200, height: 24),
-                                                              windowHeight: 600, anchorIsFlipped: false), .maxY)
+    func testDueDatePopoverOpensBesideTheWindowOnScreen() throws {
+        let (_, flyouts, window) = try showDueDateFlyout()
+        defer { window.orderOut(nil) }
+        let frame = flyouts.panel(for: .dueDate).frame
+        XCTAssertFalse(frame.intersects(window.frame.insetBy(dx: 8, dy: 0)), "beside the window, not over the row")
+        if let screen = window.screen?.visibleFrame {
+            XCTAssertTrue(screen.contains(frame), "it stays on screen")
+        }
     }
 }
 

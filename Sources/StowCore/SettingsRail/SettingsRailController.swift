@@ -113,22 +113,14 @@ final class SettingsRailController: NSObject {
         fetchMissingFavicons(workspaces)
     }
 
-    private var requestedFavicons: Set<UUID> = []
-
-    /// Mosaics need favicons; fetch them for the first few sites of each workspace, as
-    /// the workspace rail does for its own links.
+    /// Mosaics need favicons; ask for the first few sites of each workspace that has
+    /// fewer than four.
     private func fetchMissingFavicons(_ workspaces: [Workspace]) {
+        let prefetcher = FaviconPrefetcher.shared
         for ws in workspaces where ws.icon == .favicons {
             let links = ws.items.flattenLinks().filter { !$0.isArchived }
-            guard links.filter({ $0.faviconPath != nil }).count < 4 else { continue }
-            for link in links.prefix(8) where link.faviconPath == nil && !requestedFavicons.contains(link.id) {
-                guard let url = URL(string: link.url) else { continue }
-                requestedFavicons.insert(link.id)
-                FaviconService.shared.favicon(for: url, cachedPath: nil) { _, path in
-                    guard let path else { return }
-                    NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
-                }
-            }
+            guard links.filter({ !prefetcher.needsFavicon($0) }).count < 4 else { continue }
+            prefetcher.request(links: Array(links.prefix(8)), in: ws.id)
         }
     }
 
@@ -209,10 +201,13 @@ final class SettingsRailController: NSObject {
         view.onBackgroundClick = { [weak self] in self?.closeFlyouts() }
     }
 
-    private func createWorkspace() {
+    /// Adds a workspace and opens its editor with the name focused, staying on Settings.
+    /// `moving` items go into it first (Move to › New workspace… from the rail).
+    func createWorkspace(moving nodeIds: [UUID] = []) {
         let lastViewed = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
         let cameFrom = returnTarget
         let id = model.createWorkspace(name: "", colorId: SettingsRailNewWorkspace.color(existing: model.workspaces.map(\.colorId)))
+        if !nodeIds.isEmpty { model.moveNodesToWorkspace(nodeIds: nodeIds, toWorkspaceId: id) }
         // Creating selects the new workspace; stay on Settings and keep where you came from
         // as the active workspace (the main view reloads once, after both steps).
         if let cameFrom { model.selectWorkspace(id: cameFrom) }

@@ -157,20 +157,17 @@ final class ReviewRedListTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 100, height: 20))
         window.contentView?.addSubview(anchor)
         var committed: Date??
-        let editor = DueDatePopoverController(dueDate: nil) { committed = $0 }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentViewController = editor
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        // C5: the editor is now a flyout beside the row; closing goes through FlyoutPanel.dismiss().
+        let flyouts = ItemFlyouts()
+        let editor = try XCTUnwrap(DueDateFlyout.present(in: flyouts, title: "Task", dueDate: nil, from: anchor) { committed = $0 })
+        let panel = flyouts.panel(for: .dueDate)
         harness.spin(0.1)
-        try XCTSkipUnless(popover.isShown, "the popover couldn't be shown in this test session")
-        let save = editor.view.descendants(of: NSButton.self).first { $0.title == "Save" }
-        save?.performClick(nil)
+        try XCTSkipUnless(panel.isVisible, "the flyout couldn't be shown in this test session")
+        editor.saveButton.performAction()
         harness.spin(0.3)
         XCTAssertNotNil(committed, "precondition: Save committed a date")
-        XCTAssertFalse(popover.isShown,
-                       "patterns-2: DueDatePopoverController closes itself with dismiss(nil), which does nothing for an NSPopover it wasn't presented by")
+        XCTAssertFalse(panel.isVisible,
+                       "patterns-2: picking a date commits and closes the due date editor")
     }
 
     // MARK: patterns-11
