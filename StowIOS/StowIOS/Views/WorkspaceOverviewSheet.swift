@@ -30,7 +30,7 @@ struct WorkspaceOverviewSheet: View {
     @State private var renameWorkspaceId: UUID?
     @State private var renameText = ""
     @State private var deleteWorkspaceId: UUID?
-    @State private var showingAbout = false
+    @State private var showingSettings = false
     @State private var exportDocument: WorkspaceExportDocument?
     @State private var exportFilename = ""
     @State private var showingExporter = false
@@ -153,18 +153,19 @@ struct WorkspaceOverviewSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showingAbout = true
+                        showingSettings = true
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .sheet(isPresented: $showingAbout) {
-            AboutSheet()
+        .sheet(isPresented: $showingSettings) {
+            SettingsSheet()
         }
         .fileExporter(
             isPresented: $showingExporter,
@@ -236,8 +237,11 @@ struct WorkspaceOverviewSheet: View {
 // MARK: - Workspace Card
 
 private struct WorkspaceCard: View {
+    @EnvironmentObject private var viewModel: AppViewModel
     let workspace: Workspace
     let isSelected: Bool
+
+    private var background: UIColor { viewModel.background(for: workspace.colorId) }
     let onTap: () -> Void
 
     var body: some View {
@@ -277,7 +281,7 @@ private struct WorkspaceCard: View {
             }
             .padding(14)
             .frame(width: 200, height: 260, alignment: .topLeading)
-            .background(Color(uiColor: workspace.colorId.adaptiveBackgroundColor).opacity(0.25))
+            .background(Color(uiColor: background).opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)

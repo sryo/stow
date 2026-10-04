@@ -145,8 +145,8 @@ struct WorkspacePageView: View {
         let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
         if toIndex < workspaces.count {
             let fraction = rawPage - floor(rawPage)
-            let fromColor = workspaces[fromIndex].colorId.adaptiveBackgroundColor.resolvedColor(with: traits)
-            let toColor = workspaces[toIndex].colorId.adaptiveBackgroundColor.resolvedColor(with: traits)
+            let fromColor = viewModel.background(for: workspaces[fromIndex].colorId).resolvedColor(with: traits)
+            let toColor = viewModel.background(for: workspaces[toIndex].colorId).resolvedColor(with: traits)
             if let blended = fromColor.blended(withFraction: fraction, of: toColor) {
                 return Color(uiColor: blended)
             }
@@ -154,7 +154,7 @@ struct WorkspacePageView: View {
         }
 
         if let last = workspaces.last {
-            return Color(uiColor: last.colorId.adaptiveBackgroundColor.resolvedColor(with: traits))
+            return Color(uiColor: viewModel.background(for: last.colorId).resolvedColor(with: traits))
         }
         return .clear
     }

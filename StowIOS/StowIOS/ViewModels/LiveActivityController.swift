@@ -11,12 +11,6 @@ import StowShared
 final class LiveActivityController {
     static let shared = LiveActivityController()
 
-    static let enabledKey = "StowShowInDynamicIsland"
-
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-    }
-
     /// ActivityKit rejects states above 4 KB; leave headroom for its own envelope.
     private static let maxStateBytes = 3_500
     private static let maxTitleLength = 40
@@ -25,10 +19,11 @@ final class LiveActivityController {
 
     private init() {}
 
-    /// Brings the activity in line with `workspace`. `force` pushes the state even when
-    /// it matches the last one sent, which is how a dismissed or expired activity comes back.
-    func sync(workspace: Workspace, force: Bool = false) {
-        guard Self.isEnabled, ActivityAuthorizationInfo().areActivitiesEnabled else {
+    /// Brings the activity in line with `workspace`, the one Settings ▸ Shows picks. `force`
+    /// pushes the state even when it matches the last one sent, which is how a dismissed or
+    /// expired activity comes back. The system's Live Activities switch always wins.
+    func sync(workspace: Workspace, enabled: Bool, force: Bool = false) {
+        guard enabled, ActivityAuthorizationInfo().areActivitiesEnabled else {
             lastState = nil
             enqueue { await Self.endAll() }
             return

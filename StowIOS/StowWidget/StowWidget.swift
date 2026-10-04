@@ -8,45 +8,24 @@ struct StowWidgetEntry: TimelineEntry {
     let workspaceName: String
 }
 
-struct StowWidgetProvider: TimelineProvider {
+/// Each widget shows the workspace picked in Edit Widget; unconfigured widgets follow the
+/// workspace open in the app.
+struct StowWidgetProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> StowWidgetEntry {
         StowWidgetEntry(date: Date(), links: [], workspaceName: "Stow")
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (StowWidgetEntry) -> Void) {
-        let entry = loadEntry()
-        completion(entry)
+    func snapshot(for configuration: SelectWorkspaceIntent, in context: Context) async -> StowWidgetEntry {
+        entry(for: configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<StowWidgetEntry>) -> Void) {
-        let entry = loadEntry()
-        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(3600)))
-        completion(timeline)
+    func timeline(for configuration: SelectWorkspaceIntent, in context: Context) async -> Timeline<StowWidgetEntry> {
+        Timeline(entries: [entry(for: configuration)], policy: .after(Date().addingTimeInterval(3600)))
     }
 
-    private func loadEntry() -> StowWidgetEntry {
-        let baseDir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.stow.app"
-        ) ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Stow")
-
-        let store = DataStore(baseDirectory: baseDir)
-        let state = store.load()
-
-        let selectedId = state.selectedWorkspaceId
-        let workspace = state.workspaces.first(where: { $0.id == selectedId }) ?? state.workspaces.first
-
-        let links = collectLinks(from: workspace?.items ?? [])
-
-        return StowWidgetEntry(
-            date: Date(),
-            links: links,
-            workspaceName: workspace?.name ?? "Stow"
-        )
-    }
-
-    private func collectLinks(from nodes: [Node]) -> [StowShared.Link] {
-        nodes.flattenLinks()
+    private func entry(for configuration: SelectWorkspaceIntent) -> StowWidgetEntry {
+        let content = WidgetContent.make(choice: configuration.workspace?.choice, state: AppGroup.makeStore().load())
+        return StowWidgetEntry(date: Date(), links: content.links, workspaceName: content.workspaceName)
     }
 }
 
@@ -103,12 +82,12 @@ struct StowWidget: Widget {
     let kind = "StowWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: StowWidgetProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: SelectWorkspaceIntent.self, provider: StowWidgetProvider()) { entry in
             StowWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Quick Links")
-        .description("Quick access to your workspace bookmarks.")
+        .description("Links from a workspace. Long-press and choose Edit Widget to pick which one.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

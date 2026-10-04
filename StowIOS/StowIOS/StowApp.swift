@@ -2,7 +2,12 @@ import SwiftUI
 import StowShared
 
 final class StowAppDelegate: NSObject, UIApplicationDelegate {
+    weak var viewModel: AppViewModel?
+
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        // A share saved while the app sat in the background must be in memory before the
+        // merge below saves, or that save would drop it.
+        viewModel?.absorbSharedLinks()
         CloudSyncManager.shared.fetchChanges()
         return .newData
     }
@@ -24,9 +29,13 @@ struct StowApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
-                .onAppear { viewModel.refreshLiveActivity() }
+                .onAppear {
+                    appDelegate.viewModel = viewModel
+                    viewModel.refreshLiveActivity()
+                }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
+                        viewModel.absorbSharedLinks()
                         CloudSyncManager.shared.fetchChanges()
                         viewModel.refreshLiveActivity(force: true)
                     }

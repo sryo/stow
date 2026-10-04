@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "workspaces": [
+    {
+      "id": "44444444-4444-4444-4444-444444444401",
+      "name": "Work",
+      "colorId": "ocean",
+      "items": [
+        {"type": "link", "link": {"id": "55555555-5555-5555-5555-555555555501", "title": "Swift Forums", "url": "https://forums.swift.org"}},
+        {"type": "link", "link": {"id": "55555555-5555-5555-5555-555555555502", "title": "GitHub", "url": "https://github.com"}}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444402",
+      "name": "Home",
+      "colorId": "moss",
+      "items": [
+        {"type": "link", "link": {"id": "55555555-5555-5555-5555-555555555503", "title": "Recipes", "url": "https://cooking.nytimes.com"}}
+      ],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444403",
+      "name": "Reading",
+      "colorId": "ember",
+      "items": [],
+      "browserProfiles": {},
+      "isArchiveExpanded": false
+    }
+  ],
+  "selectedWorkspaceId": "44444444-4444-4444-4444-444444444401",
+  "isSettingsSelected": false
+}

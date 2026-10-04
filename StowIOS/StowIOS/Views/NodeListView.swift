@@ -43,7 +43,7 @@ struct NodeListView: View {
 
     var body: some View {
         if let workspace {
-            let colors = StowTheme.colors(for: workspace.colorId, tint: StowTheme.preferredTint)
+            let colors = StowTheme.colors(for: workspace.colorId, tint: viewModel.effectiveTint)
             List {
                 if showHeader {
                     Text(workspace.name)
@@ -215,8 +215,8 @@ struct NodeListView: View {
                 Image(systemName: viewModel.selectedNodeIds.contains(node.id) ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(viewModel.selectedNodeIds.contains(node.id)
-                        ? StowTheme.colors(for: workspace?.colorId ?? .defaultColor()).accentColor
-                        : StowTheme.colors(for: workspace?.colorId ?? .defaultColor()).inkSoft)
+                        ? StowTheme.colors(for: workspace?.colorId ?? .defaultColor(), tint: viewModel.effectiveTint).accentColor
+                        : StowTheme.colors(for: workspace?.colorId ?? .defaultColor(), tint: viewModel.effectiveTint).inkSoft)
                 NodeRowView(node: node, parentId: nil)
                     .allowsHitTesting(false)
             }

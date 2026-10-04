@@ -22,7 +22,7 @@
 		A1000018 /* AddNewPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AddNewPageView.swift */; };
 		A1000019 /* WorkspaceOverviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000019 /* WorkspaceOverviewSheet.swift */; };
 		A1000020 /* BulkActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* BulkActionBar.swift */; };
-		A1000021 /* AboutSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000021 /* AboutSheet.swift */; };
+		A1000021 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000021 /* SettingsSheet.swift */; };
 		A1000022 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* LiveActivityController.swift */; };
 		A1000023 /* StowActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4000001 /* StowActivityAttributes.swift */; };
 		A2000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* ShareViewController.swift */; };
@@ -33,6 +33,31 @@
 		A3000005 /* StowActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4000001 /* StowActivityAttributes.swift */; };
 		A3000002 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D3000001 /* StowShared */; };
 		A3000003 /* StowWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C3000001 /* StowWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		X6DE897640320624840B9390 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */; };
+		XA0EFCD0C65EA7DCE563E131 /* WorkspaceChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */; };
+		X7E5514A57A55A380441F661 /* LiveActivitySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */; };
+		XD4152DA553298167882548F /* ShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X3AB5277E663379A99C5DD6D /* ShareTests.swift */; };
+		X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X759387879FFABF26212B51D /* ShareSheetModelTests.swift */; };
+		X539E6B7814724812428AF26 /* WidgetIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */; };
+		XBD177B771BC281FB13C0301 /* SettingsLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */; };
+		X12244C5330BE4BA9A00DD35 /* SettingsSheetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */; };
+		X7EB8638B87994E7561980AC /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = X4B834C7BDD407C97BAC011E /* AppGroup.swift */; };
+		XF753821B39E7E043B17F429 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = X4B834C7BDD407C97BAC011E /* AppGroup.swift */; };
+		X5EAC7A1E1E640D0DABB5F87 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = X4B834C7BDD407C97BAC011E /* AppGroup.swift */; };
+		X0249A78C70E626D7F6C326B /* WorkspaceChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = XB301EE6B6DDFD256A1C1BDA /* WorkspaceChoice.swift */; };
+		X80185DADC54CBB38989BC7A /* WorkspaceChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = XB301EE6B6DDFD256A1C1BDA /* WorkspaceChoice.swift */; };
+		XCCBDF5C85C029D65D2E267B /* ShareSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = XCE9EA091B9F9966F4636E20 /* ShareSaver.swift */; };
+		X51EF90A535F39B1A6CD025F /* ShareSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = XCE9EA091B9F9966F4636E20 /* ShareSaver.swift */; };
+		X55DD629A1B965F73CB1FB21 /* ShareSheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = X69D929C553AE3876E882D40 /* ShareSheetModel.swift */; };
+		X005EBF531FD6F3BCCA4997A /* ShareSheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = X69D929C553AE3876E882D40 /* ShareSheetModel.swift */; };
+		X74201071312F6927E78DF46 /* WorkspaceWidgetIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA34F9F607D18615937E2EA6 /* WorkspaceWidgetIntent.swift */; };
+		XE06AAE7FFE64279AA0C0AD7 /* WorkspaceWidgetIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA34F9F607D18615937E2EA6 /* WorkspaceWidgetIntent.swift */; };
+		X91C4DA9087CA4CD43505D66 /* LiveActivitySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = X51065A161A8D63DDC19CE89 /* LiveActivitySettings.swift */; };
+		X224A59C9BE9ED7411D5BE6E /* ICloudStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = XEE91CC7229F300D3CDDD729 /* ICloudStatus.swift */; };
+		XD6206FA9C062C8FEFC090B2 /* PageColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = XFA3BDD8C3FE60E111078D60 /* PageColor.swift */; };
+		XD0335ECCB5493E81EEAC370 /* PageColorPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA39A204B886B268AB398C7E /* PageColorPicker.swift */; };
+		XE74A1A437FBCF362FD1C909 /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XC326DF994AD21E40E619D0A /* ShareSheetView.swift */; };
+		XE37F82EA5005D259A6436FB /* LiveTourUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = XA003675434C260E19135454 /* LiveTourUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +74,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = T3000001;
 			remoteInfo = StowWidgetExtension;
+		};
+		CP400001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P1000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T1000001;
+			remoteInfo = StowIOS;
+		};
+		CP500001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P1000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T1000001;
+			remoteInfo = StowIOS;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -82,7 +121,7 @@
 		B1000018 /* AddNewPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddNewPageView.swift; sourceTree = "<group>"; };
 		B1000019 /* WorkspaceOverviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceOverviewSheet.swift; sourceTree = "<group>"; };
 		B1000020 /* BulkActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulkActionBar.swift; sourceTree = "<group>"; };
-		B1000021 /* AboutSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutSheet.swift; sourceTree = "<group>"; };
+		B1000021 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		B1000022 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
 		B1000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
@@ -95,6 +134,27 @@
 		C1000001 /* StowIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2000001 /* StowShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C3000001 /* StowWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StowWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4000001 /* StowIOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StowIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5000001 /* StowIOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StowIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChoiceTests.swift; sourceTree = "<group>"; };
+		XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivitySettingsTests.swift; sourceTree = "<group>"; };
+		X3AB5277E663379A99C5DD6D /* ShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTests.swift; sourceTree = "<group>"; };
+		X759387879FFABF26212B51D /* ShareSheetModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetModelTests.swift; sourceTree = "<group>"; };
+		X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetIntentTests.swift; sourceTree = "<group>"; };
+		X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLogicTests.swift; sourceTree = "<group>"; };
+		X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheetUITests.swift; sourceTree = "<group>"; };
+		X4B834C7BDD407C97BAC011E /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroup.swift; sourceTree = "<group>"; };
+		XB301EE6B6DDFD256A1C1BDA /* WorkspaceChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChoice.swift; sourceTree = "<group>"; };
+		XCE9EA091B9F9966F4636E20 /* ShareSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSaver.swift; sourceTree = "<group>"; };
+		X69D929C553AE3876E882D40 /* ShareSheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetModel.swift; sourceTree = "<group>"; };
+		XA34F9F607D18615937E2EA6 /* WorkspaceWidgetIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWidgetIntent.swift; sourceTree = "<group>"; };
+		X51065A161A8D63DDC19CE89 /* LiveActivitySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivitySettings.swift; sourceTree = "<group>"; };
+		XEE91CC7229F300D3CDDD729 /* ICloudStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudStatus.swift; sourceTree = "<group>"; };
+		XFA3BDD8C3FE60E111078D60 /* PageColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageColor.swift; sourceTree = "<group>"; };
+		XA39A204B886B268AB398C7E /* PageColorPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageColorPicker.swift; sourceTree = "<group>"; };
+		XC326DF994AD21E40E619D0A /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
+		XA003675434C260E19135454 /* LiveTourUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTourUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +182,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E4000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E5000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -133,6 +207,8 @@
 				F3000001 /* StowWidget */,
 				F4000001 /* Shared */,
 				F1000005 /* Products */,
+				F5000001 /* StowIOSTests */,
+				F6000001 /* StowIOSUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -152,6 +228,9 @@
 			children = (
 				B1000002 /* AppViewModel.swift */,
 				B1000022 /* LiveActivityController.swift */,
+				X51065A161A8D63DDC19CE89 /* LiveActivitySettings.swift */,
+				XEE91CC7229F300D3CDDD729 /* ICloudStatus.swift */,
+				XFA3BDD8C3FE60E111078D60 /* PageColor.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -169,7 +248,8 @@
 				B1000008 /* WorkspacePageView.swift */,
 				B1000019 /* WorkspaceOverviewSheet.swift */,
 				B1000020 /* BulkActionBar.swift */,
-				B1000021 /* AboutSheet.swift */,
+				B1000021 /* SettingsSheet.swift */,
+				XA39A204B886B268AB398C7E /* PageColorPicker.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -190,6 +270,8 @@
 				C1000001 /* StowIOS.app */,
 				C2000001 /* StowShareExtension.appex */,
 				C3000001 /* StowWidgetExtension.appex */,
+				C4000001 /* StowIOSTests.xctest */,
+				C5000001 /* StowIOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -200,6 +282,7 @@
 				B2000001 /* ShareViewController.swift */,
 				B2000002 /* Info.plist */,
 				B2000003 /* StowShareExtension.entitlements */,
+				XC326DF994AD21E40E619D0A /* ShareSheetView.swift */,
 			);
 			path = StowShareExtension;
 			sourceTree = "<group>";
@@ -218,8 +301,36 @@
 			isa = PBXGroup;
 			children = (
 				B4000001 /* StowActivityAttributes.swift */,
+				X4B834C7BDD407C97BAC011E /* AppGroup.swift */,
+				XB301EE6B6DDFD256A1C1BDA /* WorkspaceChoice.swift */,
+				XCE9EA091B9F9966F4636E20 /* ShareSaver.swift */,
+				X69D929C553AE3876E882D40 /* ShareSheetModel.swift */,
+				XA34F9F607D18615937E2EA6 /* WorkspaceWidgetIntent.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		F5000001 /* StowIOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				XD199CB3FD8170C6D04AEB43 /* TestSupport.swift */,
+				X6321E995D2258D67CAEDFC3 /* WorkspaceChoiceTests.swift */,
+				XE0296CAB45823C07D2FD75E /* LiveActivitySettingsTests.swift */,
+				X3AB5277E663379A99C5DD6D /* ShareTests.swift */,
+				X759387879FFABF26212B51D /* ShareSheetModelTests.swift */,
+				X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */,
+				X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */,
+			);
+			path = StowIOSTests;
+			sourceTree = "<group>";
+		};
+		F6000001 /* StowIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */,
+				XA003675434C260E19135454 /* LiveTourUITests.swift */,
+			);
+			path = StowIOSUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -288,6 +399,42 @@
 			productReference = C3000001 /* StowWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		T4000001 /* StowIOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC400001 /* Build configuration list for PBXNativeTarget "StowIOSTests" */;
+			buildPhases = (
+				S4000001 /* Sources */,
+				E4000001 /* Frameworks */,
+				R4000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				TD400001 /* PBXTargetDependency */,
+			);
+			name = StowIOSTests;
+			productName = StowIOSTests;
+			productReference = C4000001 /* StowIOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		T5000001 /* StowIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC500001 /* Build configuration list for PBXNativeTarget "StowIOSUITests" */;
+			buildPhases = (
+				S5000001 /* Sources */,
+				E5000001 /* Frameworks */,
+				R5000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				TD500001 /* PBXTargetDependency */,
+			);
+			name = StowIOSUITests;
+			productName = StowIOSUITests;
+			productReference = C5000001 /* StowIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -306,6 +453,14 @@
 					};
 					T3000001 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					T4000001 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = T1000001;
+					};
+					T5000001 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = T1000001;
 					};
 				};
 			};
@@ -328,6 +483,8 @@
 				T1000001 /* StowIOS */,
 				T2000001 /* StowShareExtension */,
 				T3000001 /* StowWidgetExtension */,
+				T4000001 /* StowIOSTests */,
+				T5000001 /* StowIOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -348,6 +505,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		R3000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		R4000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		R5000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -375,9 +546,18 @@
 				A1000018 /* AddNewPageView.swift in Sources */,
 				A1000019 /* WorkspaceOverviewSheet.swift in Sources */,
 				A1000020 /* BulkActionBar.swift in Sources */,
-				A1000021 /* AboutSheet.swift in Sources */,
+				A1000021 /* SettingsSheet.swift in Sources */,
 				A1000022 /* LiveActivityController.swift in Sources */,
 				A1000023 /* StowActivityAttributes.swift in Sources */,
+				X7EB8638B87994E7561980AC /* AppGroup.swift in Sources */,
+				X0249A78C70E626D7F6C326B /* WorkspaceChoice.swift in Sources */,
+				XCCBDF5C85C029D65D2E267B /* ShareSaver.swift in Sources */,
+				X55DD629A1B965F73CB1FB21 /* ShareSheetModel.swift in Sources */,
+				X74201071312F6927E78DF46 /* WorkspaceWidgetIntent.swift in Sources */,
+				X91C4DA9087CA4CD43505D66 /* LiveActivitySettings.swift in Sources */,
+				X224A59C9BE9ED7411D5BE6E /* ICloudStatus.swift in Sources */,
+				XD6206FA9C062C8FEFC090B2 /* PageColor.swift in Sources */,
+				XD0335ECCB5493E81EEAC370 /* PageColorPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -386,6 +566,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A2000001 /* ShareViewController.swift in Sources */,
+				XF753821B39E7E043B17F429 /* AppGroup.swift in Sources */,
+				X51EF90A535F39B1A6CD025F /* ShareSaver.swift in Sources */,
+				X005EBF531FD6F3BCCA4997A /* ShareSheetModel.swift in Sources */,
+				XE74A1A437FBCF362FD1C909 /* ShareSheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +580,32 @@
 				A3000001 /* StowWidget.swift in Sources */,
 				A3000004 /* StowLiveActivity.swift in Sources */,
 				A3000005 /* StowActivityAttributes.swift in Sources */,
+				X5EAC7A1E1E640D0DABB5F87 /* AppGroup.swift in Sources */,
+				X80185DADC54CBB38989BC7A /* WorkspaceChoice.swift in Sources */,
+				XE06AAE7FFE64279AA0C0AD7 /* WorkspaceWidgetIntent.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S4000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				X6DE897640320624840B9390 /* TestSupport.swift in Sources */,
+				XA0EFCD0C65EA7DCE563E131 /* WorkspaceChoiceTests.swift in Sources */,
+				X7E5514A57A55A380441F661 /* LiveActivitySettingsTests.swift in Sources */,
+				XD4152DA553298167882548F /* ShareTests.swift in Sources */,
+				X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */,
+				X539E6B7814724812428AF26 /* WidgetIntentTests.swift in Sources */,
+				XBD177B771BC281FB13C0301 /* SettingsLogicTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S5000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				X12244C5330BE4BA9A00DD35 /* SettingsSheetUITests.swift in Sources */,
+				XE37F82EA5005D259A6436FB /* LiveTourUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +621,16 @@
 			isa = PBXTargetDependency;
 			target = T3000001 /* StowWidgetExtension */;
 			targetProxy = CP300001 /* PBXContainerItemProxy */;
+		};
+		TD400001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T1000001 /* StowIOS */;
+			targetProxy = CP400001 /* PBXContainerItemProxy */;
+		};
+		TD500001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T1000001 /* StowIOS */;
+			targetProxy = CP500001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -715,6 +935,88 @@
 			};
 			name = Release;
 		};
+		BC400001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.tests;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StowIOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/StowIOS";
+			};
+			name = Debug;
+		};
+		BC400002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.tests;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StowIOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/StowIOS";
+			};
+			name = Release;
+		};
+		BC500001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.uitests;
+				TEST_TARGET_NAME = StowIOS;
+			};
+			name = Debug;
+		};
+		BC500002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CL6XWJCS9R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.stow.ios.uitests;
+				TEST_TARGET_NAME = StowIOS;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -750,6 +1052,24 @@
 			buildConfigurations = (
 				BC300001 /* Debug */,
 				BC300002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC400001 /* Build configuration list for PBXNativeTarget "StowIOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC400001 /* Debug */,
+				BC400002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC500001 /* Build configuration list for PBXNativeTarget "StowIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC500001 /* Debug */,
+				BC500002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

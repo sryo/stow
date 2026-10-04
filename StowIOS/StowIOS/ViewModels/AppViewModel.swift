@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import WidgetKit
 import StowShared
 
 @MainActor
@@ -26,16 +27,19 @@ final class AppViewModel: ObservableObject {
         selectedNodeIds.removeAll()
     }
 
-    private static let appGroupID = "group.com.stow.app"
+    /// Dynamic Island & Lock Screen, and which workspace it shows.
+    let liveActivitySettings = LiveActivitySettings()
+    private let pageColorStore: PageColorStore
+    private let shareInbox: ShareInbox
+    private var isSyncEnabled = false
     private var modelChangeSubscription: AnyCancellable?
+    private var pageColorSubscription: AnyCancellable?
+    private var contrastObserver: NSObjectProtocol?
 
     init() {
         Self.migrateSyncStateIfNeeded()
 
-        let baseDir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupID
-        ) ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Stow")
+        let baseDir = AppGroup.containerURL
         let store = DataStore(baseDirectory: baseDir)
         var isSeededRun = false
 
@@ -43,13 +47,32 @@ final class AppViewModel: ObservableObject {
         // Seed the App Group container from a JSON fixture before AppModel loads.
         // Used by ios-simulator-skill scenarios to start each run from a known
         // state. Set STOW_SEED_FIXTURE=/path/to/fixture.json in the scheme env.
-        if let fixturePath = ProcessInfo.processInfo.environment["STOW_SEED_FIXTURE"],
-           let data = try? Data(contentsOf: URL(fileURLWithPath: fixturePath)) {
+        // STOW_SEED_FIXTURE_JSON carries the fixture itself, for UI tests whose fixture
+        // path the simulated app may not be allowed to read.
+        let environment = ProcessInfo.processInfo.environment
+        if let data = environment["STOW_SEED_FIXTURE_JSON"].map({ Data($0.utf8) })
+            ?? environment["STOW_SEED_FIXTURE"].flatMap({ try? Data(contentsOf: URL(fileURLWithPath: $0)) }) {
             try? FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
             try? data.write(to: baseDir.appendingPathComponent("data.json"))
             isSeededRun = true
         }
+        // Starts a UI-test run from the default settings.
+        if ProcessInfo.processInfo.environment["STOW_RESET_SETTINGS"] == "1" {
+            for key in [LiveActivitySettings.enabledKey, LiveActivitySettings.showsKey, SyncedTintPreference.key,
+                        UserDefaultsKeys.lastSelectedWorkspaceId] {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            UserDefaults(suiteName: "StowSeededRunCloud")?.removeObject(forKey: SyncedTintPreference.key)
+        }
         #endif
+
+        // Fixture runs keep page color on this device too, like their data.
+        let tintPreference = isSeededRun
+            ? SyncedTintPreference(local: UserDefaults.standard, cloud: UserDefaults(suiteName: "StowSeededRunCloud")!)
+            : SyncedTintPreference.shared
+        tintPreference.start()
+        pageColorStore = PageColorStore(preference: tintPreference)
+        shareInbox = ShareInbox()
 
         let model = AppModel(store: store)
         self.model = model
@@ -63,13 +86,24 @@ final class AppViewModel: ObservableObject {
                 self?.objectWillChange.send()
                 CloudSyncManager.shared.scheduleLocalChanges()
                 self?.refreshLiveActivity()
+                self?.scheduleWidgetReload()
             }
+        pageColorSubscription = pageColorStore.$tint
+            .dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+        contrastObserver = NotificationCenter.default.addObserver(
+            forName: UIAccessibility.darkerSystemColorsStatusDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.objectWillChange.send() }
+        }
 
         // Initialize iCloud sync. Fixture runs stay local so seed data never
         // reaches the signed-in iCloud account.
         if !isSeededRun {
             CloudSyncManager.shared.configure(model: model)
+            isSyncEnabled = true
         }
+        absorbSharedLinks()
         model.deletionScheduler = { ids in
             for id in ids { CloudSyncManager.shared.scheduleDeletion(for: id) }
         }
@@ -98,7 +132,54 @@ final class AppViewModel: ObservableObject {
     /// Mirrors the current workspace into the Dynamic Island. Unchanged states are
     /// skipped unless `force` is set, which re-requests an expired or dismissed activity.
     func refreshLiveActivity(force: Bool = false) {
-        LiveActivityController.shared.sync(workspace: model.currentWorkspace, force: force)
+        LiveActivityController.shared.sync(
+            workspace: liveActivitySettings.workspace(in: model),
+            enabled: liveActivitySettings.isEnabled,
+            force: force
+        )
+    }
+
+    // MARK: - Page color
+
+    /// The synced choice, as the Settings picker shows it.
+    var pageColor: StowTheme.TintMode { pageColorStore.tint }
+
+    /// What pages draw: the choice, softened under Increase Contrast.
+    var effectiveTint: StowTheme.TintMode {
+        PageColor.effective(pageColorStore.tint, increaseContrast: UIAccessibility.isDarkerSystemColorsEnabled)
+    }
+
+    func setPageColor(_ tint: StowTheme.TintMode) {
+        pageColorStore.set(tint)
+    }
+
+    func background(for colorId: WorkspaceColorId) -> UIColor {
+        StowTheme.colors(for: colorId, tint: effectiveTint).surface
+    }
+
+    // MARK: - Share extension and widgets
+
+    /// Picks up links the share extension saved while this copy of the state was in memory,
+    /// and uploads them. Call on launch, on every foreground and before applying a push.
+    func absorbSharedLinks() {
+        guard !shareInbox.pending.isEmpty else { return }
+        let added = ShareSaver.absorb(inbox: shareInbox, into: model)
+        if added > 0 { objectWillChange.send() }
+        if isSyncEnabled { CloudSyncManager.shared.scheduleLocalChanges() }
+        refreshLiveActivity()
+        scheduleWidgetReload()
+    }
+
+    private var widgetReloadTask: Task<Void, Never>?
+
+    /// Widgets showing "Current workspace" follow selection and edits; coalesce bursts.
+    private func scheduleWidgetReload() {
+        widgetReloadTask?.cancel()
+        widgetReloadTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     var workspaces: [Workspace] {
