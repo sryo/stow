@@ -24,4 +24,18 @@ extension Array where Element == Node {
             return []
         }
     }
+
+    /// Links, tasks and snippets at every depth; a folder counts its contents, not itself.
+    public func leafCount() -> Int {
+        reduce(0) { total, node in
+            if case .folder(let folder) = node { return total + folder.children.leafCount() }
+            return total + 1
+        }
+    }
+
+    /// The item count Stow shows for a workspace (Settings, the rail tip, the editor and
+    /// search): only what isn't archived, at any depth.
+    public func activeItemCount() -> Int {
+        unarchived().leafCount()
+    }
 }

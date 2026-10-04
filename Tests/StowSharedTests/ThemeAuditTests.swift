@@ -90,10 +90,10 @@ final class ThemeAuditTests: XCTestCase {
     }
 
     func testListMetricsDensity() {
-        // A 680pt-tall window minus chrome must fit at least 18 rows at default density.
+        // A 680pt-tall window minus chrome must fit at least 18 rows.
         let chrome = StowTheme.Chrome.titleBarHeight + StowTheme.Chrome.searchHeight + StowTheme.Chrome.bottomBarHeight
-        let rows = (680 - chrome) / (StowTheme.List.rowHeight(.compact) + StowTheme.List.rowGap)
+        let rows = (680 - chrome) / (StowTheme.List.rowHeight + StowTheme.List.rowGap)
         XCTAssertGreaterThanOrEqual(rows, 18)
-        XCTAssertLessThanOrEqual(StowTheme.List.rowHeight(.compact), 30)
+        XCTAssertLessThanOrEqual(StowTheme.List.rowHeight, 30)
     }
 }

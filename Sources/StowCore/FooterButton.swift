@@ -1,25 +1,57 @@
 import AppKit
 
 /// A text button for the bottom bar ("+ Stow this tab ⌥⌘S", "Paste"), optionally
-/// followed by an outlined keycap, styled like the mockup's `.fb`.
+/// followed by an outlined keycap, styled like the mockup's `.fb`. As the list narrows it
+/// drops the keycap, then shows only its symbol (`fit`).
 final class FooterButton: BaseControl {
+    /// How much of the button shows, roomiest first.
+    enum Fit: Equatable { case full, noKeycap, icon }
+
     private let titleField = NSTextField(labelWithString: "")
     private let keycap = Keycap()
+    private let symbolView = NSImageView()
     private var trailingToTitle: NSLayoutConstraint?
     private var trailingToKeycap: NSLayoutConstraint?
+    private var trailingToSymbol: NSLayoutConstraint?
 
     var colors: StowTheme.Colors? { didSet { updateAppearance() } }
 
-    /// Shown after the title; hidden when nil or when `showsKeycap` is off.
+    /// Shown after the title; hidden when nil or when `fit` leaves it out.
     var keycapText: String? { didSet { updateKeycap() } }
-    var showsKeycap = true { didSet { updateKeycap() } }
+    var fit: Fit = .full { didSet { if fit != oldValue { updateKeycap() } } }
+    /// The SF Symbol `fit == .icon` shows in place of the title.
+    let symbolName: String?
 
     var title: String {
         get { titleField.stringValue }
         set { titleField.stringValue = newValue; setAccessibilityLabel(newValue); invalidateIntrinsicContentSize() }
     }
 
-    init(title: String, keycap keycapLabel: String? = nil) {
+    /// The narrowest bar that still shows titles; below it the footer is icons only.
+    static let titlesMinWidth: CGFloat = 164
+
+    /// The roomiest fit for a bar `width` wide holding the stow button (`stowFull` with its
+    /// keycap, `stowTitle` without) and Paste (`paste`), 4pt apart.
+    static func footerFit(width: CGFloat, stowFull: CGFloat, stowTitle: CGFloat, paste: CGFloat) -> Fit {
+        if width >= stowFull + 4 + paste { return .full }
+        if width >= titlesMinWidth, width >= stowTitle + 4 + paste { return .noKeycap }
+        return .icon
+    }
+
+    /// The button's width at `fit`, measured without changing what it shows.
+    func fittingWidth(_ fit: Fit) -> CGFloat {
+        switch fit {
+        case .icon: return 8 + 14 + 8
+        case .noKeycap: return 8 + ceil(titleField.attributedStringValue.size().width) + 4 + 8
+        case .full:
+            let title = fittingWidth(.noKeycap)
+            guard keycapText != nil else { return title }
+            return title + 4 + ceil(keycap.fittingSize.width)
+        }
+    }
+
+    init(title: String, keycap keycapLabel: String? = nil, symbolName: String? = nil) {
+        self.symbolName = symbolName
         super.init(frame: .zero)
         layer?.cornerRadius = 7
         setAccessibilityRole(.button)
@@ -27,11 +59,21 @@ final class FooterButton: BaseControl {
         titleField.lineBreakMode = .byClipping
         titleField.translatesAutoresizingMaskIntoConstraints = false
         keycap.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.image = symbolName.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+        symbolView.isHidden = true
+        symbolView.setAccessibilityElement(false)
         addSubview(titleField)
         addSubview(keycap)
+        addSubview(symbolView)
         trailingToTitle = titleField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         trailingToKeycap = keycap.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        trailingToSymbol = symbolView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         NSLayoutConstraint.activate([
+            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: 14),
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             keycap.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 4),
@@ -52,11 +94,15 @@ final class FooterButton: BaseControl {
 
     private func updateKeycap() {
         keycap.text = keycapText ?? ""
-        let show = keycapText != nil && showsKeycap
-        keycap.isHidden = !show
+        let icon = fit == .icon && symbolView.image != nil
+        let show = keycapText != nil && fit == .full
+        keycap.isHidden = !show || icon
+        titleField.isHidden = icon
+        symbolView.isHidden = !icon
         trailingToKeycap?.isActive = false
         trailingToTitle?.isActive = false
-        (show ? trailingToKeycap : trailingToTitle)?.isActive = true
+        trailingToSymbol?.isActive = false
+        (icon ? trailingToSymbol : show ? trailingToKeycap : trailingToTitle)?.isActive = true
         invalidateIntrinsicContentSize()
     }
 
@@ -73,6 +119,7 @@ final class FooterButton: BaseControl {
         let fill: NSColor = isPressed ? c.multiSelected : (isHovered ? c.hover : .clear)
         layer?.backgroundColor = resolvedCGColor(fill)
         titleField.textColor = flattened(c.inkPrimary)
+        symbolView.contentTintColor = flattened(c.inkPrimary)
         keycap.color = c.inkSecondary
     }
 

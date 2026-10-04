@@ -16,24 +16,20 @@ final class SettingsRailController: NSObject {
 
     /// The editor and the sheet are roots; All shortcuts is pushed beside the sheet.
     let flyouts = FlyoutController()
-    private let editorPanel = FlyoutPanel()
     private let sheetPanel = FlyoutPanel()
     private let shortcutsPanel = FlyoutPanel()
-    private let editor = WorkspaceEditorView()
+    /// The shared workspace editor, shown in this rail's flyout stack beside a tile.
+    let editor: WorkspaceEditorController
     private let sheet = AppSheetView()
     /// The tip beside a resting tile; its dwell also previews the tile's page color.
     let tips = RailTipController()
-    private(set) var editingId: UUID?
+    var editingId: UUID? { editor.editingId }
     private var isSheetOpen: Bool { flyouts.isOpen(id: FlyoutId.sheet) }
     private var previewId: UUID?
-    /// The workspace the color panel is recoloring, and the color it shows. The drag
-    /// previews it; the library is written once, when the editor or the panel closes.
-    private var colorPanelWorkspace: UUID?
-    private var pendingCustomColor: WorkspaceColorId?
-    private var observesColorPanel = false
 
     init(model: AppModel) {
         self.model = model
+        editor = WorkspaceEditorController(model: model, flyouts: flyouts, flyoutId: FlyoutId.editor)
         super.init()
         flyouts.onOutsideClick = { [weak self] in self?.closeFlyouts() }
         wireView()
@@ -66,7 +62,7 @@ final class SettingsRailController: NSObject {
     /// Tears down flyouts, tip and preview before the rail leaves Settings.
     func willLeave() {
         closeFlyouts()
-        releaseColorPanel()
+        editor.releaseColorPanel()
         tips.hide()
         previewId = nil
         // A focused gear or tile would keep its ring while hidden (⌘1 leaves from the keyboard).
@@ -96,18 +92,14 @@ final class SettingsRailController: NSObject {
         let workspaces = model.workspaces
         let identities = WorkspaceTileIdentity.resolve(workspaces)
         let tiles = workspaces.enumerated().map { index, ws in
-            SettingsRailView.Tile(id: ws.id, name: ws.name, colorId: shownColor(of: ws),
+            SettingsRailView.Tile(id: ws.id, name: ws.name, colorId: editor.shownColor(of: ws),
                                   identity: identities[ws.id] ?? .letter("?"),
                                   accessibilityLabel: accessibilityLabel(for: ws, position: index + 1))
         }
-        if let editingId, !workspaces.contains(where: { $0.id == editingId }) { closeEditor() }
         let returnName = returnTarget.flatMap { id in workspaces.first { $0.id == id }?.name }
         view.configure(tiles: tiles, cameFrom: navigation.cameFrom, selected: editingId, sheetOpen: isSheetOpen,
                        badge: AppSheet.showsBadge(needs: AppPreferences.shared.permissionNeeds), returnName: returnName)
-        if let editingId, let ws = workspaces.first(where: { $0.id == editingId }) {
-            editor.configure(editorContent(for: ws, identities: identities))
-            positionEditor()
-        }
+        editor.refresh()
         sheet.previewColor = returnTarget.flatMap { id in workspaces.first { $0.id == id }?.colorId } ?? .defaultColor()
         if isSheetOpen { positionSheet() }
         fetchMissingFavicons(workspaces)
@@ -131,7 +123,7 @@ final class SettingsRailController: NSObject {
 
     /// "18 items · Chrome · Work · ⌘1", as in the tip; the browser only when one is set.
     func detail(for ws: Workspace, position: Int) -> String {
-        let count = WorkspaceDeletion.itemCount(of: ws)
+        let count = ws.items.activeItemCount()
         var parts = ["\(count) \(count == 1 ? "item" : "items")"]
         if let choice = OpensInStore().choice(for: ws.id) { parts.append(OpensInMenu.display(choice).title) }
         if let shortcut = WorkspaceShortcut.label(position: position) { parts.append(shortcut) }
@@ -139,23 +131,7 @@ final class SettingsRailController: NSObject {
     }
 
     func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
-        let position = (model.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0) + 1
-        let favicons = WorkspaceIconSites.pick(from: ws.items)
-        // The Letter choice previews what the tile would read among every workspace.
-        let asLetters = model.workspaces.map { other -> Workspace in
-            var other = other
-            if other.id == ws.id { other.icon = .letter }
-            return other
-        }
-        let letter = WorkspaceTileIdentity.resolve(asLetters)[ws.id] ?? .letter("?")
-        let choice = OpensInStore().choice(for: ws.id)
-        return .init(id: ws.id, name: ws.name, colorId: shownColor(of: ws), icon: ws.icon,
-                     favicons: .mosaic(favicons), letter: letter,
-                     current: identities[ws.id] ?? .letter("?"),
-                     itemCount: WorkspaceDeletion.itemCount(of: ws), position: position,
-                     opensIn: OpensInMenu.display(choice),
-                     opensInNow: choice == nil ? OpensInMenu.currentBrowserName() : nil,
-                     canDelete: model.workspaces.count > 1)
+        editor.editorContent(for: ws, identities: identities)
     }
 
     // MARK: View events
@@ -262,139 +238,37 @@ final class SettingsRailController: NSObject {
     private func openEditor(_ id: UUID, focusName: Bool = false) {
         closeSheet()
         hideTip()
-        commitPendingName()
-        if id != editingId { releaseColorPanel() }
-        editingId = id
+        editor.open(id, placement: { [weak self] in self?.editorPlacement(for: id) }, focusName: focusName)
         reload()
-        if focusName {
-            editorPanel.makeKey()
-            editor.focusName()
-        } else {
-            // Only a new workspace takes the name field; otherwise the rail keeps the keyboard.
-            editorPanel.makeFirstResponder(nil)
-            view.window?.makeKey()
-        }
     }
 
     private func closeEditor() {
-        commitPendingName()
-        editingId = nil
-        flyouts.close(id: FlyoutId.editor)
-        releaseColorPanel()
-        view.window?.makeKey()
-        reload()
+        editor.close()
     }
 
-    /// A workspace can't be left nameless; an empty name becomes "Untitled".
-    private func commitPendingName() {
-        guard let id = editingId, let ws = model.workspaces.first(where: { $0.id == id }),
-              ws.name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        model.renameWorkspace(id: id, newName: "Untitled")
-    }
-
-    private func positionEditor() {
-        guard let id = editingId, let window = view.window, let anchor = view.screenFrame(ofTile: id) else { return }
-        let size = NSSize(width: WorkspaceEditorView.width, height: editor.preferredHeight)
-        flyouts.show(editorPanel, id: FlyoutId.editor, content: editor, size: size, anchor: anchor,
-                     edge: .beside(column: railScreenFrame()), topInset: 28, parent: window,
-                     onEscape: { [weak self] in self?.closeFlyouts() })
+    private func editorPlacement(for id: UUID) -> WorkspaceEditorController.Placement? {
+        guard let window = view.window, let anchor = view.screenFrame(ofTile: id) else { return nil }
+        return .init(anchor: anchor, edge: .beside(column: railScreenFrame()), topInset: 28, parent: window)
     }
 
     private func wireEditor() {
-        editor.onHeightChange = { [weak self] in self?.positionEditor() }
-        editor.onRename = { [weak self] name in
-            guard let self, let id = self.editingId else { return }
-            self.model.renameWorkspace(id: id, newName: name)
-        }
-        editor.onCommit = { [weak self] in self?.closeEditor() }
-        editor.onEscape = { [weak self] in self?.closeEditor() }
-        editor.onColor = { [weak self] colorId in
-            guard let self, let id = self.editingId else { return }
-            self.pendingCustomColor = nil
-            self.model.updateWorkspaceColor(id: id, colorId: colorId)
-        }
-        editor.onCustomColor = { [weak self] in self?.chooseCustomColor() }
-        editor.onIcon = { [weak self] icon in
-            guard let self, let id = self.editingId else { return }
-            self.model.updateWorkspaceIcon(id: id, icon: icon)
-        }
-        editor.opensInMenu = { [weak self] in
-            guard let self, let id = self.editingId else { return nil }
-            return WorkspaceMenu.makeOpensInMenu(for: id)
-        }
-        editor.onOpen = { [weak self] in
-            guard let self, let id = self.editingId else { return }
-            self.onLeave?(id)
-        }
-        editor.onShare = { [weak self] in
-            guard let self, let id = self.editingId, let ws = self.model.workspaces.first(where: { $0.id == id }),
-                  let url = try? self.model.shareWorkspace(id: id) else { return }
-            SharePanel.show(url: url, workspaceName: ws.name)
-        }
-        editor.onDelete = { [weak self] in
-            guard let self, let id = self.editingId, self.model.workspaces.count > 1 else { return }
-            self.editingId = nil
-            self.flyouts.close(id: FlyoutId.editor)
-            self.releaseColorPanel(commit: false)
-            // The main window takes the keyboard back, so ⌘Z reaches its undo manager.
-            self.view.window?.makeKey()
-            WorkspaceDeletion.delete(id, model: self.model, in: self.view.window)
+        editor.onOpenWorkspace = { [weak self] id in self?.onLeave?(id) }
+        editor.onClose = { [weak self] in self?.reload() }
+        // The custom colour's drag previews on the page and the rail behind the editor.
+        editor.onPreviewColor = { [weak self] color in
+            guard let self else { return }
+            self.onPreviewColor?(color)
+            self.view.setColors(StowTheme.colors(for: color, tint: StowTheme.displayTint))
+            self.reload()
         }
     }
 
     func chooseCustomColor() {
-        guard let id = editingId, let ws = model.workspaces.first(where: { $0.id == id }) else { return }
-        colorPanelWorkspace = id
-        pendingCustomColor = nil
-        let panel = NSColorPanel.shared
-        panel.color = ws.colorId.color
-        panel.setTarget(self)
-        panel.setAction(#selector(customColorChanged(_:)))
-        panel.isContinuous = true
-        if !observesColorPanel {
-            observesColorPanel = true
-            NotificationCenter.default.addObserver(self, selector: #selector(colorPanelWillClose),
-                                                   name: NSWindow.willCloseNotification, object: panel)
-        }
-        panel.makeKeyAndOrderFront(nil)
+        editor.chooseCustomColor()
     }
 
-    /// Each tick of the drag previews the color on the rail and in the editor; nothing is
-    /// written until the editor or the panel closes.
     @objc func customColorChanged(_ sender: Any?) {
-        guard let id = colorPanelWorkspace, id == editingId else { return }
-        let color = WorkspaceColorId.custom(NSColorPanel.shared.color.hexString)
-        pendingCustomColor = color
-        onPreviewColor?(color)
-        view.setColors(StowTheme.colors(for: color, tint: StowTheme.displayTint))
-        reload()
-    }
-
-    @objc private func colorPanelWillClose() {
-        releaseColorPanel()
-    }
-
-    /// Commits the previewed custom color once, then lets go of the color panel so it
-    /// can't recolor a workspace whose editor has closed.
-    private func releaseColorPanel(commit: Bool = true) {
-        if commit, let id = colorPanelWorkspace, let color = pendingCustomColor,
-           model.workspaces.contains(where: { $0.id == id }) {
-            model.updateWorkspaceColor(id: id, colorId: color)
-        }
-        pendingCustomColor = nil
-        guard colorPanelWorkspace != nil else { return }
-        colorPanelWorkspace = nil
-        // The panel's target can't be read back; while colorPanelWorkspace is set it's ours.
-        let panel = NSColorPanel.shared
-        panel.setTarget(nil)
-        panel.setAction(nil)
-        if panel.isVisible { panel.orderOut(nil) }
-    }
-
-    /// The color a workspace shows: the color panel's preview while it's being dragged.
-    private func shownColor(of ws: Workspace) -> WorkspaceColorId {
-        if ws.id == colorPanelWorkspace, let pendingCustomColor { return pendingCustomColor }
-        return ws.colorId
+        editor.customColorChanged(sender)
     }
 
     // MARK: Sheet

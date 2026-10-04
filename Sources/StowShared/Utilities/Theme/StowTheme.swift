@@ -36,10 +36,6 @@ public enum StowTheme {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "StowTintMode") }
     }
 
-    public enum Density: String, Codable, CaseIterable, Sendable {
-        case compact, comfortable
-    }
-
     // MARK: - Color math
 
     /// An sRGB color with components in 0...1.
@@ -257,9 +253,7 @@ public enum StowTheme {
     // MARK: - Layout
 
     public enum List {
-        public static func rowHeight(_ density: Density) -> CGFloat {
-            density == .compact ? 28 : 34
-        }
+        public static let rowHeight: CGFloat = 28
         public static let rowGap: CGFloat = 0
         public static let horizontalInset: CGFloat = 8
         public static let indent: CGFloat = 16

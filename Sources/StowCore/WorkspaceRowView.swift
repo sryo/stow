@@ -1,8 +1,9 @@
 import AppKit
 
 /// One workspace in the Settings list: a fixed 28pt row with the workspace's tile (the
-/// same WorkspaceTileView as the Settings rail, at 16pt), name, "Opens in" chip, item
-/// count and a "…" menu button.
+/// same WorkspaceTileView as the Settings rail, at 16pt), name, "Opens in" chip and item
+/// count. A click opens the shared workspace editor beside the row; a right-click opens
+/// the native WorkspaceMenu.
 ///
 /// At rest the row is neutral on the Settings surface. Hovering or focusing it fills it
 /// with that workspace's own page color in the current tint mode, so you see the page
@@ -24,18 +25,17 @@ final class WorkspaceRowView: BaseView {
     }
 
     private let iconView = WorkspaceTileView(frame: NSRect(x: 0, y: 0, width: StowTheme.List.glyphSize, height: StowTheme.List.glyphSize))
-    private let editableTitle = InlineEditableTextField()
-    private let profileChip = ProfileChipButton()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let profileChip = ProfileChip()
     private let countLabel = NSTextField(labelWithString: "")
-    private let menuButton = SettingsIconButton(symbolName: "ellipsis", accessibilityLabel: "Workspace menu", size: StowTheme.List.actionSlot + 2, pointSize: 11)
     private var content: Content?
     private var pagePalette: StowTheme.Colors?
     private(set) var isFocused = false
 
-    var onShowMenu: ((NSView) -> Void)?
-    var onShowColorMenu: ((NSView) -> Void)?
-    var onShowProfileMenu: ((NSView) -> Void)?
-    var onRename: (() -> Void)?
+    /// Opens the workspace editor beside the row.
+    var onEdit: (() -> Void)?
+    /// Opens the WorkspaceMenu at the row.
+    var onContextMenu: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMove: ((WorkspaceMoveDirection) -> Void)?
 
@@ -54,20 +54,17 @@ final class WorkspaceRowView: BaseView {
         layer?.cornerRadius = SettingsMetrics.rowRadius
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.toolTip = "Change color"
         iconView.setAccessibilityElement(false)
-        iconView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(iconClicked)))
 
-        editableTitle.translatesAutoresizingMaskIntoConstraints = false
-        editableTitle.font = StowTheme.Font.row
-        editableTitle.textColor = SettingsColors.ink
-        editableTitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        editableTitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = StowTheme.Font.row
+        titleLabel.textColor = SettingsColors.ink
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         profileChip.translatesAutoresizingMaskIntoConstraints = false
         profileChip.isHidden = true
-        profileChip.target = self
-        profileChip.action = #selector(profileChipClicked)
 
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: StowTheme.Font.meta.pointSize, weight: .medium)
@@ -77,16 +74,10 @@ final class WorkspaceRowView: BaseView {
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
         countLabel.setAccessibilityElement(false)
 
-        menuButton.translatesAutoresizingMaskIntoConstraints = false
-        menuButton.target = self
-        menuButton.action = #selector(menuButtonClicked)
-        menuButton.alphaValue = 0
-
         addSubview(iconView)
-        addSubview(editableTitle)
+        addSubview(titleLabel)
         addSubview(profileChip)
         addSubview(countLabel)
-        addSubview(menuButton)
 
         let chipMaxWidth = profileChip.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.4)
         NSLayoutConstraint.activate([
@@ -95,21 +86,18 @@ final class WorkspaceRowView: BaseView {
             iconView.widthAnchor.constraint(equalToConstant: StowTheme.List.glyphSize),
             iconView.heightAnchor.constraint(equalToConstant: StowTheme.List.glyphSize),
 
-            editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
-            editableTitle.centerYAnchor.constraint(equalTo: centerYAnchor),
-            editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: profileChip.leadingAnchor, constant: -6),
-            editableTitle.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -8),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: profileChip.leadingAnchor, constant: -6),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -8),
 
             profileChip.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -6),
             profileChip.centerYAnchor.constraint(equalTo: centerYAnchor),
             chipMaxWidth,
 
-            countLabel.trailingAnchor.constraint(equalTo: menuButton.leadingAnchor, constant: -6),
+            countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SettingsMetrics.rowPadding),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
-
-            menuButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            menuButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
@@ -126,10 +114,8 @@ final class WorkspaceRowView: BaseView {
             pagePalette = WorkspaceRowView.palette(for: content.colorId)
         }
 
-        if !editableTitle.isEditing {
-            editableTitle.text = content.name
-        }
-        editableTitle.textField.toolTip = content.name
+        titleLabel.stringValue = content.name
+        titleLabel.toolTip = content.name
 
         iconView.colorId = content.colorId
         iconView.identity = content.identity ?? (content.iconLinks.isEmpty
@@ -172,7 +158,7 @@ final class WorkspaceRowView: BaseView {
 
     // MARK: State
 
-    private var isActive: Bool { isHovered || isFocused || editableTitle.isEditing }
+    private var isActive: Bool { isHovered || isFocused }
 
     override func handleHoverStateChanged() {
         applyState()
@@ -184,19 +170,15 @@ final class WorkspaceRowView: BaseView {
         let palette = active ? pagePalette : nil
         let ink = palette?.inkPrimary ?? SettingsColors.ink
         let secondary = palette?.inkSecondary ?? SettingsColors.inkSecondary
-        if !editableTitle.isEditing {
-            editableTitle.textColor = ink
-        }
+        titleLabel.textColor = ink
         countLabel.textColor = secondary
         profileChip.tint = secondary
-        menuButton.tint = active ? ink : nil
-        menuButton.alphaValue = (active && !editableTitle.isEditing) ? 1 : 0
     }
 
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        let active = isActive && !editableTitle.isEditing
+        let active = isActive
         layer?.backgroundColor = active ? (pagePalette?.hover ?? SettingsColors.fill).cgColor : NSColor.clear.cgColor
         layer?.borderWidth = isFocused ? SettingsMetrics.focusRingWidth : 0
         layer?.borderColor = SettingsColors.accent.cgColor
@@ -208,54 +190,15 @@ final class WorkspaceRowView: BaseView {
         iconView.needsDisplay = true
     }
 
-    // MARK: Rename
-
-    var isInlineRenaming: Bool {
-        editableTitle.isEditing
-    }
-
-    func beginInlineRename(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-        editableTitle.beginInlineRename(
-            onCommit: { [weak self] name in
-                onCommit(name)
-                self?.applyState()
-            },
-            onCancel: { [weak self] in
-                onCancel()
-                self?.applyState()
-            }
-        )
-        applyState()
-    }
-
-    func cancelInlineRename() {
-        editableTitle.cancelInlineRename()
-    }
-
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2, !editableTitle.isEditing {
-            onRename?()
-            return
-        }
+        if event.clickCount == 1 { onEdit?() }
         super.mouseDown(with: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        onShowMenu?(menuButton)
-    }
-
-    @objc private func iconClicked() {
-        onShowColorMenu?(iconView)
-    }
-
-    @objc private func menuButtonClicked() {
-        onShowMenu?(menuButton)
-    }
-
-    @objc private func profileChipClicked() {
-        onShowProfileMenu?(profileChip)
+        onContextMenu?()
     }
 
     // MARK: Keyboard
@@ -281,14 +224,10 @@ final class WorkspaceRowView: BaseView {
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch event.keyCode {
-        case 36 where flags.isEmpty, 76 where flags.isEmpty: // Return
-            onRename?()
-        case 36 where flags == .control:
-            onShowMenu?(menuButton)
-        case 49: // Space
-            onShowMenu?(menuButton)
-        case 109 where flags.contains(.shift): // ⇧F10
-            onShowMenu?(menuButton)
+        case 36 where flags.isEmpty, 76 where flags.isEmpty, 49: // Return, Space
+            onEdit?()
+        case 36 where flags == .control, 109 where flags.contains(.shift): // ⌃Return, ⇧F10
+            onContextMenu?()
         case 51 where flags.contains(.command), 117 where flags.contains(.command): // ⌘⌫
             if content?.canDelete == true { onDelete?() } else { NSSound.beep() }
         case 126 where flags.contains([.command, .option]): // ⌥⌘↑
@@ -316,11 +255,7 @@ final class WorkspaceRowView: BaseView {
             setAccessibilityHelp(nil)
         }
         var actions = [
-            NSAccessibilityCustomAction(name: "Rename workspace") { [weak self] in self?.onRename?(); return true },
-            NSAccessibilityCustomAction(name: "Change color") { [weak self] in
-                guard let self else { return false }
-                self.onShowColorMenu?(self.iconView); return true
-            },
+            NSAccessibilityCustomAction(name: "Edit workspace") { [weak self] in self?.onEdit?(); return true },
         ]
         if content.position > 1 {
             actions.append(NSAccessibilityCustomAction(name: "Move up") { [weak self] in self?.onMove?(.left); return true })
@@ -335,7 +270,7 @@ final class WorkspaceRowView: BaseView {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        onShowMenu?(menuButton)
+        onEdit?()
         return true
     }
 }
@@ -343,8 +278,8 @@ final class WorkspaceRowView: BaseView {
 // MARK: - Profile chip
 
 /// "[C] Chrome · Work": the workspace's "Opens in" browser with its icon, in Font.meta.
-/// Clicking it opens the Opens in submenu.
-private final class ProfileChipButton: BaseControl {
+/// It's changed in the editor's Opens in row.
+private final class ProfileChip: NSView {
     private let symbolView = NSImageView()
     private let label = NSTextField(labelWithString: "")
 
@@ -352,7 +287,6 @@ private final class ProfileChipButton: BaseControl {
         didSet {
             label.stringValue = title
             label.toolTip = title
-            setAccessibilityLabel("Opens in, \(title)")
         }
     }
 
@@ -386,8 +320,6 @@ private final class ProfileChipButton: BaseControl {
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
         tint = SettingsColors.inkSecondary
     }
 

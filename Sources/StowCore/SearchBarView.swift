@@ -59,6 +59,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     private var clearHeightConstraint: NSLayoutConstraint?
     private var textLeadingConstraint: NSLayoutConstraint?
     private var textTrailingConstraint: NSLayoutConstraint?
+    /// Keeps the text (and its placeholder) clear of the "/" keycap while it shows.
+    private var textBeforeShortcut: NSLayoutConstraint?
 
     var style: Style {
         didSet {
@@ -154,6 +156,9 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         textField.drawsBackground = false
         textField.focusRingType = .none
         textField.delegate = self
+        textField.cell?.usesSingleLineMode = true
+        textField.cell?.lineBreakMode = .byTruncatingTail
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         clearButton.isBordered = false
@@ -190,6 +195,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         clearHeightConstraint = clearButton.heightAnchor.constraint(equalToConstant: max(style.clearIconPointSize, 16))
         textLeadingConstraint = textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: style.iconTitleSpacing)
         textTrailingConstraint = textField.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -style.clearSpacing)
+        textTrailingConstraint?.priority = .defaultHigh
+        textBeforeShortcut = textField.trailingAnchor.constraint(lessThanOrEqualTo: shortcutLabel.leadingAnchor, constant: -4)
 
         NSLayoutConstraint.activate([
             iconLeadingConstraint!,
@@ -237,6 +244,7 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         layer?.borderWidth = focused ? 2 : 0
         layer?.borderColor = resolvedCGColor(colors?.accent ?? .controlAccentColor)
         shortcutLabel.isHidden = !showsShortcutHint && (focused || !textField.stringValue.isEmpty)
+        textBeforeShortcut?.isActive = !shortcutLabel.isHidden
     }
 
     private func applyStyle() {
@@ -275,9 +283,13 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
 
     private func updatePlaceholder() {
         guard !placeholder.isEmpty else { return }
+        // Truncated with an ellipsis when the field is narrower than the word.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: secondaryInk,
-            .font: style.font
+            .font: style.font,
+            .paragraphStyle: paragraph,
         ]
         textField.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: attributes)
     }

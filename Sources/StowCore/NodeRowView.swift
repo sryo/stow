@@ -58,9 +58,6 @@ final class NodeRowView: BaseView {
 
     private var disclosureLeadingConstraint: NSLayoutConstraint?
     private var iconLeadingConstraint: NSLayoutConstraint?
-    private var iconCenteredConstraint: NSLayoutConstraint?
-    private var iconWidthConstraint: NSLayoutConstraint?
-    private var iconHeightConstraint: NSLayoutConstraint?
     private var contentLeadingConstraint: NSLayoutConstraint?
     /// Keeps the title clear of the metadata column (`rowS`: min(130, 36%) wide).
     private var titleTrailingReserve: NSLayoutConstraint?
@@ -69,6 +66,7 @@ final class NodeRowView: BaseView {
     private var metaToSlot: NSLayoutConstraint?
     private var badgeToEdge: NSLayoutConstraint?
     private var badgeToSlot: NSLayoutConstraint?
+    private var slotToEdge: NSLayoutConstraint?
 
     // Swipe state
     private var panGesture: NSPanGestureRecognizer?
@@ -199,9 +197,7 @@ final class NodeRowView: BaseView {
         badgeToEdge = badgeLabel.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
         badgeToSlot = badgeLabel.trailingAnchor.constraint(equalTo: slotButton.leadingAnchor, constant: -4)
         iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: metrics.leftPadding)
-        iconCenteredConstraint = iconView.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor)
-        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize)
-        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize)
+        slotToEdge = slotButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6)
 
         NSLayoutConstraint.activate([
             guidesView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
@@ -216,8 +212,8 @@ final class NodeRowView: BaseView {
 
             iconLeadingConstraint!,
             iconView.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            iconWidthConstraint!,
-            iconHeightConstraint!,
+            iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
 
             editableTitle.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: StowTheme.List.glyphToTitle - 2), // less the text cell's 2pt inset
             editableTitle.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
@@ -235,7 +231,7 @@ final class NodeRowView: BaseView {
             openDot.trailingAnchor.constraint(equalTo: iconView.leadingAnchor, constant: -1.5),
             openDot.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
-            slotButton.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -6),
+            slotToEdge!,
             slotButton.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
             slotButton.widthAnchor.constraint(equalToConstant: metrics.actionSlot),
             slotButton.heightAnchor.constraint(equalToConstant: metrics.actionSlot),
@@ -286,19 +282,11 @@ final class NodeRowView: BaseView {
 
         metaLabel.isHidden = true
         badgeLabel.isHidden = true
-        disclosureButton.isHidden = true
         var metaText: String?
         var metaColor = metrics.secondaryColor
 
         switch content.kind {
-        case .folder(let isExpanded, let childCount):
-            disclosureButton.contentTintColor = metrics.secondaryColor
-            disclosureButton.frameCenterRotation = 0
-            disclosureButton.image = NSImage(
-                systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
-                accessibilityDescription: isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)"
-            )?.withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
-            disclosureButton.setAccessibilityLabel(isExpanded ? "Collapse \(content.title)" : "Expand \(content.title)")
+        case .folder(_, let childCount):
             setIcon(symbol: "folder", tint: metrics.iconTintColor)
             metaText = "\(childCount)"
 
@@ -308,8 +296,7 @@ final class NodeRowView: BaseView {
                 iconView.image = favicon
                 iconView.contentTintColor = nil
             } else {
-                iconView.image = SiteGlyph.tileImage(title: content.title, host: domain ?? "",
-                                                     size: metrics.mode == .rail ? 28 : metrics.iconSize)
+                iconView.image = SiteGlyph.tileImage(title: content.title, host: domain ?? "", size: metrics.iconSize)
                 iconView.contentTintColor = nil
             }
             metaText = domain
@@ -362,33 +349,15 @@ final class NodeRowView: BaseView {
         refreshHoverState()
     }
 
-    /// Rail shows only the centered icon (name on hover); list drops the trailing metadata.
+    /// The list drops the trailing metadata; the sidebar keeps it. (The rail is RailView.)
     private func applyElasticMode(_ mode: ElasticMode, content: NodeRowContent) {
-        let rail = mode == .rail
-        editableTitle.isHidden = rail
         guidesView.isHidden = true
         disclosureButton.isHidden = true
-        if rail {
-            disclosureButton.isHidden = true
-            metaLabel.isHidden = true
-            badgeLabel.isHidden = true
-            toolTip = content.title
-        } else {
-            toolTip = nil
-        }
         if mode == .list {
             // Names only; folders keep their count.
             if case .folder = content.kind {} else { metaLabel.isHidden = true }
             badgeLabel.isHidden = true
         }
-        iconLeadingConstraint?.isActive = !rail
-        iconCenteredConstraint?.isActive = rail
-        // The rail is a dock of site tiles, so icons are much larger there.
-        let size: CGFloat = rail ? 28 : metrics.iconSize
-        iconWidthConstraint?.constant = size
-        iconHeightConstraint?.constant = size
-        iconView.layer?.cornerRadius = rail ? 7 : metrics.iconCornerRadius
-        iconView.imageScaling = rail ? .scaleProportionallyUpOrDown : .scaleProportionallyDown
     }
 
     override func layout() {
@@ -414,9 +383,20 @@ final class NodeRowView: BaseView {
         }
         let hasTrailing = !metaLabel.isHidden || !badgeLabel.isHidden
         metaMaxWidth?.constant = column
+        let inset = Self.scrollerInset(for: enclosingScrollView)
+        metaToEdge?.constant = -(8 + inset)
+        badgeToEdge?.constant = -(8 + inset)
+        slotToEdge?.constant = -(6 + inset)
         let slotShown = !slotButton.isHidden || !slotKeycap.isHidden
-        let edge: CGFloat = slotShown ? 6 + metrics.actionSlot + 4 : 8
+        let edge: CGFloat = inset + (slotShown ? 6 + metrics.actionSlot + 4 : 8)
         titleTrailingReserve?.constant = -(edge + (hasTrailing ? column + 6 : 0))
+    }
+
+    /// Room for an overlay scroller, which floats over the rows' trailing edge, so it
+    /// never covers the meta column or the action slot.
+    static func scrollerInset(for scrollView: NSScrollView?) -> CGFloat {
+        guard let scrollView, scrollView.hasVerticalScroller, scrollView.scrollerStyle == .overlay else { return 0 }
+        return NSScroller.scrollerWidth(for: scrollView.verticalScroller?.controlSize ?? .regular, scrollerStyle: .overlay)
     }
 
     static let dueFormatter: DateFormatter = {
@@ -427,7 +407,7 @@ final class NodeRowView: BaseView {
 
     private func setIcon(symbol: String, tint: NSColor) {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: metrics.mode == .rail ? 17 : 12, weight: .medium))
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
         image?.isTemplate = true
         iconView.image = image
         iconView.contentTintColor = tint
@@ -538,7 +518,7 @@ final class NodeRowView: BaseView {
             slotButton.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Selected")?
                 .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
             slotButton.contentTintColor = metrics.colors.accent
-        } else if isHovered && showsSlotAction && !isEditing && metrics.mode != .rail {
+        } else if isHovered && showsSlotAction && !isEditing {
             let archived = content?.isArchived ?? false
             let title = content?.title ?? ""
             slotButton.isHidden = false

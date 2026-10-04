@@ -21,6 +21,20 @@ final class SettingsContentViewController: NSViewController {
         didSet { reloadWorkspaces() }
     }
 
+    /// The shared workspace editor; a row click opens it beside the row. The main window
+    /// passes its own, so the page, rail dots and Tabline chip share one.
+    var workspaceEditor: WorkspaceEditorController? {
+        get {
+            if ownEditor == nil, let appModel { ownEditor = WorkspaceEditorController(model: appModel) }
+            return ownEditor
+        }
+        set { ownEditor = newValue }
+    }
+    private var ownEditor: WorkspaceEditorController?
+
+    /// Leaves Settings for a workspace (the WorkspaceMenu's and editor's Open).
+    var onOpenWorkspace: ((UUID) -> Void)?
+
     /// Called by MainViewController when workspaces change.
     func notifyWorkspacesChanged() {
         reloadWorkspaces()
@@ -36,9 +50,6 @@ final class SettingsContentViewController: NSViewController {
     private let newWorkspaceRow = SettingsActionRow(title: "New workspace", symbolName: "plus")
     let sheet = AppSheetView(style: .page)
     private let footer = AppSheetFooterView(showsVersion: true)
-    private var pendingRenameId: UUID?
-    private var renamingWorkspaceId: UUID?
-    private var needsReloadAfterRename = false
     private var keyViewLoopScheduled = false
 
     // MARK: Lifecycle
@@ -77,7 +88,19 @@ final class SettingsContentViewController: NSViewController {
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
+        closeFlyouts()
+    }
+
+    /// Closes the editor and All shortcuts; the main window calls it when the page hides.
+    func closeFlyouts() {
         flyouts.closeAll()
+        if workspaceEditor?.editingId != nil { workspaceEditor?.close() }
+    }
+
+    /// A click on the page outside any row closes the editor.
+    override func mouseDown(with event: NSEvent) {
+        if workspaceEditor?.editingId != nil { workspaceEditor?.close() }
+        super.mouseDown(with: event)
     }
 
     // MARK: All shortcuts
@@ -201,19 +224,11 @@ final class SettingsContentViewController: NSViewController {
     // MARK: Workspaces
 
     private func reloadWorkspaces() {
-        guard isViewLoaded, let appModel else { return }
-        if renamingWorkspaceId != nil {
-            needsReloadAfterRename = true
-            return
-        }
+        guard isViewLoaded, appModel != nil else { return }
         workspaceCollectionView.reloadData()
         sheet.previewColor = lastViewedWorkspace?.colorId ?? .defaultColor()
         relayout()
-        if let id = pendingRenameId {
-            pendingRenameId = nil
-            beginInlineRename(id)
-        }
-        _ = appModel
+        if !view.isHiddenOrHasHiddenAncestor { workspaceEditor?.refresh() }
     }
 
     private var lastViewedWorkspace: Workspace? {
@@ -246,46 +261,59 @@ final class SettingsContentViewController: NSViewController {
         try change()
     }
 
+    /// Adds a workspace and opens the editor beside its row with the name focused.
     @objc private func createWorkspace() {
         guard let appModel else { return }
         var newId: UUID?
         preservingSelection {
-            newId = appModel.createWorkspace(name: "Untitled")
+            newId = appModel.createWorkspace(name: "")
         }
         guard let newId else { return }
-        pendingRenameId = newId
         reloadWorkspaces()
+        openEditor(newId, focusName: true)
     }
 
-    private func beginInlineRename(_ id: UUID) {
-        guard let appModel, let index = appModel.workspaces.firstIndex(id: id) else { return }
-        workspaceCollectionView.layoutSubtreeIfNeeded()
-        let indexPath = IndexPath(item: index, section: 0)
-        if let rowFrame = workspaceCollectionView.layoutAttributesForItem(at: indexPath)?.frame {
-            workspaceCollectionView.scrollToVisible(rowFrame)
+    // MARK: Editor
+
+    private func openEditor(_ id: UUID, focusName: Bool = false) {
+        guard let editor = workspaceEditor else { return }
+        if editor.editingId == id, !focusName { return editor.close() }
+        flyouts.closeAll()
+        editor.onOpenWorkspace = { [weak self] id in
+            self?.workspaceEditor?.close()
+            self?.onOpenWorkspace?(id)
         }
-        guard let item = workspaceCollectionView.item(at: indexPath) as? WorkspaceCollectionViewItem else { return }
-        renamingWorkspaceId = id
-        item.beginInlineRename()
+        scrollRowToVisible(id)
+        editor.open(id, placement: { [weak self] in self?.editorPlacement(for: id) }, focusName: focusName)
     }
 
-    private func finishInlineRename() {
-        renamingWorkspaceId = nil
-        if needsReloadAfterRename {
-            needsReloadAfterRename = false
-            DispatchQueue.main.async { [weak self] in self?.reloadWorkspaces() }
+    /// Beside the row, flipping to the window's other side when the screen runs out.
+    private func editorPlacement(for id: UUID) -> WorkspaceEditorController.Placement? {
+        guard let window = view.window, !view.isHiddenOrHasHiddenAncestor, let row = row(for: id),
+              row.window != nil else { return nil }
+        let anchor = window.convertToScreen(row.convert(row.bounds, to: nil))
+        return .init(anchor: anchor, edge: .beside(column: window.frame), topInset: 28, parent: window)
+    }
+
+    private func row(for id: UUID) -> WorkspaceRowView? {
+        guard let index = appModel?.workspaces.firstIndex(id: id) else { return nil }
+        workspaceCollectionView.layoutSubtreeIfNeeded()
+        return (workspaceCollectionView.item(at: IndexPath(item: index, section: 0)) as? WorkspaceCollectionViewItem)?.row
+    }
+
+    private func scrollRowToVisible(_ id: UUID) {
+        guard let index = appModel?.workspaces.firstIndex(id: id) else { return }
+        workspaceCollectionView.layoutSubtreeIfNeeded()
+        if let rowFrame = workspaceCollectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame {
+            workspaceCollectionView.scrollToVisible(rowFrame)
         }
     }
 
     private func showWorkspaceMenu(for id: UUID, anchor: NSView) {
         guard let appModel else { return }
         let menu = WorkspaceMenu.make(for: id, model: appModel, presentingView: view) { [weak self] id in
-            self?.beginInlineRename(id)
+            self?.openEditor(id, focusName: true)
         }
-        popUp(menu, below: anchor)
-    }
-
-    private func popUp(_ menu: NSMenu, below anchor: NSView) {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.isFlipped ? anchor.bounds.maxY + 2 : -2), in: anchor)
     }
 
@@ -341,25 +369,15 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
             colorId: workspace.colorId,
             iconLinks: WorkspaceIconSites.pick(from: workspace.items),
             opensIn: opensInChip(for: workspace),
-            itemCount: WorkspaceDeletion.itemCount(of: workspace),
+            itemCount: workspace.items.activeItemCount(),
             position: indexPath.item + 1,
             total: appModel.workspaces.count,
             canDelete: appModel.workspaces.count > 1,
             identity: WorkspaceTileIdentity.resolve(appModel.workspaces)[workspace.id]
         )
         workspaceItem.configure(workspace: workspace, content: content, actions: .init(
-            showMenu: { [weak self] id, anchor in self?.showWorkspaceMenu(for: id, anchor: anchor) },
-            showColorMenu: { [weak self] id, anchor in
-                guard let self, let appModel = self.appModel else { return }
-                self.popUp(WorkspaceMenu.makeColorMenu(for: id, model: appModel, presentingView: self.view), below: anchor)
-            },
-            showProfileMenu: { [weak self] id, anchor in
-                guard let self else { return }
-                self.popUp(WorkspaceMenu.makeOpensInMenu(for: id), below: anchor)
-            },
-            rename: { [weak self] id in self?.beginInlineRename(id) },
-            commitRename: { [weak self] id, name in self?.appModel?.renameWorkspace(id: id, newName: name) },
-            finishRename: { [weak self] _ in self?.finishInlineRename() },
+            edit: { [weak self] id, _ in self?.openEditor(id) },
+            contextMenu: { [weak self] id, anchor in self?.showWorkspaceMenu(for: id, anchor: anchor) },
             delete: { [weak self] id in self?.deleteWorkspace(id) },
             move: { [weak self] id, direction in
                 self?.appModel?.moveWorkspace(id: id, direction: direction)
@@ -385,7 +403,13 @@ extension SettingsContentViewController: NSCollectionViewDataSource {
 
 extension SettingsContentViewController: NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
-        renamingWorkspaceId == nil
+        true
+    }
+
+    /// Reordering takes the row away from the editor beside it.
+    func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
+                        willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
+        workspaceEditor?.close()
     }
 
     func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
@@ -420,6 +444,65 @@ extension SettingsContentViewController: NSCollectionViewDelegate, NSCollectionV
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
         workspaceDropIndicator.hide()
     }
+}
+
+// MARK: - New workspace row
+
+/// "New workspace": a full-width 28pt row with a leading symbol and a label in
+/// inkSecondary, with a neutral hover fill.
+private final class SettingsActionRow: FocusableControl {
+    private let symbolView = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+
+    init(title: String, symbolName: String) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.imageScaling = .scaleProportionallyDown
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = StowTheme.Font.row
+        label.lineBreakMode = .byTruncatingTail
+        label.textColor = SettingsColors.inkSecondary
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setAccessibilityElement(false)
+        symbolView.setAccessibilityElement(false)
+        addSubview(symbolView)
+        addSubview(label)
+        layer?.cornerRadius = SettingsMetrics.rowRadius
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: SettingsMetrics.rowHeight),
+            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SettingsMetrics.rowPadding),
+            symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: StowTheme.List.glyphSize),
+            symbolView.heightAnchor.constraint(equalToConstant: StowTheme.List.glyphSize),
+            label.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: StowTheme.List.glyphToTitle),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -SettingsMetrics.rowPadding),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        label.stringValue = title
+        symbolView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        let active = isHovered || isFocused
+        layer?.backgroundColor = (isPressed ? SettingsColors.fillStrong : active ? SettingsColors.fill : .clear).cgColor
+        layer?.borderWidth = isFocused ? SettingsMetrics.focusRingWidth : 0
+        layer?.borderColor = SettingsColors.accent.cgColor
+        let ink = active ? SettingsColors.ink : SettingsColors.inkSecondary
+        label.textColor = ink
+        symbolView.contentTintColor = ink
+    }
+
+    override func handleHoverStateChanged() { needsDisplay = true }
+    override func handlePressedStateChanged() { needsDisplay = true }
 }
 
 // MARK: - Collection view

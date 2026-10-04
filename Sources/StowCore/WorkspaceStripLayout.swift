@@ -5,8 +5,10 @@ import AppKit
 /// The current workspace is a pill with its full name. Others compress in tiers as the
 /// window narrows: full name → tail-truncated name (≥4 characters, widths water-filled)
 /// → two-letter monogram chip → hidden behind a "+n" overflow. Chips are taken from the
-/// workspaces farthest from the current one first. A swipe blends two layouts with
-/// `lerp`, so the strip morphs frame by frame.
+/// workspaces farthest from the current one first. The "+n" chip's width is reserved
+/// first, so at the narrowest the current pill gives way rather than pushing the chip
+/// out of the window. A swipe blends two layouts with `lerp`, so the strip morphs frame
+/// by frame.
 struct WorkspaceStripLayout {
     struct Item: Equatable {
         let id: UUID
@@ -186,9 +188,18 @@ struct WorkspaceStripLayout {
             }
             let overflowWidth = hiddenCount > 0 ? max(K.overflowMin, ceil(textWidth("+\(hiddenCount)", weight: .semibold)) + K.overflowPadding) : 0
             let named = others.filter { !chips.contains($0) && !hidden.contains($0) }
-            let fixed = place(count: n, selected: sel, width: { i in
+            var selectedWidth = selectedWidth
+            var fixed = place(count: n, selected: sel, width: { i in
                 hidden.contains(i) ? nil : (i == sel ? selectedWidth : (chips.contains(i) ? m[i].chip : 0))
             }, overflowWidth: overflowWidth)
+            // Nothing left to fold: the current pill narrows (its name truncates) so the
+            // overflow chip stays inside the strip.
+            if force, sel >= 0, fixed.used > budgetWidth {
+                selectedWidth = max(K.chipMin, selectedWidth - (fixed.used - budgetWidth))
+                fixed = place(count: n, selected: sel, width: { i in
+                    hidden.contains(i) ? nil : (i == sel ? selectedWidth : (chips.contains(i) ? m[i].chip : 0))
+                }, overflowWidth: overflowWidth)
+            }
             let remaining = budgetWidth - fixed.used
             var cap = CGFloat.infinity
             if !named.isEmpty {

@@ -183,8 +183,7 @@ final class ReviewRedListTests: XCTestCase {
             item.view.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
             item.view.appearance = NSAppearance(named: .aqua)
             item.configure(workspace: workspace, content: content, actions: .init(
-                showMenu: { _, _ in }, showColorMenu: { _, _ in }, showProfileMenu: { _, _ in },
-                rename: { _ in }, commitRename: { _, _ in }, finishRename: { _ in }, delete: { _ in }, move: { _, _ in }))
+                edit: { _, _ in }, contextMenu: { _, _ in }, delete: { _ in }, move: { _, _ in }))
             item.view.layoutSubtreeIfNeeded()
             guard let rep = item.view.bitmapImageRepForCachingDisplay(in: item.view.bounds) else { return nil }
             item.view.cacheDisplay(in: item.view.bounds, to: rep)

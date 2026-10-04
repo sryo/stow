@@ -15,8 +15,6 @@ final class MainViewController: NSViewController {
     // UI Components
     private let workspaceSwitcher = WorkspaceStripView()
     private let titleSettingsButton = NSButton()
-    /// In rail mode the strip collapses to one chip for the current workspace.
-    private let railWorkspaceChip = NSButton()
     private let railView = RailView()
     /// Rename, Edit URL, due date and snippet flyouts, for the list, the mosaic and the rail.
     let itemFlyouts = ItemFlyouts()
@@ -24,6 +22,9 @@ final class MainViewController: NSViewController {
     private lazy var snippetEditor = SnippetEditorView()
     /// Settings in rail mode: workspace tiles, their editor and the app sheet.
     private lazy var settingsRail = SettingsRailController(model: model)
+    /// The workspace editor for the Settings page, rail dots, title-bar tabs and the
+    /// Tabline chip (the Settings rail shows its own in its flyout stack).
+    private(set) lazy var workspaceEditor = WorkspaceEditorController(model: model)
     /// What the rail showed last, to grow dots into tiles (and back) when it changes.
     private enum RailPage { case none, workspace, settings }
     private var railPage: RailPage = .none
@@ -35,6 +36,8 @@ final class MainViewController: NSViewController {
     /// The page content was hidden because the rail took over; leaving the rail shows it again.
     private var contentHiddenByRail = false
     private var elasticMode: ElasticMode = .sidebar
+    /// The first layout applies the width's mode even when it matches the default.
+    private var hasAppliedElasticMode = false
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
     /// so its constraints are switched off whenever Settings isn't showing.
     private var settingsConstraints: [NSLayoutConstraint] {
@@ -42,8 +45,8 @@ final class MainViewController: NSViewController {
     }
     private let titleAddButton = NSButton()
     private let searchField = SearchBarView(style: .defaultSearch)
-    private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S")
-    private let pasteButton = FooterButton(title: "Paste")
+    private let stowTabButton = FooterButton(title: "+ Stow this tab", keycap: "⌥⌘S", symbolName: "plus")
+    private let pasteButton = FooterButton(title: "Paste", symbolName: "doc.on.clipboard")
     /// Open browser tabs, for the rail's and the list's open dots.
     private let openTabs = OpenTabsMonitor.shared
     private var openTabsSubscription: AnyCancellable?
@@ -145,6 +148,10 @@ final class MainViewController: NSViewController {
         }
         // Task ids are found in whichever workspace holds them.
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
+        tabline.onWorkspaceContextMenu = { [weak self] id, view, rect in
+            self?.showWorkspaceMenu(for: id, in: view, at: NSPoint(x: rect.minX, y: view.isFlipped ? rect.maxY + 2 : rect.minY - 2),
+                                    editorAnchor: rect, edge: .below)
+        }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
         nodeListViewController.tintMode = StowTheme.displayTint
@@ -230,7 +237,10 @@ final class MainViewController: NSViewController {
             self?.openLink(link, in: choice)
         }
         workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
-            self?.showWorkspaceContextMenu(for: workspaceId, at: point)
+            guard let self else { return }
+            let local = self.view.convert(point, from: nil)
+            self.showWorkspaceMenu(for: workspaceId, in: self.view, at: local,
+                                   editorAnchor: NSRect(x: local.x, y: local.y, width: 1, height: 1), edge: .below)
         }
         workspaceSwitcher.onWorkspaceReorder = { [weak self] workspaceId, index in
             self?.model.reorderWorkspace(id: workspaceId, toIndex: index)
@@ -290,6 +300,8 @@ final class MainViewController: NSViewController {
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Settings view
+        settingsViewController.workspaceEditor = workspaceEditor
+        settingsViewController.onOpenWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         settingsViewController.appModel = model
         settingsViewController.view.translatesAutoresizingMaskIntoConstraints = false
         settingsViewController.view.isHidden = true
@@ -727,9 +739,9 @@ final class MainViewController: NSViewController {
             let filteredNodes = searchCoordinator.filter(nodes: activeItems)
             let isSearching = searchCoordinator.isSearchActive
             let archivedMatches = isSearching ? searchCoordinator.filter(nodes: archivedItems, includeArchived: true) : []
-            let activeCount = Self.leafCount(activeItems)
-            let archivedMatchCount = Self.leafCount(archivedMatches)
-            var summary = "\(Self.leafCount(filteredNodes)) of \(activeCount)"
+            let activeCount = workspace.items.activeItemCount()
+            let archivedMatchCount = archivedMatches.leafCount()
+            var summary = "\(filteredNodes.leafCount()) of \(activeCount)"
             if archivedMatchCount > 0 { summary += " · \(archivedMatchCount) archived" }
             searchField.resultSummary = isSearching ? summary : nil
 
@@ -743,7 +755,7 @@ final class MainViewController: NSViewController {
 
             var kind = EmptyStateKind.resolve(
                 activeCount: activeItems.count,
-                archivedCount: Self.leafCount(archivedItems),
+                archivedCount: archivedItems.leafCount(),
                 query: isSearching ? searchField.text : "",
                 matchedCount: filteredNodes.count,
                 archivedMatchedCount: archivedMatchCount,
@@ -823,7 +835,6 @@ final class MainViewController: NSViewController {
         searchField.colors = colors
         updateTitleButtons(colors: colors)
         updateSettingsConstraints()
-        updateRailChip()
         pasteButton.colors = colors
         stowTabButton.colors = colors
     }
@@ -891,6 +902,7 @@ final class MainViewController: NSViewController {
     }
 
     private func showWorkspaceContent() {
+        if !settingsViewController.view.isHidden { settingsViewController.closeFlyouts() }
         settingsViewController.view.isHidden = true
         contentStack.isHidden = false
         updateRailVisibility()
@@ -898,13 +910,35 @@ final class MainViewController: NSViewController {
 
     // MARK: - Workspace Management
 
-    /// The shared WorkspaceMenu, for a right-click on the title-bar switcher.
-    private func showWorkspaceContextMenu(for workspaceId: UUID, at point: NSPoint) {
+    /// Where the workspace editor goes relative to what opened it.
+    private enum WorkspaceEditorEdge { case below, besideWindow }
+
+    /// The native WorkspaceMenu at `point` in `view`, for a right-click on a title-bar tab,
+    /// a rail dot or the Tabline chip. Its Edit… opens the workspace editor at
+    /// `editorAnchor` (in `view`).
+    private func showWorkspaceMenu(for workspaceId: UUID, in view: NSView, at point: NSPoint,
+                                   editorAnchor: NSRect, edge: WorkspaceEditorEdge) {
         guard view.window != nil else { return }
-        let menu = WorkspaceMenu.make(for: workspaceId, model: model, presentingView: view) { [weak self] id in
-            self?.workspaceSwitcher.beginInlineRename(workspaceId: id)
+        let menu = WorkspaceMenu.make(for: workspaceId, model: model, presentingView: view) { [weak self, weak view] id in
+            guard let self, let view else { return }
+            self.openWorkspaceEditor(id, from: view, rect: editorAnchor, edge: edge)
         }
-        menu.popUp(positioning: nil, at: view.convert(point, from: nil), in: view)
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+
+    private func openWorkspaceEditor(_ id: UUID, from view: NSView, rect: NSRect, edge: WorkspaceEditorEdge) {
+        workspaceEditor.onOpenWorkspace = { [weak self] id in
+            self?.workspaceEditor.close()
+            self?.selectWorkspaceAndPage(id)
+        }
+        workspaceEditor.open(id, placement: { [weak view] in
+            guard let view, let window = view.window else { return nil }
+            let anchor = window.convertToScreen(view.convert(rect, to: nil))
+            switch edge {
+            case .below: return .init(anchor: anchor, edge: .below, topInset: 0, parent: window)
+            case .besideWindow: return .init(anchor: anchor, edge: .beside(column: window.frame), topInset: 28, parent: window)
+            }
+        }, focusName: true)
     }
 
     /// ⌘N, the + menus and the add-new page. In the rail the strip is hidden, so the new
@@ -1064,28 +1098,12 @@ final class MainViewController: NSViewController {
     /// Adapts the chrome to the window width: rail keeps only icons, list and sidebar
     /// show everything, mosaic switches the list to tiles.
     private func applyElasticMode(_ mode: ElasticMode) {
-        guard mode != elasticMode || railWorkspaceChip.superview == nil else { return }
+        guard mode != elasticMode || !hasAppliedElasticMode else { return }
+        hasAppliedElasticMode = true
         elasticMode = mode
         updatePageWidth()
-        if railWorkspaceChip.superview == nil {
-            railWorkspaceChip.translatesAutoresizingMaskIntoConstraints = false
-            railWorkspaceChip.isBordered = false
-            railWorkspaceChip.wantsLayer = true
-            railWorkspaceChip.layer?.cornerRadius = 8
-            railWorkspaceChip.target = self
-            railWorkspaceChip.action = #selector(railChipTapped)
-            railWorkspaceChip.setAccessibilityLabel("Workspaces")
-            topBar.addSubview(railWorkspaceChip)
-            NSLayoutConstraint.activate([
-                railWorkspaceChip.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
-                railWorkspaceChip.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-                railWorkspaceChip.widthAnchor.constraint(equalToConstant: 34),
-                railWorkspaceChip.heightAnchor.constraint(equalToConstant: 24),
-            ])
-        }
         let rail = mode == .rail
         workspaceSwitcher.isHidden = rail
-        railWorkspaceChip.isHidden = !rail
         searchField.isHidden = rail
         titleSettingsButton.isHidden = rail
         titleAddButton.isHidden = rail
@@ -1093,7 +1111,6 @@ final class MainViewController: NSViewController {
         updateFooterFit()
         nodeListViewController.elasticMode = mode
         updateSettingsConstraints()
-        updateRailChip()
         updateRailVisibility()
         reloadRail()
     }
@@ -1112,6 +1129,7 @@ final class MainViewController: NSViewController {
         // included, belongs to showSettingsContent / showWorkspaceContent.
         if rail {
             contentStack.isHidden = true
+            if !settingsViewController.view.isHidden { settingsViewController.closeFlyouts() }
             settingsViewController.view.isHidden = true
             contentHiddenByRail = true
         } else if contentHiddenByRail {
@@ -1223,7 +1241,10 @@ final class MainViewController: NSViewController {
 
     private func wireRail() {
         railView.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
-        railView.onWorkspaceMenu = { [weak self] anchor in self?.showRailWorkspaceMenu(from: anchor) }
+        railView.onWorkspaceContextMenu = { [weak self] id, dot in
+            self?.showWorkspaceMenu(for: id, in: dot, at: NSPoint(x: dot.bounds.width - 4, y: dot.isFlipped ? 0 : dot.bounds.height),
+                                    editorAnchor: dot.bounds, edge: .besideWindow)
+        }
         railView.onOpenLink = { [weak self] link in self?.openLink(link) }
         railView.onOpenFolder = { [weak self] folder in self?.openLinksInFolder(folder) }
         railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
@@ -1269,7 +1290,6 @@ final class MainViewController: NSViewController {
     @objc private func updateStowTabShortcut() {
         let shortcut = ShortcutStore().shortcut(for: .stowFrontTab)
         stowTabButton.keycapText = shortcut?.displayString
-        stowTabFullWidth = nil
         stowTabButton.toolTip = "Save the front tab of the browser you were last in"
             + (shortcut.map { " (\($0.displayString), from any app)" } ?? "")
     }
@@ -1279,19 +1299,19 @@ final class MainViewController: NSViewController {
     }
 
     /// Drops the keycap from "+ Stow this tab" when the footer is too narrow for it and
-    /// Paste, rather than clipping Paste.
+    /// Paste, then shows only the two icons, rather than clipping either.
     private func updateFooterFit() {
-        guard let bottomBar, !contentStack.isHidden else { return }
-        // Measured once with the keycap showing; toggling it here to re-measure would
-        // invalidate layout from inside viewDidLayout and loop.
-        if stowTabFullWidth == nil { stowTabFullWidth = stowTabButton.fittingSize.width }
-        let needed = (stowTabFullWidth ?? 0) + 4 + pasteButton.fittingSize.width
-        let fits = needed <= bottomBar.bounds.width || bottomBar.bounds.width == 0
-        if stowTabButton.showsKeycap != fits { stowTabButton.showsKeycap = fits }
+        guard let bottomBar, !contentStack.isHidden, bottomBar.bounds.width > 0 else { return }
+        // Measured without changing what the buttons show; toggling them here to re-measure
+        // would invalidate layout from inside viewDidLayout and loop.
+        let fit = FooterButton.footerFit(width: bottomBar.bounds.width, stowFull: stowTabButton.fittingWidth(.full),
+                                         stowTitle: stowTabButton.fittingWidth(.noKeycap), paste: pasteButton.fittingWidth(.noKeycap))
+        if stowTabButton.fit != fit { stowTabButton.fit = fit }
+        let pasteFit: FooterButton.Fit = fit == .icon ? .icon : .noKeycap
+        if pasteButton.fit != pasteFit { pasteButton.fit = pasteFit }
     }
 
     private var bottomBar: NSView?
-    private var stowTabFullWidth: CGFloat?
 
     /// Saves the front tab of the browser the user was last in to the active workspace (on
     /// Settings, the one you came from). Runs from the footer, the rail's "+" and the global
@@ -1346,58 +1366,9 @@ final class MainViewController: NSViewController {
 
     private var parkedSettingsConstraints: [NSLayoutConstraint] = []
 
-    private func updateRailChip() {
-        guard elasticMode == .rail else { return }
-        let ws = model.currentWorkspace
-        let colors = StowTheme.colors(for: model.state.isSettingsSelected ? .settingsBackground : ws.colorId)
-        var items = model.workspaces.map { WorkspaceStripLayout.Item(id: $0.id, name: $0.name) }
-        WorkspaceStripLayout.assignMonograms(&items)
-        let mono = model.state.isSettingsSelected ? "⚙︎" : (items.first { $0.id == ws.id }?.monogram ?? "")
-        railWorkspaceChip.attributedTitle = NSAttributedString(string: mono, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: colors.surface,
-        ])
-        railWorkspaceChip.layer?.backgroundColor = view.resolvedCGColor(colors.inkPrimary)
-        railWorkspaceChip.toolTip = model.state.isSettingsSelected ? "Settings" : ws.name
-    }
-
-    @objc private func railChipTapped() {
-        showRailWorkspaceMenu(from: railWorkspaceChip)
-    }
-
-    private func showRailWorkspaceMenu(from anchor: NSView) {
-        let menu = NSMenu()
-        let settings = NSMenuItem(title: "Settings", action: #selector(titleSettingsTapped), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-        menu.addItem(.separator())
-        for (i, ws) in model.workspaces.enumerated() {
-            let item = NSMenuItem(title: ws.name, action: #selector(railPickWorkspace(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
-            item.target = self
-            item.representedObject = ws.id
-            item.state = (!model.state.isSettingsSelected && ws.id == model.currentWorkspace.id) ? .on : .off
-            item.image = WorkspaceBarView.dotImage(color: StowTheme.colors(for: ws.colorId).light.surface.platformColor)
-            menu.addItem(item)
-        }
-        menu.addItem(.separator())
-        let add = NSMenuItem(title: "New workspace…", action: #selector(titleAddTapped), keyEquivalent: "n")
-        add.target = self
-        menu.addItem(add)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
-    }
-
-    @objc private func railPickWorkspace(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID, let idx = model.workspaces.firstIndex(where: { $0.id == id }) else { return }
-        model.selectWorkspace(id: id)
-        pageController.jumpToPage(idx + 1)
-    }
-
     @objc private func titleSettingsTapped() {
         model.selectSettings()
         pageController.jumpToPage(0)
-    }
-
-    @objc private func titleAddTapped() {
-        promptCreateWorkspace()
     }
 
     /// Ink for the title-row buttons; Settings wears the selected pill on its page.
@@ -1714,13 +1685,6 @@ final class MainViewController: NSViewController {
             activateRow(at: index)
         }
         return true
-    }
-
-    private static func leafCount(_ nodes: [Node]) -> Int {
-        nodes.reduce(0) { total, node in
-            if case .folder(let folder) = node { return total + leafCount(folder.children) }
-            return total + 1
-        }
     }
 
     @objc private func tintModeChanged() {

@@ -71,8 +71,8 @@ final class TablineController {
     var onCopySnippet: ((Snippet) -> Void)?
     /// A group's "Open all". When nil, each of its links opens through `onOpenLink`.
     var onOpenFolder: ((Folder) -> Void)?
-    /// Nudge a screen-height browser window down to make the band under the menu bar.
-    var makesRoomForBand = true
+    /// A right-click on the chip: the workspace's WorkspaceMenu, shown in `view` at `rect`.
+    var onWorkspaceContextMenu: ((UUID, NSView, NSRect) -> Void)?
 
     private var panel: NSPanel?
     private let strip = TablineStripView()
@@ -265,6 +265,7 @@ final class TablineController {
         panel.isOpaque = false
         panel.hasShadow = true
         strip.onActivate = { kind, rect in TablineController.shared.activate(kind, rect: rect) }
+        strip.onContextMenu = { kind, rect in TablineController.shared.showContextMenu(kind, rect: rect) }
         wireFlyout()
         panel.contentView = strip
         self.panel = panel
@@ -365,6 +366,14 @@ final class TablineController {
         case .overflow: showList(.overflow, under: rect)
         case .pocket: showList(.pocket, under: rect)
         }
+    }
+
+    /// Only the chip has a right-click menu: the native WorkspaceMenu for the workspace
+    /// the Tabline shows.
+    private func showContextMenu(_ kind: TablineStripView.Kind, rect: NSRect) {
+        guard kind == .chip, let id = content.workspaceId else { return }
+        flyout.closeAll()
+        onWorkspaceContextMenu?(id, strip, rect)
     }
 
     /// "Stowed in Research" or "Already in Research", for the toast under the strip.
@@ -584,7 +593,7 @@ final class TablineController {
         }
         let fillsHeight = abs(frame.maxY - visible.maxY) <= 2 && abs(frame.minY - visible.minY) <= 2
         if fillsHeight {
-            if makesRoomForBand, nudge(window, visible: visible) {
+            if nudge(window, visible: visible) {
                 dock = .band
                 return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
             }

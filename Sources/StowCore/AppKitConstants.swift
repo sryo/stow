@@ -39,11 +39,10 @@ public enum ElasticMode: Equatable {
 
 /// Row geometry, type and colors for the node list, all resolved from `StowTheme`.
 public struct ListMetrics {
-    public var density: StowTheme.Density = .compact
     public var mode: ElasticMode = .sidebar
     public var colors: StowTheme.Colors
 
-    public var rowHeight: CGFloat { mode == .rail ? 42 : StowTheme.List.rowHeight(density) }
+    public var rowHeight: CGFloat { mode == .rail ? 42 : StowTheme.List.rowHeight }
     public let verticalGap: CGFloat = StowTheme.List.rowGap
     /// Row inset to the glyph in list and sidebar (the Elastic mockup's 7pt).
     public let leftPadding: CGFloat = 7
@@ -77,6 +76,16 @@ extension NSView {
         }
         return result
     }
+}
+
+/// Shared metrics for the Settings page. Rows match the node list (28pt, radius 6), and
+/// every label or glyph sits 6pt inside its row.
+@MainActor
+enum SettingsMetrics {
+    static let rowHeight: CGFloat = StowTheme.List.rowHeight
+    static let rowRadius: CGFloat = StowTheme.List.rowRadius
+    static let rowPadding: CGFloat = 6
+    static let focusRingWidth: CGFloat = 2
 }
 
 /// Appearance-aware colors for Settings and its controls, from the settings palette.

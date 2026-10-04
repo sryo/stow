@@ -106,13 +106,31 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **MainViewController** - Collection view-based hierarchical list with animations (~1240 lines)
 - **NodeListViewController** - Manages collection view, drag-drop, context menus (~1150 lines, extracted from MainViewController)
 - **SearchCoordinator** - Handles search/filtering logic (extracted from MainViewController)
-- **WorkspaceManagementView** - Manages workspace list in settings
+- **SettingsContentViewController** - The Settings page at list and sidebar widths: workspace rows (a click opens the workspace editor) and the app sheet
 - **NodeCollectionViewItem** - Reusable cell with icon, title, hover states, delete button
 - **SnippetEditorView** - Editor UI for code snippets with language selection
 - **SearchBarView** - Search field that filters nodes
-- **IconTitleButton** - Custom button for paste action
+- **FooterButton** - The bottom bar's "+ Stow this tab" and Paste; drops its keycap, then its title, as the list narrows
 - **ListFlowLayout** - Custom NSCollectionViewLayout for vertical list
 - **ScrollWheelPageController** - Scroll-wheel page navigation for workspace switching
+- **RailView** - The 52pt rail: workspace dots, item cells and their flyouts
+- **SettingsRailController** - Settings in the rail: workspace tiles, the workspace editor and the app sheet
+- **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window
+- **OpenTabsMonitor** - One shared poll of the browsers' open tabs, for the open dots in the rail, list and Tabline
+
+**Flyouts, menus and shared pieces** (left-click pop-ups are flyouts; right-click menus stay native):
+- **FlyoutPanel** - Borderless child panel with a 12pt card and an arrow, beside a column or below an anchor; flips sides when the screen runs out
+- **FlyoutController** - A stack of FlyoutPanels (a root plus pushed children) with one outside-click monitor and Esc routing
+- **FlyoutListView** - The list inside a flyout (folder contents, tasks, snippets, workspaces), keyboard navigable
+- **TextFieldFlyout** - One-field flyout for rename, Edit URL and new folder/task names (shown through `ItemFlyouts`)
+- **WorkspaceEditorController** - The one workspace editor (name, colour, icon, Opens in, Open/Share/Delete), opened beside a Settings rail tile, a Settings page row, a rail dot, a title-bar tab or the Tabline chip
+- **WorkspaceMenu** - The native right-click menu for a workspace; its Edit… opens the workspace editor
+- **NodeMenu** - The native right-click menu for an item, in the list, the mosaic and the rail
+- **NewItemMenu** - The + / Add menu (folder, task, snippet, workspace, paste, import)
+- **Toast** - Bottom-of-window message with an optional action (copy, archive undo, stow failures)
+- **SiteGlyph** (StowShared) - The same letters and colour for a site everywhere a favicon is missing
+- **WorkspaceMonogram** (StowShared) - One- or two-letter workspace monograms, shared with iPhone
+- **WorkspaceDot** - The one workspace colour dot renderer
 
 ### UI Component Architecture (Post-Refactoring)
 
@@ -120,14 +138,14 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **BaseControl** - Base class for all interactive controls with hover and pressed state management
   - Eliminates ~40 lines of tracking area and mouse event code per subclass
   - Provides `handleHoverStateChanged()` and `handlePressedStateChanged()` override points
-  - Used by: `IconTitleButton`, `CustomToggle`, `CustomTextButton`
+  - Used by: `FooterButton`, `FocusableControl` (Tab-focusable controls in Settings and the flyouts)
 - **BaseView** - Base class for custom views with hover state management (no pressed state)
   - Simpler than BaseControl, designed for non-interactive views like rows
   - Used by: `NodeRowView`, `WorkspaceRowView`
 - **InlineEditableTextField** - Reusable component for inline text editing
   - Encapsulates commit/cancel logic, focus management, and callbacks
   - Eliminates ~80 lines of duplicate editing code per component
-  - Used by: `NodeRowView`, `WorkspaceRowView`
+  - Used by: `NodeRowView`, `WorkspaceStripView`
 
 **Design System** (located in `Utilities/Theme/`):
 - **ThemeConstants** - Centralized design system constants
@@ -285,9 +303,11 @@ The codebase (originally Arcmark) underwent a comprehensive refactoring (2026-02
 - Created `WorkspaceManagementView` for settings (~460 lines)
 
 **Phase 4 - Remaining Components**:
-- Migrated `SearchBarView`, `WorkspaceSwitcherView`, `SidebarPositionSelector` to use ThemeConstants
+- Migrated `SearchBarView` and `WorkspaceSwitcherView` to use ThemeConstants
 - Migrated nested button classes in `WorkspaceSwitcherView` to extend BaseControl
 - Eliminated ~205 additional lines of duplicate code
+
+**Later cleanup (2026-10 review)**: removed the dead `IconTitleButton`, `CustomToggle`, `CustomTextButton`, `SidebarPositionSelector`/`SettingsSegmentedControl`, the `SettingsControls` family, `WorkspaceBarView`, `ContextMenuBuilder` and `StowTheme.Density`. Left-click pop-ups moved onto the Flyout components above.
 
 **Phase 5 - Polish & Documentation**:
 - Added comprehensive inline documentation to all base classes

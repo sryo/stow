@@ -141,6 +141,8 @@ final class TablineStripView: NSView {
 
     /// Called on click with the clicked part and its rect in this view's (flipped) coordinates.
     var onActivate: ((Kind, NSRect) -> Void)?
+    /// A right-click on a part (the chip's WorkspaceMenu), with that part's rect.
+    var onContextMenu: ((Kind, NSRect) -> Void)?
 
     private(set) var model = TablineStripModel()
     private(set) var hiddenEntryIndices: [Int] = []
@@ -595,6 +597,15 @@ final class TablineStripView: NSView {
     override func mouseDown(with event: NSEvent) {
         pressed = kind(at: event)
         needsDisplay = true
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let target = kind(at: event), let rect = rect(of: target), let onContextMenu else {
+            return super.rightMouseDown(with: event)
+        }
+        pressed = nil
+        setHovered(nil)
+        onContextMenu(target, rect)
     }
 
     override func mouseUp(with event: NSEvent) {

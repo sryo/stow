@@ -1,9 +1,10 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// The one workspace menu, everywhere a workspace shows (rail tile, Settings row "…",
-/// title-bar switcher): Rename · Color › · Icon › · Opens in › · Move Up · Move Down ·
-/// Share… · Export… · Delete.
+/// The one workspace right-click menu, everywhere a workspace shows (Settings rail tile,
+/// Settings page row, rail dot, title-bar tab, Tabline chip): Edit… · Color › · Icon › ·
+/// Opens in › · Move Up · Move Down · Share… · Export… · Delete. Edit… opens the shared
+/// WorkspaceEditorController beside whatever was clicked.
 ///
 /// Every item acts on the workspace ID it was built for and never selects that
 /// workspace, so opening it from Settings doesn't page away.
@@ -12,34 +13,28 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
     private let workspaceId: UUID
     private weak var model: AppModel?
     private weak var presentingView: NSView?
-    private let onRename: (UUID) -> Void
+    private let onEdit: (UUID) -> Void
     /// Keeps each menu's target alive while its menu is open.
     private static var live: Set<WorkspaceMenu> = []
     /// NSColorPanel holds its target weakly.
     private static var colorPanelTarget: WorkspaceMenu?
 
-    private init(workspaceId: UUID, model: AppModel, presentingView: NSView, onRename: @escaping (UUID) -> Void) {
+    private init(workspaceId: UUID, model: AppModel, presentingView: NSView, onEdit: @escaping (UUID) -> Void) {
         self.workspaceId = workspaceId
         self.model = model
         self.presentingView = presentingView
-        self.onRename = onRename
+        self.onEdit = onEdit
     }
 
     private var workspace: Workspace? { model?.workspaces.first(id: workspaceId) }
 
-    /// Builds the full menu for `workspaceId`. `onRename` starts the inline rename.
-    static func make(for workspaceId: UUID, model: AppModel, presentingView: NSView, onRename: @escaping (UUID) -> Void) -> NSMenu {
-        let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: onRename)
+    /// Builds the full menu for `workspaceId`. `onEdit` opens the workspace editor.
+    static func make(for workspaceId: UUID, model: AppModel, presentingView: NSView, onEdit: @escaping (UUID) -> Void) -> NSMenu {
+        let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onEdit: onEdit)
         return handler.retained(handler.buildMenu())
     }
 
-    /// Only the "Color" submenu, for a click on the workspace icon.
-    static func makeColorMenu(for workspaceId: UUID, model: AppModel, presentingView: NSView) -> NSMenu {
-        let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: { _ in })
-        return handler.retained(handler.colorSubmenu() ?? NSMenu())
-    }
-
-    /// Only the "Opens in" submenu, for the editor row and the sidebar row's chip.
+    /// Only the "Opens in" submenu, for the editor's Opens in row.
     static func makeOpensInMenu(for workspaceId: UUID) -> NSMenu {
         OpensInMenu.make(current: OpensInStore().choice(for: workspaceId)) { choice in
             OpensInStore().set(choice, for: workspaceId)
@@ -64,7 +59,7 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         let index = model.workspaces.firstIndex(id: workspaceId) ?? 0
         let count = model.workspaces.count
 
-        menu.addItem(item("Rename", #selector(rename)))
+        menu.addItem(item("Edit…", #selector(edit)))
         let color = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         color.submenu = colorSubmenu()
         menu.addItem(color)
@@ -154,8 +149,8 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
 
     // MARK: Actions
 
-    @objc private func rename() {
-        onRename(workspaceId)
+    @objc private func edit() {
+        onEdit(workspaceId)
     }
 
     @objc private func changeColor(_ sender: NSMenuItem) {
@@ -242,16 +237,6 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
 /// (⌘Z works too), instead of asking first.
 @MainActor
 enum WorkspaceDeletion {
-    static func itemCount(of workspace: Workspace) -> Int {
-        func count(_ nodes: [Node]) -> Int {
-            nodes.reduce(0) { total, node in
-                if case .folder(let folder) = node { return total + count(folder.children) }
-                return total + 1
-            }
-        }
-        return count(workspace.items)
-    }
-
     /// Deletes now and returns what an Undo needs, or nil for the only workspace.
     static func deleteUndoably(_ workspaceId: UUID, model: AppModel) -> PendingChange? {
         PendingChange.deleteWorkspace(workspaceId, model: model)

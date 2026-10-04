@@ -71,9 +71,9 @@ final class WorkspaceMenuTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let model = AppModel(store: DataStore(baseDirectory: dir))
         _ = model.createWorkspace(name: "Second", colorId: .ocean)
-        let menu = WorkspaceMenu.make(for: model.workspaces[0].id, model: model, presentingView: NSView(), onRename: { _ in })
+        let menu = WorkspaceMenu.make(for: model.workspaces[0].id, model: model, presentingView: NSView(), onEdit: { _ in })
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        XCTAssertEqual(titles, ["Rename", "Color", "Icon", "Opens in", "Move Up", "Move Down", "Share…", "Export…", "Delete"])
+        XCTAssertEqual(titles, ["Edit…", "Color", "Icon", "Opens in", "Move Up", "Move Down", "Share…", "Export…", "Delete"])
         XCTAssertFalse(menu.item(withTitle: "Move Up")!.isEnabled)
         XCTAssertNotNil(menu.item(withTitle: "Icon")?.submenu?.item(withTitle: "Favicons"))
         XCTAssertNotNil(menu.item(withTitle: "Opens in")?.submenu?.item(withTitle: OpensIn.browserImUsing))
