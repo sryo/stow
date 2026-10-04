@@ -232,10 +232,13 @@ final class FlyoutSegmented: FlyoutControl {
             let frame = segmentFrame(i)
             pills[i].frame = frame
             let labelSize = labels[i].intrinsicContentSize
-            let leadingWidth = segment.leading.map { $0.frame.width + 4 } ?? 0
+            // In a narrow track the glyph or swatch goes first, so the title stays whole.
+            let fits = labelSize.width + (segment.leading.map { $0.frame.width + 4 } ?? 0) <= frame.width - 4
+            segment.leading?.isHidden = !fits
+            let leadingWidth = fits ? (segment.leading.map { $0.frame.width + 4 } ?? 0) : 0
             let total = min(frame.width - 2, labelSize.width + leadingWidth)
             var x = frame.midX - total / 2
-            if let leading = segment.leading {
+            if fits, let leading = segment.leading {
                 leading.frame.origin = NSPoint(x: round(x), y: round(frame.midY - leading.frame.height / 2))
                 x += leadingWidth
             }
@@ -298,6 +301,7 @@ final class FlyoutPopRow: FlyoutControl {
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let chevron = NSImageView()
+    private var usesIconGlyph = false
     var menuProvider: (() -> NSMenu?)?
 
     init(symbol: String?, accessibilityLabel: String) {
@@ -328,7 +332,17 @@ final class FlyoutPopRow: FlyoutControl {
 
     override var isFlipped: Bool { true }
 
-    func set(title: String, detail: String?) {
+    func set(title: String, detail: String?, icon: NSImage? = nil) {
+        // An app icon (a browser) leads the title in full color; nil drops it.
+        if let icon {
+            glyph.image = icon
+            glyph.imageScaling = .scaleProportionallyUpOrDown
+            usesIconGlyph = true
+            if glyph.superview == nil { addSubview(glyph) }
+        } else if usesIconGlyph {
+            glyph.image = nil
+            usesIconGlyph = false
+        }
         titleLabel.stringValue = title
         detailLabel.stringValue = detail ?? ""
         setAccessibilityValue(detail.map { "\(title), \($0)" } ?? title)
@@ -339,8 +353,13 @@ final class FlyoutPopRow: FlyoutControl {
         super.layout()
         var x: CGFloat = 8
         if glyph.image != nil {
-            glyph.frame = NSRect(x: x, y: (bounds.height - 12) / 2, width: 11, height: 12)
-            x += 11 + 7
+            if usesIconGlyph {
+                glyph.frame = NSRect(x: x, y: (bounds.height - 16) / 2, width: 16, height: 16)
+                x += 16 + 6
+            } else {
+                glyph.frame = NSRect(x: x, y: (bounds.height - 12) / 2, width: 11, height: 12)
+                x += 11 + 7
+            }
         }
         chevron.frame = NSRect(x: bounds.width - 8 - 9, y: (bounds.height - 12) / 2, width: 9, height: 12)
         let limit = chevron.frame.minX - 6
@@ -356,7 +375,7 @@ final class FlyoutPopRow: FlyoutControl {
         layer?.backgroundColor = flyoutCG(isHovered || isPressed ? FlyoutColors.hover : FlyoutColors.field)
         titleLabel.textColor = isEnabled ? FlyoutColors.ink : FlyoutColors.inkSecondary
         detailLabel.textColor = FlyoutColors.inkSecondary
-        glyph.contentTintColor = FlyoutColors.ink
+        glyph.contentTintColor = usesIconGlyph ? nil : FlyoutColors.ink
         chevron.contentTintColor = FlyoutColors.ink
         applyFocusRing()
     }
@@ -448,5 +467,99 @@ private final class FlyoutNameFieldCell: NSTextFieldCell {
 
     override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
         super.select(withFrame: inset(rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+}
+
+// MARK: - Switch
+
+/// The sheet's on/off switch: a 30×18 pill, system green when on, with a white knob.
+final class FlyoutSwitch: FlyoutControl {
+    var isOn: Bool { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
+    var onChange: ((Bool) -> Void)?
+    private let knob = CALayer()
+
+    init(isOn: Bool, accessibilityLabel: String) {
+        self.isOn = isOn
+        super.init(frame: NSRect(x: 0, y: 0, width: 30, height: 18))
+        layer?.cornerRadius = 9
+        knob.cornerRadius = 7
+        knob.shadowOpacity = 0.25
+        knob.shadowRadius = 1
+        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        layer?.addSublayer(knob)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(accessibilityLabel)
+        setAccessibilityValue(isOn ? 1 : 0)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 30, height: 18) }
+
+    override func updateLayer() {
+        let on = isOn
+        layer?.backgroundColor = on ? NSColor.systemGreen.cgColor : flyoutCG(FlyoutColors.field.withAlphaComponent(0.12))
+        layer?.borderWidth = on ? 0 : 1
+        layer?.borderColor = flyoutCG(FlyoutColors.line)
+        CATransaction.begin()
+        CATransaction.setDisableActions(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        knob.frame = NSRect(x: on ? bounds.width - 16 : 2, y: (bounds.height - 14) / 2, width: 14, height: 14)
+        knob.backgroundColor = NSColor.white.cgColor
+        CATransaction.commit()
+        alphaValue = isEnabled ? 1 : 0.45
+        applyFocusRing()
+    }
+
+    override func performAction() {
+        guard isEnabled else { return }
+        isOn.toggle()
+        onChange?(isOn)
+    }
+}
+
+// MARK: - Link
+
+/// "All shortcuts…", "Import…": 11.5pt secondary ink, underlined, ink on hover.
+final class FlyoutLink: FlyoutControl {
+    private let label = NSTextField(labelWithString: "")
+    var title: String { didSet { applyTitle() } }
+
+    init(_ title: String, fontSize: CGFloat = 11.5) {
+        self.title = title
+        super.init(frame: .zero)
+        label.font = FlyoutFonts.ui(fontSize)
+        label.setAccessibilityElement(false)
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.link)
+        applyTitle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func applyTitle() {
+        label.stringValue = title
+        setAccessibilityLabel(title)
+        needsDisplay = true
+        invalidateIntrinsicContentSize()
+    }
+
+    var fittingWidth: CGFloat { ceil(label.intrinsicContentSize.width) + 4 }
+    override var intrinsicContentSize: NSSize { NSSize(width: fittingWidth, height: 16) }
+
+    override func layout() {
+        super.layout()
+        let h = label.intrinsicContentSize.height
+        label.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width + 2, height: h)
+    }
+
+    override func updateLayer() {
+        let color = isHovered ? FlyoutColors.ink : FlyoutColors.inkSecondary
+        label.attributedStringValue = NSAttributedString(string: title, attributes: [
+            .font: label.font as Any, .foregroundColor: color,
+            .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: color.withAlphaComponent(0.5),
+        ])
+        applyFocusRing()
     }
 }

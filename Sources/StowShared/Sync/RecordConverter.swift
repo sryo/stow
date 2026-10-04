@@ -24,11 +24,8 @@ public enum RecordConverter {
             record[CKWorkspaceFields.colorId] = trimmed as CKRecordValue
         }
 
-        // Encode browserProfiles as JSON string
-        if let profilesData = try? JSONEncoder().encode(workspace.browserProfiles),
-           let profilesString = String(data: profilesData, encoding: .utf8) {
-            record[CKWorkspaceFields.browserProfilesJSON] = profilesString as CKRecordValue
-        }
+        // browserProfiles aren't uploaded: profile folders only exist on the Mac that
+        // made them, so each Mac keeps its own (read below for records from older builds).
 
         return record
     }

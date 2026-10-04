@@ -34,30 +34,18 @@ enum BrowserManager {
         return Bundle(url: appURL)?.bundleIdentifier
     }
 
-    static func resolveDefaultBrowserBundleId() -> String? {
-        if let stored = UserDefaults.standard.string(forKey: UserDefaultsKeys.defaultBrowserBundleId) {
-            return stored
+    /// The browser Attached mode sits beside: the one last in front, else the system default.
+    @MainActor
+    static func attachTargetBundleId() -> String? {
+        if let active = ActiveBrowserTracker.shared.lastActiveBundleId,
+           NSWorkspace.shared.urlForApplication(withBundleIdentifier: active) != nil {
+            return active
         }
         return defaultBrowserBundleId()
     }
 
-    static var opensInActiveBrowser: Bool {
-        UserDefaults.standard.object(forKey: UserDefaultsKeys.openLinksInActiveBrowser) as? Bool ?? true
-    }
-
-    /// The browser a link should open in: the one the user was last working in, or the
-    /// chosen default when that preference is off or no browser has been used yet.
-    @MainActor
-    static func linkTargetBundleId() -> String? {
-        if opensInActiveBrowser, let active = ActiveBrowserTracker.shared.lastActiveBundleId,
-           NSWorkspace.shared.urlForApplication(withBundleIdentifier: active) != nil {
-            return active
-        }
-        return resolveDefaultBrowserBundleId()
-    }
-
     static func open(url: URL, bundleId targetBundleId: String? = nil, profile: String? = nil) {
-        if let bundleId = targetBundleId ?? resolveDefaultBrowserBundleId(),
+        if let bundleId = targetBundleId ?? defaultBrowserBundleId(),
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
             let configuration = NSWorkspace.OpenConfiguration()
             if let profile = profile {
@@ -96,7 +84,7 @@ enum BrowserManager {
         return isChromiumBased(bundleId) || bundleId == "org.mozilla.firefox"
     }
 
-    private static func isChromiumBased(_ bundleId: String) -> Bool {
+    static func isChromiumBased(_ bundleId: String) -> Bool {
         let chromiumBundleIds = [
             "com.google.Chrome",
             "com.google.Chrome.canary",
@@ -107,25 +95,23 @@ enum BrowserManager {
         return chromiumBundleIds.contains(bundleId)
     }
 
-    private static func chromiumProfiles(bundleId: String) -> [BrowserProfile] {
-        let appSupportDir: String
+    /// Where a Chromium browser keeps its profiles (each holds a `Bookmarks` file).
+    static func chromiumSupportDirectory(_ bundleId: String) -> URL? {
+        let dir: String
         switch bundleId {
-        case "com.google.Chrome":
-            appSupportDir = "Google/Chrome"
-        case "com.google.Chrome.canary":
-            appSupportDir = "Google/Chrome Canary"
-        case "com.brave.Browser":
-            appSupportDir = "BraveSoftware/Brave-Browser"
-        case "com.microsoft.edgemac":
-            appSupportDir = "Microsoft Edge"
-        case "com.vivaldi.Vivaldi":
-            appSupportDir = "Vivaldi"
-        default:
-            return []
+        case "com.google.Chrome": dir = "Google/Chrome"
+        case "com.google.Chrome.canary": dir = "Google/Chrome Canary"
+        case "com.brave.Browser": dir = "BraveSoftware/Brave-Browser"
+        case "com.microsoft.edgemac": dir = "Microsoft Edge"
+        case "com.vivaldi.Vivaldi": dir = "Vivaldi"
+        default: return nil
         }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/\(dir)")
+    }
 
-        let localStatePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/\(appSupportDir)/Local State")
+    private static func chromiumProfiles(bundleId: String) -> [BrowserProfile] {
+        guard let support = chromiumSupportDirectory(bundleId) else { return [] }
+        let localStatePath = support.appendingPathComponent("Local State")
 
         guard let data = try? Data(contentsOf: localStatePath),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

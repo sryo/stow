@@ -1,8 +1,9 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// The per-workspace menu used by Settings: Rename workspace · Change color › ·
-/// Browser profile › · Move up · Move down · Export workspace… · Delete workspace….
+/// The one workspace menu, everywhere a workspace shows (rail tile, Settings row "…",
+/// title-bar switcher): Rename · Color › · Icon › · Opens in › · Move Up · Move Down ·
+/// Share… · Export… · Delete.
 ///
 /// Every item acts on the workspace ID it was built for and never selects that
 /// workspace, so opening it from Settings doesn't page away.
@@ -32,16 +33,17 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         return handler.retained(handler.buildMenu())
     }
 
-    /// Only the "Change color" submenu, for a click on the workspace icon.
+    /// Only the "Color" submenu, for a click on the workspace icon.
     static func makeColorMenu(for workspaceId: UUID, model: AppModel, presentingView: NSView) -> NSMenu {
         let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: { _ in })
         return handler.retained(handler.colorSubmenu() ?? NSMenu())
     }
 
-    /// Only the "Browser profile" submenu, for a click on the profile chip.
-    static func makeProfileMenu(for workspaceId: UUID, model: AppModel, presentingView: NSView) -> NSMenu? {
-        let handler = WorkspaceMenu(workspaceId: workspaceId, model: model, presentingView: presentingView, onRename: { _ in })
-        return handler.profileSubmenu().map(handler.retained)
+    /// Only the "Opens in" submenu, for the editor row and the sidebar row's chip.
+    static func makeOpensInMenu(for workspaceId: UUID) -> NSMenu {
+        OpensInMenu.make(current: OpensInStore().choice(for: workspaceId)) { choice in
+            OpensInStore().set(choice, for: workspaceId)
+        }
     }
 
     private func retained(_ menu: NSMenu) -> NSMenu {
@@ -62,38 +64,63 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         let index = model.workspaces.firstIndex(id: workspaceId) ?? 0
         let count = model.workspaces.count
 
-        menu.addItem(item("Rename workspace", #selector(rename)))
-
-        let color = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
+        menu.addItem(item("Rename", #selector(rename)))
+        let color = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         color.submenu = colorSubmenu()
         menu.addItem(color)
-
-        let profile = NSMenuItem(title: "Browser profile", action: nil, keyEquivalent: "")
-        if let submenu = profileSubmenu() {
-            profile.submenu = submenu
-        } else {
-            profile.isEnabled = false
-            profile.toolTip = "The browser you open links in doesn't have profiles"
-        }
-        menu.addItem(profile)
+        let icon = NSMenuItem(title: "Icon", action: nil, keyEquivalent: "")
+        icon.submenu = iconSubmenu()
+        menu.addItem(icon)
+        let opensIn = NSMenuItem(title: "Opens in", action: nil, keyEquivalent: "")
+        opensIn.submenu = Self.makeOpensInMenu(for: workspaceId)
+        menu.addItem(opensIn)
 
         menu.addItem(.separator())
-        let up = item("Move up", #selector(moveUp))
+        let up = item("Move Up", #selector(moveUp))
         up.isEnabled = index > 0
         menu.addItem(up)
-        let down = item("Move down", #selector(moveDown))
+        let down = item("Move Down", #selector(moveDown))
         down.isEnabled = index < count - 1
         menu.addItem(down)
 
         menu.addItem(.separator())
-        menu.addItem(item("Export workspace…", #selector(export)))
+        menu.addItem(item("Share…", #selector(share)))
+        menu.addItem(item("Export…", #selector(export)))
 
         menu.addItem(.separator())
-        let delete = item("Delete workspace…", #selector(delete))
+        let delete = item("Delete", #selector(delete))
         delete.isEnabled = count > 1
         if count <= 1 { delete.toolTip = "The only workspace can't be deleted" }
         menu.addItem(delete)
         return menu
+    }
+
+    private func iconSubmenu() -> NSMenu? {
+        guard let workspace else { return nil }
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let favicons = item("Favicons", #selector(setIcon(_:)))
+        favicons.representedObject = "favicons"
+        favicons.state = workspace.icon == .favicons ? .on : .off
+        let letter = item("Letter", #selector(setIcon(_:)))
+        letter.representedObject = "letter"
+        letter.state = workspace.icon == .letter ? .on : .off
+        submenu.addItem(favicons)
+        submenu.addItem(letter)
+        let symbol = NSMenuItem(title: "Symbol", action: nil, keyEquivalent: "")
+        let symbols = NSMenu()
+        symbols.autoenablesItems = false
+        for name in WorkspaceTileIdentity.symbols {
+            let choice = item(name.replacingOccurrences(of: ".", with: " ").capitalized, #selector(setIcon(_:)))
+            choice.representedObject = "symbol:" + name
+            choice.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            if case .symbol(name) = workspace.icon { choice.state = .on }
+            symbols.addItem(choice)
+        }
+        symbol.submenu = symbols
+        if case .symbol = workspace.icon { symbol.state = .on }
+        submenu.addItem(symbol)
+        return submenu
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -117,28 +144,6 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         let custom = item("Custom color…", #selector(chooseCustomColor))
         if case .custom = workspace.colorId { custom.state = .on }
         submenu.addItem(custom)
-        return submenu
-    }
-
-    private func profileSubmenu() -> NSMenu? {
-        guard let workspace,
-              let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-              BrowserManager.supportsProfiles(bundleId) else { return nil }
-        let profiles = BrowserManager.profiles(for: bundleId)
-        guard !profiles.isEmpty else { return nil }
-        let current = workspace.browserProfiles[bundleId]
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        let none = item("None (default)", #selector(clearProfile))
-        none.state = current == nil ? .on : .off
-        submenu.addItem(none)
-        submenu.addItem(.separator())
-        for profile in profiles {
-            let item = item(profile.displayName, #selector(setProfile(_:)))
-            item.representedObject = profile.directoryName
-            item.state = current == profile.directoryName ? .on : .off
-            submenu.addItem(item)
-        }
         return submenu
     }
 
@@ -181,15 +186,25 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         model?.updateWorkspaceColor(id: workspaceId, colorId: .custom(NSColorPanel.shared.color.hexString))
     }
 
-    @objc private func setProfile(_ sender: NSMenuItem) {
-        guard let dir = sender.representedObject as? String,
-              let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        model?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: dir)
+    @objc private func setIcon(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String else { return }
+        let icon: WorkspaceIcon
+        if value == "favicons" { icon = .favicons }
+        else if value == "letter" { icon = .letter }
+        else { icon = .symbol(String(value.dropFirst("symbol:".count))) }
+        model?.updateWorkspaceIcon(id: workspaceId, icon: icon)
     }
 
-    @objc private func clearProfile() {
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return }
-        model?.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: bundleId, profile: nil)
+    @objc private func share() {
+        guard let model, let workspace else { return }
+        do {
+            SharePanel.show(url: try model.shareWorkspace(id: workspaceId), workspaceName: workspace.name)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Share failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 
     @objc private func moveUp() {
@@ -226,13 +241,13 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func delete() {
-        guard let model, let window = presentingView?.window else { return }
-        WorkspaceDeletion.confirm(workspaceId, model: model, in: window)
+        guard let model else { return }
+        WorkspaceDeletion.delete(workspaceId, model: model, in: presentingView?.window)
     }
 }
 
-/// The one delete path for workspaces in Settings: always asks, naming the workspace and
-/// how many items it holds. Cancel is the default button.
+/// The one delete path for workspaces: it deletes at once and shows an undo toast
+/// (⌘Z works too), instead of asking first.
 @MainActor
 enum WorkspaceDeletion {
     static func itemCount(of workspace: Workspace) -> Int {
@@ -245,28 +260,54 @@ enum WorkspaceDeletion {
         return count(workspace.items)
     }
 
-    static func confirm(_ workspaceId: UUID, model: AppModel, in window: NSWindow, onDeleted: (() -> Void)? = nil) {
-        guard model.workspaces.count > 1, let workspace = model.workspaces.first(id: workspaceId) else { return }
-        let count = itemCount(of: workspace)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        if count > 0 {
-            alert.messageText = "Delete “\(workspace.name)” and its \(count) \(count == 1 ? "item" : "items")?"
-            alert.informativeText = "Its links, tasks and snippets will be removed. This can't be undone."
-        } else if !workspace.items.isEmpty {
-            alert.messageText = "Delete “\(workspace.name)”?"
-            alert.informativeText = "Its empty folders will be removed. This can't be undone."
-        } else {
-            alert.messageText = "Delete “\(workspace.name)”?"
-            alert.informativeText = "It's empty. This can't be undone."
+    /// A deleted workspace that can still come back.
+    @MainActor
+    final class Pending {
+        let workspace: Workspace
+        let index: Int
+        private weak var model: AppModel?
+        private(set) var isOpen = true
+
+        init(workspace: Workspace, index: Int, model: AppModel) {
+            self.workspace = workspace
+            self.index = index
+            self.model = model
         }
-        alert.addButton(withTitle: "Cancel")
-        let delete = alert.addButton(withTitle: "Delete")
-        delete.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertSecondButtonReturn else { return }
-            model.deleteWorkspace(id: workspaceId)
-            onDeleted?()
+
+        var message: String { "Deleted “\(workspace.name.isEmpty ? "Untitled" : workspace.name)”" }
+
+        func undo() {
+            guard isOpen else { return }
+            isOpen = false
+            model?.restoreWorkspace(workspace, at: index)
+            CloudSyncManager.shared.scheduleLocalChanges()
         }
+
+        /// The undo window closed: its favicons can go.
+        func expire() {
+            guard isOpen else { return }
+            isOpen = false
+            model?.cleanOrphanedFavicons()
+        }
+    }
+
+    /// Deletes now and returns what an Undo needs, or nil for the only workspace.
+    static func deleteUndoably(_ workspaceId: UUID, model: AppModel) -> Pending? {
+        guard model.workspaces.count > 1, let index = model.workspaces.firstIndex(id: workspaceId) else { return nil }
+        let pending = Pending(workspace: model.workspaces[index], index: index, model: model)
+        model.deleteWorkspace(id: workspaceId, keepFavicons: true)
+        return pending
+    }
+
+    /// Deletes and shows the undo toast at the bottom of `window`.
+    static func delete(_ workspaceId: UUID, model: AppModel, in window: NSWindow?, onDeleted: (() -> Void)? = nil) {
+        guard let pending = deleteUndoably(workspaceId, model: model) else { return }
+        onDeleted?()
+        window?.undoManager?.registerUndo(withTarget: pending) { pending in
+            pending.undo()
+            UndoToast.dismiss(expired: false)
+        }
+        window?.undoManager?.setActionName("Delete Workspace")
+        UndoToast.show(pending.message, in: window, onUndo: { pending.undo() }, onExpire: { pending.expire() })
     }
 }

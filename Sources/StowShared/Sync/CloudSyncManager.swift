@@ -15,7 +15,13 @@ public enum SyncAvailability: Equatable, Sendable {
 public final class CloudSyncManager {
     public static let shared = CloudSyncManager()
 
-    public private(set) var availability: SyncAvailability = .notConfigured
+    public private(set) var availability: SyncAvailability = .notConfigured {
+        didSet { NotificationCenter.default.post(name: .cloudSyncStatusChanged, object: nil) }
+    }
+    /// When changes last finished fetching or sending, for "Synced · 2 min ago".
+    public private(set) var lastSyncDate: Date?
+    /// The iCloud account signed out while Stow was running.
+    public private(set) var isSignedOut = false
 
     private let logger = Logger(subsystem: "com.stow.app", category: "sync")
     private let containerID = "iCloud.com.stow.app"
@@ -304,9 +310,12 @@ extension CloudSyncManager: CKSyncEngineDelegate {
 
             case .didFetchChanges:
                 handleDidFetchChanges()
+                noteSynced()
 
-            case .willFetchRecordZoneChanges, .didFetchRecordZoneChanges,
-                 .willSendChanges, .didSendChanges:
+            case .didSendChanges:
+                noteSynced()
+
+            case .willFetchRecordZoneChanges, .didFetchRecordZoneChanges, .willSendChanges:
                 break
 
             @unknown default:
@@ -410,6 +419,12 @@ extension CloudSyncManager: CKSyncEngineDelegate {
 
     // MARK: - Event Handlers
 
+    private func noteSynced() {
+        lastSyncDate = Date()
+        isSignedOut = false
+        NotificationCenter.default.post(name: .cloudSyncStatusChanged, object: nil)
+    }
+
     private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
         switch change.changeType {
         case .signIn:
@@ -419,6 +434,8 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             scheduleFullUpload()
         case .signOut:
             logger.info("iCloud account signed out")
+            isSignedOut = true
+            NotificationCenter.default.post(name: .cloudSyncStatusChanged, object: nil)
         case .switchAccounts:
             logger.info("iCloud account switched")
             lastKnownRecords.removeAll()

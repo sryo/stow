@@ -316,16 +316,36 @@ final class FlyoutPlacementTests: XCTestCase {
 // MARK: - App sheet
 
 final class AppSheetTests: XCTestCase {
-    func testSectionsFollowTheConceptOrder() {
-        XCTAssertEqual(AppSheet.sections, [.appearance, .window, .browser, .shortcut, .importing])
-        XCTAssertEqual(AppSheet.sections.map(\.title), ["Appearance", "Window", "Browser", "Shortcut", "Import"])
+    func testGroupsFollowThePlan() {
+        // Window, Keyboard, Appearance; Import moved to the footer, Theme and Browser are gone.
+        XCTAssertEqual(AppSheet.sections, [.window, .keyboard, .appearance])
+        XCTAssertEqual(AppSheet.sections.map(\.title), ["Window", "Keyboard", "Appearance"])
     }
 
-    func testBadgeOnlyWhenAttachedIsMissingAccessibility() {
-        XCTAssertTrue(AppSheet.showsBadge(windowMode: .attached, hasAccessibility: false))
-        XCTAssertFalse(AppSheet.showsBadge(windowMode: .attached, hasAccessibility: true))
-        XCTAssertFalse(AppSheet.showsBadge(windowMode: .floating, hasAccessibility: false))
-        XCTAssertFalse(AppSheet.showsBadge(windowMode: .onTop, hasAccessibility: false))
+    func testWindowHelpFollowsTheMode() {
+        XCTAssertEqual(AppSheet.windowHelp(.floating), "A regular window you can place anywhere")
+        XCTAssertEqual(AppSheet.windowHelp(.onTop), "Stays above every other app")
+        XCTAssertEqual(AppSheet.windowHelp(.attached), "Picked up from where you attached it")
+    }
+
+    func testBrowserSideShowsOnlyWhileAttached() {
+        XCTAssertTrue(AppSheet.showsBrowserSide(.attached))
+        XCTAssertFalse(AppSheet.showsBrowserSide(.floating))
+        XCTAssertFalse(AppSheet.showsBrowserSide(.onTop))
+    }
+
+    func testICloudLine() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertEqual(AppSheet.syncLine(availability: .active, lastSync: now.addingTimeInterval(-20), signedOut: false, now: now),
+                       .init(text: "Synced · just now", isError: false))
+        XCTAssertEqual(AppSheet.syncLine(availability: .active, lastSync: now.addingTimeInterval(-125), signedOut: false, now: now),
+                       .init(text: "Synced · 2 min ago", isError: false))
+        XCTAssertEqual(AppSheet.syncLine(availability: .active, lastSync: nil, signedOut: false, now: now),
+                       .init(text: "Syncing with iCloud", isError: false))
+        XCTAssertEqual(AppSheet.syncLine(availability: .active, lastSync: now, signedOut: true, now: now),
+                       .init(text: "iCloud is off for Stow", isError: true))
+        XCTAssertEqual(AppSheet.syncLine(availability: .disabledNoProvisioningProfile, lastSync: nil, signedOut: false, now: now),
+                       .init(text: "iCloud is off in this build", isError: true))
     }
 }
 

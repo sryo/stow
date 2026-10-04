@@ -7,9 +7,6 @@ import AppKit
 final class SettingsRailController: NSObject {
     let view = SettingsRailView()
     private let model: AppModel
-    /// Owns Import, so the sheet runs the same importer as the Settings page.
-    weak var settingsPage: SettingsContentViewController?
-
     private(set) var navigation = SettingsRailNavigation()
     /// Leave Settings for this workspace.
     var onLeave: ((UUID) -> Void)?
@@ -43,6 +40,9 @@ final class SettingsRailController: NSObject {
         dwell.onPreview = { [weak self] id in self?.preview(id) }
         NotificationCenter.default.addObserver(self, selector: #selector(appResigned), name: NSApplication.didResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .stowAppPreferencesChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .workspaceOpensInChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .tablineSettingChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
 
     var isFlyoutOpen: Bool { editorPanel.isVisible || sheetPanel.isVisible }
@@ -90,7 +90,7 @@ final class SettingsRailController: NSObject {
         if let editingId, !workspaces.contains(where: { $0.id == editingId }) { closeEditor() }
         let returnName = returnTarget.flatMap { id in workspaces.first { $0.id == id }?.name }
         view.configure(tiles: tiles, cameFrom: navigation.cameFrom, selected: editingId, sheetOpen: isSheetOpen,
-                       badge: AppPreferences.shared.needsAccessibility, returnName: returnName)
+                       badge: AppSheet.showsBadge(needs: AppPreferences.shared.permissionNeeds), returnName: returnName)
         if let editingId, let ws = workspaces.first(where: { $0.id == editingId }) {
             editor.configure(editorContent(for: ws, identities: identities))
             positionEditor()
@@ -124,19 +124,13 @@ final class SettingsRailController: NSObject {
         return "\(name), \(detail(for: ws, position: position))"
     }
 
-    /// "18 items · Work profile · ⌃1", as in the tip.
+    /// "18 items · Chrome · Work · ⌃1", as in the tip; the browser only when one is set.
     private func detail(for ws: Workspace, position: Int) -> String {
         let count = WorkspaceDeletion.itemCount(of: ws)
         var parts = ["\(count) \(count == 1 ? "item" : "items")"]
-        parts.append(profileName(for: ws).map { "\($0) profile" } ?? "default profile")
+        if let choice = OpensInStore().choice(for: ws.id) { parts.append(OpensInMenu.display(choice).title) }
         if position <= 9 { parts.append("⌃\(position)") }
         return parts.joined(separator: " · ")
-    }
-
-    private func profileName(for ws: Workspace) -> String? {
-        guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId(),
-              let dir = ws.browserProfiles[bundleId] else { return nil }
-        return BrowserManager.profiles(for: bundleId).first(where: { $0.directoryName == dir })?.displayName ?? dir
     }
 
     private func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
@@ -144,17 +138,14 @@ final class SettingsRailController: NSObject {
         let favicons = WorkspaceIconSites.pick(from: ws.items)
         var letterItems = [WorkspaceStripLayout.Item(id: ws.id, name: ws.name)]
         WorkspaceStripLayout.assignMonograms(&letterItems)
-        let bundleId = BrowserManager.resolveDefaultBrowserBundleId()
-        let hasProfiles = bundleId.map { BrowserManager.supportsProfiles($0) && !BrowserManager.profiles(for: $0).isEmpty } ?? false
-        let browserName = bundleId.flatMap { id in BrowserManager.installedBrowsers().first { $0.bundleId == id }?.name } ?? "your browser"
-        let profile = profileName(for: ws)
+        let choice = OpensInStore().choice(for: ws.id)
         return .init(id: ws.id, name: ws.name, colorId: ws.colorId, icon: ws.icon,
                      favicons: .mosaic(favicons), letter: .letter(letterItems[0].monogram),
                      current: identities[ws.id] ?? .letter("?"),
                      itemCount: WorkspaceDeletion.itemCount(of: ws), position: position,
-                     profileTitle: profile ?? "None",
-                     profileDetail: profile == nil ? "default profile" : "opens in \(browserName)",
-                     hasProfiles: hasProfiles, canDelete: model.workspaces.count > 1)
+                     opensIn: OpensInMenu.display(choice),
+                     opensInNow: choice == nil ? OpensInMenu.currentBrowserName() : nil,
+                     canDelete: model.workspaces.count > 1)
     }
 
     // MARK: View events
@@ -224,7 +215,7 @@ final class SettingsRailController: NSObject {
         let workspace = id.flatMap { id in model.workspaces.first { $0.id == id } }
         previewId = workspace?.id
         onPreviewColor?(workspace?.colorId)
-        let colors = StowTheme.colors(for: workspace?.colorId ?? .settingsBackground, tint: StowTheme.preferredTint)
+        let colors = StowTheme.colors(for: workspace?.colorId ?? .settingsBackground, tint: StowTheme.displayTint)
         view.setColors(colors)
         if let workspace, editingId == nil, !isSheetOpen {
             showTip(for: workspace)
@@ -257,7 +248,6 @@ final class SettingsRailController: NSObject {
         hideTip()
         commitPendingName()
         editingId = id
-        editor.setConfirming(false)
         reload()
         if focusName {
             editorPanel.makeKey()
@@ -272,7 +262,6 @@ final class SettingsRailController: NSObject {
     private func closeEditor() {
         commitPendingName()
         editingId = nil
-        editor.setConfirming(false)
         if editorPanel.isVisible { editorPanel.dismiss() }
         view.window?.makeKey()
         reload()
@@ -309,20 +298,26 @@ final class SettingsRailController: NSObject {
             guard let self, let id = self.editingId else { return }
             self.model.updateWorkspaceIcon(id: id, icon: icon)
         }
-        editor.profileMenu = { [weak self] in
+        editor.opensInMenu = { [weak self] in
             guard let self, let id = self.editingId else { return nil }
-            return WorkspaceMenu.makeProfileMenu(for: id, model: self.model, presentingView: self.view)
+            return WorkspaceMenu.makeOpensInMenu(for: id)
         }
         editor.onOpen = { [weak self] in
             guard let self, let id = self.editingId else { return }
             self.onLeave?(id)
         }
+        editor.onShare = { [weak self] in
+            guard let self, let id = self.editingId, let ws = self.model.workspaces.first(where: { $0.id == id }),
+                  let url = try? self.model.shareWorkspace(id: id) else { return }
+            SharePanel.show(url: url, workspaceName: ws.name)
+        }
         editor.onDelete = { [weak self] in
             guard let self, let id = self.editingId, self.model.workspaces.count > 1 else { return }
             self.editingId = nil
-            self.editor.setConfirming(false)
             self.editorPanel.dismiss()
-            self.model.deleteWorkspace(id: id)
+            // The main window takes the keyboard back, so ⌘Z reaches its undo manager.
+            self.view.window?.makeKey()
+            WorkspaceDeletion.delete(id, model: self.model, in: self.view.window)
         }
     }
 
@@ -373,15 +368,8 @@ final class SettingsRailController: NSObject {
             guard let self, self.isSheetOpen else { return }
             self.positionSheet()
         }
-        sheet.onImportArc = { [weak self] in
-            guard let self, let page = self.settingsPage else { return }
-            page.onImportFinished = { [weak self] text, ok in self?.sheet.showImportStatus(text, success: ok) }
-            page.importFromArc()
-        }
-        sheet.onImportFile = { [weak self] in
-            guard let self, let page = self.settingsPage else { return }
-            page.onImportFinished = { [weak self] text, ok in self?.sheet.showImportStatus(text, success: ok) }
-            page.importWorkspaceFile()
+        sheet.onImport = {
+            NotificationCenter.default.post(name: .stowShowImport, object: nil)
         }
     }
 

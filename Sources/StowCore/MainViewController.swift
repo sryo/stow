@@ -1,8 +1,6 @@
 import AppKit
 import ObjectiveC
 
-nonisolated(unsafe) private var taskIdKey: UInt8 = 0
-nonisolated(unsafe) private var panelKey: UInt8 = 0
 
 @MainActor
 final class MainViewController: NSViewController {
@@ -71,7 +69,6 @@ final class MainViewController: NSViewController {
     private var hasLoaded = false
     private var lastWorkspaceId: UUID?
     private var pendingWorkspaceRenameId: UUID?
-    private var customColorWorkspaceId: UUID?
     private var displayedColorId: WorkspaceColorId = .defaultColor()
     private var appearanceObservation: NSKeyValueObservation?
     private var hasClaimedInitialFocus = false
@@ -110,7 +107,7 @@ final class MainViewController: NSViewController {
     }
 
     override func loadView() {
-        let view = NSView()
+        let view = FileDropView()
         view.wantsLayer = true
         self.view = view
     }
@@ -141,7 +138,7 @@ final class MainViewController: NSViewController {
         tabline.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
-        nodeListViewController.tintMode = StowTheme.preferredTint
+        nodeListViewController.tintMode = StowTheme.displayTint
 
         // Listen for favicon updates
         NotificationCenter.default.addObserver(
@@ -154,7 +151,6 @@ final class MainViewController: NSViewController {
         // Plain a-z key monitor for item activation
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            if self.handleStowTabKey(event) { return nil }
             if self.handleCommandHoldKey(event) { return nil }
             if self.handlePlainKeyEvent(event) { return nil }
             return event
@@ -217,6 +213,9 @@ final class MainViewController: NSViewController {
                 self.pageController.jumpToPage(idx + 1)
             }
         }
+        nodeListViewController.onOpenLinkIn = { [weak self] link, choice in
+            self?.openLink(link, in: choice)
+        }
         workspaceSwitcher.onWorkspaceRightClick = { [weak self] workspaceId, point in
             self?.showWorkspaceContextMenu(for: workspaceId, at: point)
         }
@@ -267,7 +266,8 @@ final class MainViewController: NSViewController {
         stowTabButton.translatesAutoresizingMaskIntoConstraints = false
         stowTabButton.target = self
         stowTabButton.action = #selector(stowTabTapped)
-        stowTabButton.toolTip = "Save the front tab of the browser you were last in (⌥⌘S)"
+        updateStowTabShortcut()
+        NotificationCenter.default.addObserver(self, selector: #selector(updateStowTabShortcut), name: .toggleSidebarShortcutChanged, object: nil)
 
         // Node list view
         nodeListViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -729,7 +729,7 @@ final class MainViewController: NSViewController {
         view.layer?.backgroundColor = view.resolvedCGColor(bgColor)
         view.window?.backgroundColor = bgColor
         displayedColorId = colorId
-        let colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
+        let colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
         searchField.colors = colors
         updateTitleButtons(colors: colors)
         updateSettingsConstraints()
@@ -808,257 +808,13 @@ final class MainViewController: NSViewController {
 
     // MARK: - Workspace Management
 
+    /// The shared WorkspaceMenu, for a right-click on the title-bar switcher.
     private func showWorkspaceContextMenu(for workspaceId: UUID, at point: NSPoint) {
-        // Temporarily select the workspace for context menu actions
-        let previousWorkspaceId = model.currentWorkspace.id
-        if previousWorkspaceId != workspaceId {
-            model.selectWorkspace(id: workspaceId)
+        guard view.window != nil else { return }
+        let menu = WorkspaceMenu.make(for: workspaceId, model: model, presentingView: view) { [weak self] id in
+            self?.workspaceSwitcher.beginInlineRename(workspaceId: id)
         }
-
-        let menu = NSMenu()
-        let canDelete = model.workspaces.count > 1
-        guard let workspaceIndex = model.workspaces.firstIndex(where: { $0.id == workspaceId }) else { return }
-        let canMoveLeft = workspaceIndex > 0
-        let canMoveRight = workspaceIndex < model.workspaces.count - 1
-
-        let renameItem = NSMenuItem(title: "Rename workspace…", action: #selector(renameWorkspaceFromMenu), keyEquivalent: "")
-        renameItem.target = self
-        menu.addItem(renameItem)
-
-        let colorItem = NSMenuItem(title: "Change color", action: nil, keyEquivalent: "")
-        colorItem.submenu = ContextMenuBuilder.workspaceColorSubmenu(
-            currentColorId: model.currentWorkspace.colorId,
-            target: self,
-            colorAction: #selector(changeColorTo(_:)),
-            customColorAction: #selector(chooseCustomColor)
-        )
-        menu.addItem(colorItem)
-
-        if canMoveLeft || canMoveRight {
-            menu.addItem(NSMenuItem.separator())
-
-            if canMoveLeft {
-                let moveLeftItem = NSMenuItem(title: "Move left", action: #selector(moveWorkspaceLeft), keyEquivalent: "")
-                moveLeftItem.target = self
-                menu.addItem(moveLeftItem)
-            }
-
-            if canMoveRight {
-                let moveRightItem = NSMenuItem(title: "Move right", action: #selector(moveWorkspaceRight), keyEquivalent: "")
-                moveRightItem.target = self
-                menu.addItem(moveRightItem)
-            }
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        let shareItem = NSMenuItem(title: "Share workspace…", action: #selector(shareWorkspaceFromMenu), keyEquivalent: "")
-        shareItem.target = self
-        menu.addItem(shareItem)
-
-        let exportItem = NSMenuItem(title: "Export workspace…", action: #selector(exportWorkspaceFromMenu), keyEquivalent: "")
-        exportItem.target = self
-        menu.addItem(exportItem)
-
-        let importItem = NSMenuItem(title: "Import workspace…", action: #selector(importWorkspaceFromMenu), keyEquivalent: "")
-        importItem.target = self
-        menu.addItem(importItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let deleteItem = NSMenuItem(title: "Delete workspace…", action: #selector(deleteWorkspaceFromMenu), keyEquivalent: "")
-        deleteItem.target = self
-        deleteItem.isEnabled = canDelete
-        menu.addItem(deleteItem)
-
-        if view.window != nil {
-            let pointInView = view.convert(point, from: nil)
-            menu.popUp(positioning: nil, at: pointInView, in: view)
-        }
-    }
-
-    @objc private func renameWorkspaceFromMenu() {
-        let workspace = model.currentWorkspace
-        workspaceSwitcher.beginInlineRename(workspaceId: workspace.id)
-    }
-
-    @objc private func changeColorTo(_ sender: NSMenuItem) {
-        guard let colorId = sender.representedObject as? WorkspaceColorId else { return }
-        let workspace = model.currentWorkspace
-        model.updateWorkspaceColor(id: workspace.id, colorId: colorId)
-    }
-
-    @objc private func chooseCustomColor() {
-        customColorWorkspaceId = model.currentWorkspace.id
-        let colorPanel = NSColorPanel.shared
-        colorPanel.color = model.currentWorkspace.colorId.color
-        colorPanel.setTarget(self)
-        colorPanel.setAction(#selector(customColorChanged(_:)))
-        colorPanel.isContinuous = true
-        colorPanel.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func customColorChanged(_ sender: Any?) {
-        guard let workspaceId = customColorWorkspaceId else { return }
-        let hex = NSColorPanel.shared.color.hexString
-        model.updateWorkspaceColor(id: workspaceId, colorId: .custom(hex))
-    }
-
-    @objc private func shareWorkspaceFromMenu() {
-        let workspace = model.currentWorkspace
-        do {
-            let url = try model.shareWorkspace(id: workspace.id)
-            showSharePanel(url: url, workspaceName: workspace.name)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Share failed"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
-    }
-
-    private func showSharePanel(url: String, workspaceName: String) {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = "Share \"\(workspaceName)\""
-        panel.isFloatingPanel = true
-        panel.contentMinSize = NSSize(width: 420, height: 160)
-        panel.contentMaxSize = NSSize(width: 420, height: 200)
-
-        let contentView = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
-
-        let label = NSTextField(labelWithString: "Anyone with this link can view and import your workspace:")
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 2
-
-        let textField = NSTextField(string: url)
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.isEditable = false
-        textField.isSelectable = true
-        textField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        textField.lineBreakMode = .byTruncatingMiddle
-        textField.cell?.usesSingleLineMode = true
-        textField.cell?.isScrollable = false
-        textField.cell?.truncatesLastVisibleLine = true
-        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let copyButton = NSButton(title: "Copy link", target: nil, action: nil)
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
-        copyButton.bezelStyle = .rounded
-        copyButton.keyEquivalent = "\r"
-
-        contentView.addSubview(label)
-        contentView.addSubview(textField)
-        contentView.addSubview(copyButton)
-
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-
-            textField.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
-            textField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            textField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-
-            copyButton.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 16),
-            copyButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            copyButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -16),
-        ])
-
-        panel.contentView = contentView
-
-        // Store URL for copy action
-        let urlToCopy = url
-        let panelRef = panel
-        copyButton.target = self
-        copyButton.action = #selector(copyShareLink(_:))
-        objc_setAssociatedObject(copyButton, &panelKey, panelRef, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(copyButton, &taskIdKey, urlToCopy as NSString, .OBJC_ASSOCIATION_RETAIN)
-
-        panel.center()
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func copyShareLink(_ sender: NSButton) {
-        guard let urlString = objc_getAssociatedObject(sender, &taskIdKey) as? NSString else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(urlString as String, forType: .string)
-
-        // Update button title briefly to confirm
-        sender.title = "Copied!"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            sender.title = "Copy link"
-        }
-    }
-
-    @objc private func exportWorkspaceFromMenu() {
-        let workspace = model.currentWorkspace
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.init(filenameExtension: "stow")!]
-        savePanel.nameFieldStringValue = "\(workspace.name).stow"
-        savePanel.canCreateDirectories = true
-
-        guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
-        do {
-            let data = try model.exportWorkspace(id: workspace.id)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Export failed"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
-    }
-
-    @objc private func importWorkspaceFromMenu() {
-        let openPanel = NSOpenPanel()
-        openPanel.allowedContentTypes = [.init(filenameExtension: "stow")!]
-        openPanel.allowsMultipleSelection = false
-
-        guard openPanel.runModal() == .OK, let url = openPanel.url else { return }
-        do {
-            let data = try Data(contentsOf: url)
-            try model.importWorkspace(from: data)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Import failed"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
-    }
-
-    @objc private func deleteWorkspaceFromMenu() {
-        let workspace = model.currentWorkspace
-        if workspace.items.isEmpty {
-            model.deleteWorkspace(id: workspace.id)
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = "Delete workspace?"
-        alert.informativeText = "This will permanently delete the workspace and all its contents."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
-        if let deleteButton = alert.buttons.last {
-            deleteButton.hasDestructiveAction = true
-        }
-        if alert.runModal() == .alertSecondButtonReturn {
-            model.deleteWorkspace(id: workspace.id)
-        }
-    }
-
-    @objc private func moveWorkspaceLeft() {
-        let workspace = model.currentWorkspace
-        model.moveWorkspace(id: workspace.id, direction: .left)
-    }
-
-    @objc private func moveWorkspaceRight() {
-        let workspace = model.currentWorkspace
-        model.moveWorkspace(id: workspace.id, direction: .right)
+        menu.popUp(positioning: nil, at: view.convert(point, from: nil), in: view)
     }
 
     func promptCreateWorkspace() {
@@ -1156,7 +912,7 @@ final class MainViewController: NSViewController {
     }
 
     @objc private func importFromArcFromEmptyState() {
-        settingsViewController.importFromArc()
+        ImportCoordinator.shared.importFromArc()
     }
 
     private var isPasteAvailable: Bool {
@@ -1255,7 +1011,7 @@ final class MainViewController: NSViewController {
             return
         }
         railPage = page
-        let animate = view.window?.isVisible == true && !isSwiping
+        let animate = RailMotion.animates(windowVisible: view.window?.isVisible == true, swiping: isSwiping, reduceMotion: RailMotion.reduceMotion)
         let dotCenters = Dictionary(uniqueKeysWithValues: model.workspaces.enumerated().map {
             ($1.id, SettingsRailLayout.dotCenterY(at: $0))
         })
@@ -1386,7 +1142,6 @@ final class MainViewController: NSViewController {
         railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
         railView.onMoveToWorkspace = { [weak self] id, workspaceId in self?.model.moveNodeToWorkspace(id: id, workspaceId: workspaceId) }
         railView.onSettings = { [weak self] in self?.enterSettings() }
-        settingsRail.settingsPage = settingsViewController
         settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         settingsRail.onPreviewColor = { [weak self] colorId in
             self?.applyBackgroundColor(for: colorId ?? .settingsBackground)
@@ -1405,6 +1160,15 @@ final class MainViewController: NSViewController {
         } else {
             enterSettings()
         }
+    }
+
+    /// The footer's keycap and tip follow the Stow front tab shortcut (none when cleared).
+    @objc private func updateStowTabShortcut() {
+        let shortcut = ShortcutStore().shortcut(for: .stowFrontTab)
+        stowTabButton.keycapText = shortcut?.displayString
+        stowTabFullWidth = nil
+        stowTabButton.toolTip = "Save the front tab of the browser you were last in"
+            + (shortcut.map { " (\($0.displayString), from any app)" } ?? "")
     }
 
     @objc private func stowTabTapped() {
@@ -1427,7 +1191,8 @@ final class MainViewController: NSViewController {
     private var stowTabFullWidth: CGFloat?
 
     /// Saves the front tab of the browser the user was last in to the current workspace.
-    private func stowFrontTab() {
+    /// Runs from the footer, the rail's "+" and the global Stow front tab shortcut.
+    func stowFrontTab() {
         guard let bundleId = ActiveBrowserTracker.shared.lastActiveBundleId else { NSSound.beep(); return }
         Task.detached(priority: .userInitiated) { [weak self] in
             let tab = BrowserTabService.frontTab(bundleId: bundleId)
@@ -1579,24 +1344,24 @@ final class MainViewController: NSViewController {
         importClipboardContent()
     }
 
-    /// Opens in the browser the user is working in, switching to its existing tab for
-    /// the site if there is one. Holding Option looks for the tab in every browser.
-    private func openLink(_ link: Link) {
+    /// Opens in the workspace's "Opens in" browser (by default the browser you're using),
+    /// switching to an existing tab for the site first. Holding Option looks for the tab
+    /// in every browser. `override` is a one-off Open in ▸ choice from the link's menu.
+    func openLink(_ link: Link, in override: OpensIn? = nil) {
         guard let url = URL(string: link.url) else { return }
-        let bundleId = BrowserManager.linkTargetBundleId()
-        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
-        let searchEveryBrowser = NSEvent.modifierFlags.contains(.option) || !BrowserManager.opensInActiveBrowser
+        let target = override.map {
+            LinkTarget(bundleId: $0.bundleId, profile: $0.profile, focusOnlyIn: $0.bundleId)
+        } ?? LinkTarget.forWorkspace(model.currentWorkspace.id)
         Task.detached(priority: .userInitiated) {
-            if await BrowserTabService.focusIfOpen(url: url, onlyIn: searchEveryBrowser ? nil : bundleId) { return }
-            await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
+            if await BrowserTabService.focusIfOpen(url: url, onlyIn: target.focusOnlyIn) { return }
+            await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
         }
     }
 
     private func openLinksInFolder(_ folder: Folder) {
         let links = collectLinks(in: folder)
         guard !links.isEmpty else { return }
-        let bundleId = BrowserManager.linkTargetBundleId()
-        let profile = bundleId.flatMap { model.currentWorkspace.browserProfiles[$0] }
+        let target = LinkTarget.forWorkspace(model.currentWorkspace.id)
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
         Task.detached(priority: .userInitiated) {
@@ -1604,8 +1369,9 @@ final class MainViewController: NSViewController {
             for link in links {
                 guard let url = URL(string: link.url) else { continue }
                 let key = BrowserTabService.canonicalize(url)
-                if let tab = tabs[key], tab.bundleId == bundleId || bundleId == nil, BrowserTabService.focus(tab: tab) { continue }
-                await MainActor.run { BrowserManager.open(url: url, bundleId: bundleId, profile: profile) }
+                if let tab = tabs[key], target.focusOnlyIn == nil || tab.bundleId == target.focusOnlyIn,
+                   BrowserTabService.focus(tab: tab) { continue }
+                await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
             }
         }
     }
@@ -1769,15 +1535,6 @@ final class MainViewController: NSViewController {
         return true
     }
 
-    /// ⌥⌘S stows the front browser tab, matching the footer button's keycap.
-    private func handleStowTabKey(_ event: NSEvent) -> Bool {
-        guard event.window === view.window, !model.state.isSettingsSelected,
-              event.modifierFlags.intersection([.command, .option, .shift, .control]) == [.command, .option],
-              event.keyCode == 1 else { return false }
-        stowFrontTab()
-        return true
-    }
-
     private func activateRow(at index: Int) {
         guard let node = nodeListViewController.visibleNode(at: index) else { return }
         switch node {
@@ -1847,7 +1604,7 @@ final class MainViewController: NSViewController {
     }
 
     @objc private func tintModeChanged() {
-        nodeListViewController.tintMode = StowTheme.preferredTint
+        nodeListViewController.tintMode = StowTheme.displayTint
         workspaceSwitcher.workspaceColor = workspaceSwitcher.workspaceColor
         applyBackgroundColor(for: displayedColorId)
     }

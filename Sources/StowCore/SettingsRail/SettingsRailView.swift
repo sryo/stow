@@ -187,7 +187,8 @@ final class SettingsRailView: NSView {
     }
 
     /// Places rows in `order` (the live drag preview), or in model order.
-    private func layoutTiles(animated: Bool, order: [UUID]? = nil, skipping dragged: UUID? = nil) {
+    private func layoutTiles(animated requested: Bool, order: [UUID]? = nil, skipping dragged: UUID? = nil) {
+        let animated = requested && !RailMotion.reduceMotion
         let order = order ?? tiles.map(\.id)
         let x = round((bounds.width - SettingsRailLayout.railWidth) / 2)
         let apply = {

@@ -86,7 +86,7 @@ final class RailView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(workspaces: [WorkspaceDot], selectedId: UUID?, colorId: WorkspaceColorId, items: [Node]) {
-        colors = StowTheme.colors(for: colorId, tint: StowTheme.preferredTint)
+        colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
         currentWorkspaceId = selectedId
         itemIds = items.map(\.id)
         cancelDrag()

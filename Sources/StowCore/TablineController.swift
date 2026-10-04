@@ -112,13 +112,9 @@ final class TablineController {
     }
     private var nudges: [Nudge] = []
 
-    var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.defaultsKey) }
-        set {
-            UserDefaults.standard.set(newValue, forKey: Self.defaultsKey)
-            newValue ? start() : stop()
-        }
-    }
+    /// The stored switch. Change it through AppPreferences.setTabline so the sheet, the
+    /// Settings page and the Window menu stay in step.
+    var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.defaultsKey) }
 
     private init() {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
@@ -127,7 +123,12 @@ final class TablineController {
     }
 
     func startIfEnabled() {
-        if isEnabled { start() }
+        AppPreferences.shared.applyPendingTabline()
+    }
+
+    /// Starts or stops the strip without touching the stored switch (AppPreferences owns it).
+    func setRunning(_ running: Bool) {
+        running ? start() : stop()
     }
 
     private func start() {

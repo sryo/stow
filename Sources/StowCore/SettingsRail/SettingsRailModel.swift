@@ -332,26 +332,89 @@ enum FlyoutPlacement {
 enum AppWindowMode: Int { case floating, onTop, attached }
 
 enum AppSheetSection: CaseIterable {
-    case appearance, window, browser, shortcut, importing
+    case window, keyboard, appearance
 
     var title: String {
         switch self {
-        case .appearance: return "Appearance"
         case .window: return "Window"
-        case .browser: return "Browser"
-        case .shortcut: return "Shortcut"
-        case .importing: return "Import"
+        case .keyboard: return "Keyboard"
+        case .appearance: return "Appearance"
         }
     }
 }
 
-/// Everything that isn't about one workspace, behind the quiet cell, most-changed first.
+/// Everything that isn't about one workspace: behind the quiet cell in the rail, and
+/// below Workspaces on the Settings page. Import and iCloud live in its footer.
 enum AppSheet {
-    static let sections: [AppSheetSection] = [.appearance, .window, .browser, .shortcut, .importing]
+    static let sections: [AppSheetSection] = [.window, .keyboard, .appearance]
+
+    static func windowHelp(_ mode: AppWindowMode) -> String {
+        switch mode {
+        case .floating: return "A regular window you can place anywhere"
+        case .onTop: return "Stays above every other app"
+        case .attached: return "Picked up from where you attached it"
+        }
+    }
+
+    static func showsBrowserSide(_ mode: AppWindowMode) -> Bool {
+        mode == .attached
+    }
+
+    struct SyncLine: Equatable {
+        var text: String
+        var isError: Bool
+    }
+
+    /// The footer's iCloud status. Sync has no switch: it's on whenever iCloud is.
+    static func syncLine(availability: SyncAvailability, lastSync: Date?, signedOut: Bool, now: Date = Date()) -> SyncLine {
+        switch availability {
+        case .disabledNoProvisioningProfile:
+            return SyncLine(text: "iCloud is off in this build", isError: true)
+        case .notConfigured:
+            return SyncLine(text: "iCloud is off for Stow", isError: true)
+        case .active:
+            if signedOut { return SyncLine(text: "iCloud is off for Stow", isError: true) }
+            guard let lastSync else { return SyncLine(text: "Syncing with iCloud", isError: false) }
+            let seconds = now.timeIntervalSince(lastSync)
+            if seconds < 60 { return SyncLine(text: "Synced · just now", isError: false) }
+            if seconds < 3600 { return SyncLine(text: "Synced · \(Int(seconds / 60)) min ago", isError: false) }
+            if seconds < 86400 { return SyncLine(text: "Synced · \(Int(seconds / 3600)) h ago", isError: false) }
+            return SyncLine(text: "Synced · \(Int(seconds / 86400)) d ago", isError: false)
+        }
+    }
+
+    /// The permissions line: one entry per missing permission, each with a Fix button.
+    static func permissionNeeds(windowMode: AppWindowMode, tabline: Bool, hasAccessibility: Bool,
+                                automationDenied browserName: String?) -> [PermissionNeed] {
+        var needs: [PermissionNeed] = []
+        if !hasAccessibility {
+            switch (tabline, windowMode == .attached) {
+            case (true, true): needs.append(.accessibility(reason: "Tabline and Attached need Accessibility"))
+            case (true, false): needs.append(.accessibility(reason: "Tabline needs Accessibility"))
+            case (false, true): needs.append(.accessibility(reason: "Attached needs Accessibility"))
+            case (false, false): break
+            }
+        }
+        if let browserName {
+            needs.append(.automation(reason: "Switching to open tabs needs Automation for \(browserName)"))
+        }
+        return needs
+    }
 
     /// The quiet cell speaks up only when something needs you.
-    static func showsBadge(windowMode: AppWindowMode, hasAccessibility: Bool) -> Bool {
-        windowMode == .attached && !hasAccessibility
+    static func showsBadge(needs: [PermissionNeed]) -> Bool {
+        !needs.isEmpty
+    }
+}
+
+enum PermissionNeed: Equatable {
+    case accessibility(reason: String)
+    case automation(reason: String)
+
+    var reason: String {
+        switch self {
+        case .accessibility(let reason), .automation(let reason): return reason
+        }
     }
 }
 
@@ -397,4 +460,17 @@ enum SettingsRailNewWorkspace {
     static func color(existing: [WorkspaceColorId]) -> WorkspaceColorId {
         WorkspaceColorId.allCases.first { !existing.contains($0) } ?? WorkspaceColorAllocator.next(existing: existing)
     }
+}
+
+// MARK: - Motion
+
+/// Whether the rail's dot↔tile morph and tile reorder animate. Reduce Motion swaps
+/// instantly.
+enum RailMotion {
+    static func animates(windowVisible: Bool, swiping: Bool, reduceMotion: Bool) -> Bool {
+        windowVisible && !swiping && !reduceMotion
+    }
+
+    @MainActor
+    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 }

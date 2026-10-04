@@ -6,12 +6,6 @@ struct KeyboardShortcut: Codable, Equatable {
     let keyCode: UInt32
     let carbonModifiers: UInt32
 
-    /// Default shortcut: Cmd+Shift+B
-    static let defaultShortcut = KeyboardShortcut(
-        keyCode: UInt32(kVK_ANSI_B),
-        carbonModifiers: UInt32(cmdKey | shiftKey)
-    )
-
     init(keyCode: UInt32, carbonModifiers: UInt32) {
         self.keyCode = keyCode
         self.carbonModifiers = carbonModifiers
@@ -126,23 +120,4 @@ struct KeyboardShortcut: Codable, Equatable {
         }
     }
 
-    /// Loads the saved shortcut from UserDefaults, or returns the default.
-    static func load() -> KeyboardShortcut? {
-        guard let data = UserDefaults.standard.data(forKey: UserDefaultsKeys.toggleSidebarShortcut) else {
-            return defaultShortcut
-        }
-        return try? JSONDecoder().decode(KeyboardShortcut.self, from: data)
-    }
-
-    /// Saves this shortcut to UserDefaults.
-    func save() {
-        if let data = try? JSONEncoder().encode(self) {
-            UserDefaults.standard.set(data, forKey: UserDefaultsKeys.toggleSidebarShortcut)
-        }
-    }
-
-    /// Clears the saved shortcut (disables the hotkey).
-    static func clear() {
-        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.toggleSidebarShortcut)
-    }
 }
