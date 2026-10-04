@@ -13,15 +13,9 @@ enum RailDrag {
     }
 
     /// The `AppModel.moveNode` index for dropping `moving` into rail gap `slot`. The rail
-    /// only shows links and folders, so the index is found in the full item list, where
-    /// tasks and snippets sit in between. Nil when the drop leaves the order unchanged.
+    /// only shows links and folders, so tasks and snippets in between keep their places.
     static func modelIndex(forSlot slot: Int, moving: UUID, railIds: [UUID], itemIds: [UUID]) -> Int? {
-        guard let from = railIds.firstIndex(of: moving), slot != from, slot != from + 1 else { return nil }
-        if slot < railIds.count {
-            return itemIds.firstIndex(of: railIds[slot])
-        }
-        guard let last = railIds.last, let lastIndex = itemIds.firstIndex(of: last) else { return nil }
-        return lastIndex + 1
+        ListReorder.modelIndex(forSlot: slot, moving: moving, visibleIds: railIds, allIds: itemIds)
     }
 
     /// The workspace whose dot is under `point`, or nil for the current one or empty space.

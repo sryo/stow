@@ -20,11 +20,7 @@ struct AddItemView: View {
     @State private var snippetContent = ""
     @State private var snippetLanguage = ""
 
-    private let languages = [
-        "", "Swift", "Python", "JavaScript", "TypeScript", "Go", "Rust",
-        "Java", "Kotlin", "C", "C++", "Ruby", "PHP", "HTML", "CSS",
-        "SQL", "Shell", "Markdown", "JSON", "YAML"
-    ]
+    private let languages = [""] + SnippetLanguage.all
 
     var body: some View {
         NavigationStack {

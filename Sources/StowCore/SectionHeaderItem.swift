@@ -58,16 +58,16 @@ private final class SectionHeaderView: BaseView {
         self.metrics = metrics
         self.inset = horizontalInset
         if style == .folderGroup {
-            titleLabel.attributedStringValue = NSAttributedString(string: title, attributes: [
+            titleLabel.attributedStringValue = NSAttributedString(string: title, attributes: StowTheme.singleLineAttributes([
                 .font: metrics.folderTitleFont, .foregroundColor: metrics.titleColor,
-            ])
+            ]))
         } else {
             // 10.5pt bold, uppercase, tracked 0.07em.
-            titleLabel.attributedStringValue = NSAttributedString(string: title.uppercased(), attributes: [
+            titleLabel.attributedStringValue = NSAttributedString(string: title.uppercased(), attributes: StowTheme.singleLineAttributes([
                 .font: NSFont.systemFont(ofSize: 10.5, weight: .bold),
                 .kern: 0.735,
                 .foregroundColor: metrics.secondaryColor,
-            ])
+            ]))
         }
         metaLabel.stringValue = meta
         metaLabel.textColor = metrics.secondaryColor
@@ -96,15 +96,16 @@ private final class SectionHeaderView: BaseView {
         let w = bounds.width, h = bounds.height
         let textH: CGFloat = 16
         let ty = ((h - textH) / 2).rounded()
+        metaLabel.isHidden = false
         switch style {
         case .label:
-            let metaW: CGFloat = 70
-            titleLabel.frame = NSRect(x: inset, y: ty, width: max(0, w - inset * 2 - metaW - 6), height: textH)
+            let metaW = metaWidth(available: w - inset * 2, max: 70)
+            titleLabel.frame = NSRect(x: inset, y: ty, width: max(0, w - inset * 2 - (metaW > 0 ? metaW + 6 : 0)), height: textH)
             metaLabel.frame = NSRect(x: w - inset - metaW, y: ty, width: metaW, height: textH)
         case .countedRow:
-            let metaW: CGFloat = 56
+            let metaW = metaWidth(available: w - 30 - 8, max: 56)
             iconView.frame = NSRect(x: 7, y: ((h - 16) / 2).rounded(), width: 16, height: 16)
-            titleLabel.frame = NSRect(x: 30, y: ty, width: max(0, w - 30 - 8 - metaW - 6), height: textH)
+            titleLabel.frame = NSRect(x: 30, y: ty, width: max(0, w - 30 - 8 - (metaW > 0 ? metaW + 6 : 0)), height: textH)
             metaLabel.frame = NSRect(x: w - 8 - metaW, y: ty, width: metaW, height: textH)
         case .folderGroup:
             let metaW: CGFloat = 70
@@ -115,6 +116,19 @@ private final class SectionHeaderView: BaseView {
         // Text cells inset their text 2pt; widen the frames so the text lands on the grid.
         titleLabel.frame = titleLabel.frame.insetBy(dx: -2, dy: 0)
         metaLabel.frame = metaLabel.frame.insetBy(dx: -2, dy: 0)
+    }
+
+    /// The count's column, or 0 with the count hidden when the label would otherwise
+    /// truncate: "TASKS" beats "2 open" for the room.
+    private func metaWidth(available: CGFloat, max maxWidth: CGFloat) -> CGFloat {
+        let titleWidth = ceil(titleLabel.attributedStringValue.size().width)
+        let metaFont = metaLabel.font ?? .systemFont(ofSize: 11.5)
+        let metaNeed = min(maxWidth, ceil((metaLabel.stringValue as NSString).size(withAttributes: [.font: metaFont]).width))
+        guard metaNeed > 0, titleWidth + 6 + metaNeed <= available else {
+            metaLabel.isHidden = true
+            return 0
+        }
+        return min(maxWidth, available - titleWidth - 6)
     }
 
     override func handleHoverStateChanged() { paint() }

@@ -547,7 +547,14 @@ final class RailCell: NSView {
         }
         return image
     }
-    var isOpen = false { didSet { openDot.isHidden = !isOpen } }
+    var isOpen = false {
+        didSet {
+            openDot.isHidden = !isOpen
+            updateAccessibilityLabel()
+        }
+    }
+    /// The VoiceOver label before the open state is added.
+    private var baseAccessibilityLabel = ""
 
     private let backgroundLayer = CALayer()
     private let iconLayer = CALayer()
@@ -611,8 +618,8 @@ final class RailCell: NSView {
         switch kind {
         case .link(let link, let letters):
             toolTip = "\(link.title)\n\(link.displayDomain ?? link.url)"
-            setAccessibilityLabel(link.title)
-            if let path = link.faviconPath, let image = NSImage(contentsOfFile: path) {
+            baseAccessibilityLabel = [link.title, "link", link.displayDomain].compactMap { $0 }.joined(separator: ", ")
+            if let image = SiteGlyph.favicon(link.faviconPath) {
                 iconLayer.contents = image
             } else {
                 iconLayer.backgroundColor = Self.tileColor(for: link).cgColor
@@ -621,26 +628,34 @@ final class RailCell: NSView {
             }
         case .folder(let folder):
             toolTip = "\(folder.name) · \(folder.children.count)"
-            setAccessibilityLabel("\(folder.name), folder, \(folder.children.count) items")
+            baseAccessibilityLabel = "\(folder.name), folder, \(folder.children.count) items"
             iconLayer.isHidden = true
             buildMosaic(folder)
         case .tasks(let tasks):
             let open = tasks.filter { !$0.isCompleted }.count
             toolTip = "Tasks · \(open) open"
-            setAccessibilityLabel("Tasks, \(open) open")
+            baseAccessibilityLabel = "Tasks, \(open) open"
             iconLayer.isHidden = true
             setGlyph("checklist")
             setBadge(open > 0 ? open : tasks.count)
         case .snippets(let snippets):
             toolTip = "Snippets · \(snippets.count)"
-            setAccessibilityLabel("Snippets, \(snippets.count)")
+            baseAccessibilityLabel = "Snippets, \(snippets.count)"
             iconLayer.isHidden = true
             setGlyph("chevron.left.forwardslash.chevron.right")
             setBadge(snippets.count)
         }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityHelp(node == nil ? "Opens a list" : "Drag to reorder or onto a workspace dot")
+        updateAccessibilityLabel()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private func updateAccessibilityLabel() {
+        setAccessibilityLabel(baseAccessibilityLabel + (isOpen ? ", open in browser" : ""))
+    }
 
     private func setGlyph(_ symbol: String) {
         glyphView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
@@ -665,7 +680,7 @@ final class RailCell: NSView {
             l.cornerRadius = 3
             l.masksToBounds = true
             l.contentsGravity = .resizeAspect
-            if let path = link.faviconPath, let image = NSImage(contentsOfFile: path) {
+            if let image = SiteGlyph.favicon(link.faviconPath) {
                 l.contents = image
             } else {
                 l.backgroundColor = Self.tileColor(for: link).cgColor
@@ -724,59 +739,30 @@ final class RailCell: NSView {
     }
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
 
-    // MARK: Letter tiles
-
-    /// One letter per site, two where the first would collide (Linear "Li" next to LinkedIn "Lk"),
-    /// or the capitals of a camel-cased name (GitHub "GH").
-    static func assignLetters(_ links: [Link]) -> [UUID: String] {
-        func name(_ link: Link) -> String {
-            let host = (URL(string: link.url)?.host ?? link.title).replacingOccurrences(of: "www.", with: "")
-            let title = link.title.split(separator: " ").first.map(String.init) ?? ""
-            // Prefer the title's first word when it names the site; fall back to the host.
-            return title.isEmpty ? (host.split(separator: ".").first.map(String.init) ?? host) : title
-        }
-        var result: [UUID: String] = [:]
-        var firsts: [String: Int] = [:]
-        for link in links { firsts[String(name(link).prefix(1)).uppercased(), default: 0] += 1 }
-        for link in links {
-            let n = name(link)
-            let caps = n.filter(\.isUppercase)
-            if caps.count >= 2 {
-                result[link.id] = String(caps.prefix(2))
-            } else if firsts[String(n.prefix(1)).uppercased(), default: 0] > 1 {
-                result[link.id] = String(n.prefix(1)).uppercased() + String(n.dropFirst().prefix(1)).lowercased()
-            } else {
-                result[link.id] = String(n.prefix(1)).uppercased()
-            }
-        }
-        return result
+    override func accessibilityPerformPress() -> Bool {
+        onActivate?()
+        return true
     }
 
-    /// A stable, saturated color per host so a letter tile keeps its color everywhere.
+    override func accessibilityPerformShowMenu() -> Bool {
+        onRightClick?()
+        return true
+    }
+
+    // MARK: Letter tiles
+
+    /// Letters for the rail's sites, from the shared `SiteGlyph`.
+    static func assignLetters(_ links: [Link]) -> [UUID: String] {
+        SiteGlyph.assignLetters(links)
+    }
+
+    /// The site's tile color, from the shared `SiteGlyph`.
     static func tileColor(for link: Link) -> NSColor {
-        let host = URL(string: link.url)?.host ?? link.url
-        var hash: UInt32 = 2166136261
-        for byte in host.utf8 { hash = (hash ^ UInt32(byte)) &* 16777619 }
-        let hue = CGFloat(hash % 360) / 360
-        return NSColor(calibratedHue: hue, saturation: 0.55, brightness: 0.62, alpha: 1)
+        SiteGlyph.tileColor(for: SiteGlyph.host(of: link.url))
     }
 
     static func menuIcon(for link: Link) -> NSImage? {
-        if let path = link.faviconPath, let image = NSImage(contentsOfFile: path) {
-            image.size = NSSize(width: 16, height: 16)
-            return image
-        }
-        let color = tileColor(for: link)
-        let letter = assignLetters([link])[link.id] ?? "?"
-        return NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 8, weight: .bold), .foregroundColor: NSColor.white]
-            let s = NSAttributedString(string: letter, attributes: attrs)
-            let sz = s.size()
-            s.draw(at: NSPoint(x: rect.midX - sz.width / 2, y: rect.midY - sz.height / 2))
-            return true
-        }
+        SiteGlyph.menuImage(title: link.title, url: link.url, faviconPath: link.faviconPath)
     }
 }
 

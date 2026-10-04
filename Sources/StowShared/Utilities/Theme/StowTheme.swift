@@ -298,6 +298,18 @@ public enum StowTheme {
         public static var code: PlatformFont { .monospacedSystemFont(ofSize: 12, weight: .regular) }
     }
 
+    /// Attributes for a one-line label set through an attributed string. Setting
+    /// `attributedStringValue` replaces the field's own line break mode, so the attributed
+    /// string has to carry truncation itself or the text wraps.
+    public static func singleLineAttributes(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+            ?? NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        var result = attributes
+        result[.paragraphStyle] = style
+        return result
+    }
+
     public enum Motion {
         public static let fast: TimeInterval = 0.15
         public static let normal: TimeInterval = 0.2
