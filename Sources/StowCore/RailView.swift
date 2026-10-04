@@ -36,6 +36,10 @@ final class RailView: NSView {
 
     /// The tips beside resting cells and dots. Hide them when a rail flyout opens.
     let tips = RailTipController()
+    /// The folder, tasks and snippets lists, beside the rail.
+    let flyout = FlyoutListPresenter()
+
+    private enum OpenList: Hashable { case folder(UUID), tasks, snippets }
 
     private let gear = RailGlyphButton(glyph: .gear)
     private let separator = NSView()
@@ -49,6 +53,8 @@ final class RailView: NSView {
     private var openKeys: Set<String> = []
     private var currentWorkspaceId: UUID?
     private var itemIds: [UUID] = []
+    private var items: [Node] = []
+    private var pocket = Pocket.Contents()
     private var dragGhost: NSImageView?
     private let dropBar = NSView()
     private var dropTargetDot: RailDotButton? {
@@ -78,6 +84,8 @@ final class RailView: NSView {
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
                                                object: scrollView.contentView)
+
+        wireFlyout()
 
         fab.translatesAutoresizingMaskIntoConstraints = false
         fab.target = self
@@ -128,7 +136,7 @@ final class RailView: NSView {
                 }
             }
             b.onHover = { [weak self, weak b] inside in
-                guard let self, let b, let tip = b.tip else { return }
+                guard let self, let b, let tip = b.tip, !(inside && self.flyout.isOpen) else { return }
                 self.tips.hover(b.tipId, view: b, tip: tip, inside: inside)
             }
             addSubview(b)
@@ -140,6 +148,7 @@ final class RailView: NSView {
         rebuildCells(items: items)
         applyColors()
         applyOpenState()
+        if pageChanged { flyout.closeAll() } else { refreshOpenList() }
         // ⌘1/⌘2 from a Tab-focused gear would otherwise carry its ring onto the next page.
         if pageChanged, let window, window.firstResponder === gear { window.makeFirstResponder(nil) }
         refreshHover()
@@ -166,6 +175,7 @@ final class RailView: NSView {
     /// Shows another workspace's items under the current dots, for the incoming side of a swipe.
     func previewItems(_ items: [Node]) {
         cancelDrag()
+        flyout.closeAll()
         itemIds = items.map(\.id)
         rebuildCells(items: items)
         applyColors()
@@ -198,7 +208,9 @@ final class RailView: NSView {
     private func rebuildCells(items: [Node]) {
         cells.forEach { $0.removeFromSuperview() }
         cells = []
-        let active = items.filter { !$0.isArchived }
+        self.items = items
+        let active = items.unarchived()
+        pocket = Pocket.collect(items)
         let letters = RailCell.assignLetters(active.compactMap { if case .link(let l) = $0 { return l } else { return nil } })
         for node in active {
             switch node {
@@ -210,8 +222,9 @@ final class RailView: NSView {
                 continue
             }
         }
-        let tasks = active.compactMap { if case .task(let t) = $0 { return t } else { return nil } }
-        let snippets = active.compactMap { if case .snippet(let s) = $0 { return s } else { return nil } }
+        // Tasks and snippets filed in folders count too, as in the Tabline's pocket.
+        let tasks = pocket.tasks
+        let snippets = pocket.snippets
         var sectionStart: Int?
         if !tasks.isEmpty {
             sectionStart = sectionStart ?? cells.count
@@ -239,7 +252,7 @@ final class RailView: NSView {
                 self.handleDrag(cell, phase: phase, windowPoint: windowPoint)
             }
             cell.onHover = { [weak self, weak cell] inside in
-                guard let self, let cell else { return }
+                guard let self, let cell, !(inside && self.flyout.isOpen) else { return }
                 self.tips.hover(cell.tipId, view: cell, tip: cell.tip, inside: inside)
             }
             column.addSubview(cell)
@@ -252,7 +265,9 @@ final class RailView: NSView {
     /// Marks links whose site is open in a browser, like the Dock's running indicator.
     func setOpenKeys(_ keys: Set<String>) {
         openKeys = keys
+        flyout.openKeys = keys
         applyOpenState()
+        if case .folder? = flyout.rootId as? OpenList { refreshOpenList() }
     }
 
     /// Each workspace dot's center, from the rail's top: where its Settings tile grows from.
@@ -284,7 +299,7 @@ final class RailView: NSView {
 
     private func applyColors() {
         separator.layer?.backgroundColor = resolvedCGColor(colors.inkSecondary.withAlphaComponent(0.35))
-        for b in dotButtons { b.ink = colors.inkPrimary; b.ring = colors.inkSecondary; b.gap = colors.surface }
+        for b in dotButtons { b.ink = colors.inkPrimary; b.gap = colors.surface }
         gear.colors = colors
         for c in cells { c.apply(colors: colors) }
         fab.apply(colors: colors)
@@ -396,77 +411,125 @@ final class RailView: NSView {
     private func activate(_ cell: RailCell) {
         switch cell.kind {
         case .link(let link, _):
+            flyout.closeAll()
             onOpenLink?(link)
         case .folder(let folder):
-            showMenu(for: folder, from: cell)
-        case .tasks(let tasks):
-            let menu = NSMenu()
-            for task in tasks {
-                let item = NSMenuItem(title: task.title, action: #selector(taskPicked(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = task.id
-                item.state = task.isCompleted ? .on : .off
-                menu.addItem(item)
-            }
-            menu.popUp(positioning: nil, at: NSPoint(x: cell.bounds.width + 4, y: 0), in: cell)
-        case .snippets(let snippets):
-            let menu = NSMenu()
-            let header = NSMenuItem(title: "Copy snippet", action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.addItem(header)
-            for snippet in snippets {
-                let item = NSMenuItem(title: snippet.title, action: #selector(snippetPicked(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = snippet.id
-                item.image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: nil)
-                menu.addItem(item)
-            }
-            menu.popUp(positioning: nil, at: NSPoint(x: cell.bounds.width + 4, y: 0), in: cell)
+            showList(.folder(folder.id), from: cell)
+        case .tasks:
+            showList(.tasks, from: cell)
+        case .snippets:
+            showList(.snippets, from: cell)
         }
     }
 
-    private func showMenu(for folder: Folder, from cell: NSView) {
-        let menu = NSMenu()
-        let open = NSMenuItem(title: "Open All in \(folder.name)", action: #selector(folderOpenAll(_:)), keyEquivalent: "")
-        open.target = self
-        open.representedObject = folder.id
-        menu.addItem(open)
-        menu.addItem(.separator())
-        addItems(folder.children.filter { !$0.isArchived }, to: menu)
-        menu.popUp(positioning: nil, at: NSPoint(x: cell.bounds.width + 4, y: 0), in: cell)
+    // MARK: - Flyouts
+
+    /// Opens the list for a folder, tasks or snippets cell beside the rail, or closes it
+    /// when it's already open.
+    private func showList(_ id: OpenList, from cell: RailCell) {
+        tips.hide()
+        guard let window, let content = listContent(for: id) else { return }
+        flyout.toggle(id: id) {
+            let list = FlyoutListView(title: content.title, detail: content.detail, sections: content.sections,
+                                      footer: content.footer)
+            let anchor = window.convertToScreen(cell.convert(cell.bounds, to: nil))
+            let column = window.convertToScreen(convert(bounds, to: nil))
+            flyout.show(list, id: id, anchor: anchor, edge: .beside(column: column),
+                        topInset: FlyoutListView.Metrics.firstRowMidY, parent: window)
+        }
     }
 
-    private func addItems(_ nodes: [Node], to menu: NSMenu) {
-        for node in nodes {
-            switch node {
-            case .link(let link):
-                let item = NSMenuItem(title: link.title, action: #selector(linkPicked(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = link.id
-                item.image = RailCell.menuIcon(for: link)
-                menu.addItem(item)
-            case .folder(let folder):
-                let item = NSMenuItem(title: folder.name, action: nil, keyEquivalent: "")
-                item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-                let sub = NSMenu()
-                addItems(folder.children.filter { !$0.isArchived }, to: sub)
-                item.submenu = sub
-                menu.addItem(item)
-            default:
-                continue
+    private struct ListContent {
+        var title: String
+        var detail: String?
+        var sections: [FlyoutListSection]
+        var footer: [FlyoutListView.FooterButton] = []
+    }
+
+    private func listContent(for id: OpenList) -> ListContent? {
+        switch id {
+        case .folder(let folderId):
+            guard let folder = topLevelFolder(folderId) else { return nil }
+            let rows = FlyoutListModel.rows(for: folder, openKeys: openKeys)
+            let openAll = FlyoutListView.FooterButton(title: "Open all  ⌥↩", style: .primary) { [weak self] in
+                self?.onOpenFolder?(folder)
+                self?.flyout.closeAll()
+            }
+            return ListContent(title: folder.name, detail: "\(rows.count)", sections: [FlyoutListSection(title: nil, rows: rows)],
+                               footer: folder.children.flattenLinks().isEmpty ? [] : [openAll])
+        case .tasks:
+            guard !pocket.tasks.isEmpty else { return nil }
+            let open = pocket.tasks.filter { !$0.isCompleted }.count
+            return ListContent(title: "Tasks", detail: "\(open) open",
+                               sections: [FlyoutListSection(title: nil, rows: FlyoutListModel.rows(for: pocket.tasks))])
+        case .snippets:
+            guard !pocket.snippets.isEmpty else { return nil }
+            return ListContent(title: "Snippets", detail: "\(pocket.snippets.count)",
+                               sections: [FlyoutListSection(title: nil, rows: FlyoutListModel.rows(for: pocket.snippets))])
+        }
+    }
+
+    /// Re-reads the open list after the model changed: a task toggled, a row archived.
+    private func refreshOpenList() {
+        guard let id = flyout.rootId as? OpenList else { return }
+        guard let content = listContent(for: id) else { flyout.closeAll(); return }
+        flyout.refreshRoot(title: content.title, detail: content.detail, sections: content.sections)
+    }
+
+    private func topLevelFolder(_ id: UUID) -> Folder? {
+        for node in items.unarchived() { if case .folder(let f) = node, f.id == id { return f } }
+        return nil
+    }
+
+    /// The cell that opened the list, for anchoring an editor once the list closes.
+    private func cell(for id: OpenList?) -> RailCell? {
+        cells.first { cell in
+            switch (cell.kind, id) {
+            case (.tasks, .tasks?), (.snippets, .snippets?): return true
+            case (.folder(let f), .folder(let folderId)?): return f.id == folderId
+            default: return false
+            }
+        }
+    }
+
+    private func wireFlyout() {
+        flyout.openKeys = openKeys
+        flyout.onOpenAll = { [weak self] folder in self?.onOpenFolder?(folder) }
+        flyout.onRowMenu = { [weak self] row, view in
+            guard let self, let node = row.node else { return }
+            self.onNodeMenu?(node, view)
+        }
+        flyout.onClose = { [weak self] in
+            guard let window = self?.window, window.isVisible else { return }
+            window.makeKey()
+        }
+        flyout.onAction = { [weak self] action, _, _ in
+            guard let self else { return }
+            switch action {
+            case .openLink(let id):
+                if let link = self.findLink(id) { self.onOpenLink?(link) }
+            case .toggleTask(let id):
+                self.onToggleTask?(id)
+            case .copySnippet(let id):
+                self.onCopySnippet?(id)
+            case .newTask:
+                self.onNewTask?()
+            case .setDueDate(let id):
+                let anchor = self.cell(for: self.flyout.rootId as? OpenList) ?? self
+                self.flyout.closeAll()
+                self.onSetDueDate?(id, anchor)
+            case .editSnippet(let id):
+                let anchor = self.cell(for: self.flyout.rootId as? OpenList) ?? self
+                self.flyout.closeAll()
+                self.onEditSnippet?(id, anchor)
+            case .pushFolder, .selectWorkspace:
+                break
             }
         }
     }
 
     private func findLink(_ id: UUID) -> Link? {
-        func search(_ nodes: [Node]) -> Link? {
-            for node in nodes {
-                if case .link(let l) = node, l.id == id { return l }
-                if case .folder(let f) = node, let hit = search(f.children) { return hit }
-            }
-            return nil
-        }
-        return search(cells.compactMap(\.node))
+        items.flattenLinks().first { $0.id == id }
     }
 
     @objc private func dotTapped(_ sender: RailDotButton) {
@@ -477,26 +540,6 @@ final class RailView: NSView {
     @objc private func fabTapped() { onStowTab?() }
 
     @objc private func gearTapped() { onSettings?() }
-
-    @objc private func linkPicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID, let link = findLink(id) else { return }
-        onOpenLink?(link)
-    }
-
-    @objc private func folderOpenAll(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        for cell in cells { if case .folder(let f) = cell.kind, f.id == id { onOpenFolder?(f) } }
-    }
-
-    @objc private func taskPicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        onToggleTask?(id)
-    }
-
-    @objc private func snippetPicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        onCopySnippet?(id)
-    }
 }
 
 /// The lifted copy that follows the pointer; clicks go through it to the rail.
@@ -506,14 +549,13 @@ private final class PassThroughImageView: NSImageView {
 
 // MARK: - Workspace dot
 
-/// 12pt workspace dot. The current one gets a gap ring and an ink ring around it.
+/// 12pt workspace dot, drawn by the shared WorkspaceDot; the current one is ringed in ink.
 /// It stays an NSButton (not BaseControl) so it keeps the button role and click handling
 /// VoiceOver and `toolTip` readers expect; its tip shows through RailTipController.
 private final class RailDotButton: NSButton {
     var workspaceId: UUID?
     var fill: NSColor = .gray { didSet { needsDisplay = true } }
     var ink: NSColor = .labelColor { didSet { needsDisplay = true } }
-    var ring: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
     var gap: NSColor = .clear { didSet { needsDisplay = true } }
     var isCurrent = false { didSet { needsDisplay = true; invalidateIntrinsicContentSize() } }
     var onRightClick: (() -> Void)?
@@ -569,18 +611,7 @@ private final class RailDotButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let d: CGFloat = isDropTarget ? 18 : (isHovered ? 15 : 12)
         let dot = NSRect(x: bounds.midX - d / 2, y: bounds.midY - d / 2, width: d, height: d)
-        if isCurrent {
-            ink.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -3.5, dy: -3.5)).fill()
-            gap.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -2, dy: -2)).fill()
-        }
-        fill.setFill()
-        NSBezierPath(ovalIn: dot).fill()
-        let edge = NSBezierPath(ovalIn: dot.insetBy(dx: 0.75, dy: 0.75))
-        edge.lineWidth = 1.5
-        (isCurrent ? ink : ring).setStroke()
-        edge.stroke()
+        WorkspaceDot.draw(in: dot, color: fill, style: isCurrent ? .ringed(ring: ink, gap: gap) : .plain)
     }
 }
 
@@ -630,6 +661,7 @@ final class RailCell: BaseView {
     private let letterLabel = NSTextField(labelWithString: "")
     private let glyphView = NSImageView()
     private var mosaicLayers: [CALayer] = []
+    private var folderPlate: CALayer?
     private let openDot = NSView()
     private let badge = RailBadge()
     private var colors = StowTheme.colors(for: .defaultColor())
@@ -742,10 +774,22 @@ final class RailCell: BaseView {
     private func buildMosaic(_ folder: Folder) {
         let links = folder.children.flattenLinks().prefix(4)
         let size: CGFloat = 11, gap: CGFloat = 2
+        // One site sits large on a plate, so it reads as a folder without shrinking to 11pt.
+        if links.count == 1 {
+            let plate = CALayer()
+            plate.frame = NSRect(x: 14, y: 7, width: 24, height: 24)
+            plate.cornerRadius = 6
+            plate.cornerCurve = .continuous
+            layer?.addSublayer(plate)
+            mosaicLayers.append(plate)
+            folderPlate = plate
+        }
         for (i, link) in links.enumerated() {
             let l = CALayer()
-            l.frame = NSRect(x: 14 + CGFloat(i % 2) * (size + gap), y: 7 + CGFloat(i / 2) * (size + gap), width: size, height: size)
-            l.cornerRadius = 3
+            l.frame = links.count == 1
+                ? NSRect(x: 18, y: 11, width: 16, height: 16)
+                : NSRect(x: 14 + CGFloat(i % 2) * (size + gap), y: 7 + CGFloat(i / 2) * (size + gap), width: size, height: size)
+            l.cornerRadius = links.count == 1 ? 4 : 3
             l.masksToBounds = true
             l.contentsGravity = .resizeAspect
             if let image = SiteGlyph.favicon(link.faviconPath) {
@@ -765,6 +809,7 @@ final class RailCell: BaseView {
         badge.fill = colors.inkPrimary
         badge.ink = colors.surface
         glyphView.contentTintColor = colors.inkPrimary
+        folderPlate?.backgroundColor = resolvedCGColor(colors.inkPrimary.withAlphaComponent(0.1))
         updateBackground()
     }
 

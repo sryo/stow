@@ -6,9 +6,7 @@ struct WorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(Color(workspace.colorId.color))
-                .frame(width: 12, height: 12)
+            WorkspaceDotView(colorId: workspace.colorId)
             Text(workspace.name)
                 .lineLimit(1)
         }

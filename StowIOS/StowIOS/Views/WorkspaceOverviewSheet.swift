@@ -67,7 +67,7 @@ struct WorkspaceOverviewSheet: View {
                                             Label {
                                                 Text(colorId.name)
                                             } icon: {
-                                                Image(systemName: workspace.colorId == colorId ? "circle.inset.filled" : "circle.fill")
+                                                Image(uiImage: WorkspaceDotView.image(colorId, isCurrent: workspace.colorId == colorId))
                                             }
                                         }
                                     }

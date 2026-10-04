@@ -147,17 +147,9 @@ final class WorkspaceMenu: NSObject, NSMenuDelegate {
         return submenu
     }
 
-    /// A 12pt dot with a 1pt ring, rendered per appearance when the menu draws.
+    /// A 12pt workspace dot, from the shared WorkspaceDot.
     static func dotImage(color: NSColor, size: CGFloat = 12) -> NSImage {
-        NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let path = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-            color.setFill()
-            path.fill()
-            SettingsColors.edge.setStroke()
-            path.lineWidth = 1
-            path.stroke()
-            return true
-        }
+        WorkspaceDot.image(color: color, diameter: size)
     }
 
     // MARK: Actions

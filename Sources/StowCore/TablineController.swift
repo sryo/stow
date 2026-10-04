@@ -64,10 +64,13 @@ final class TablineController {
 
     var onOpenLink: ((Link) -> Void)?
     var onSelectWorkspace: ((UUID) -> Void)?
-    var onStowURL: ((URL, String) -> Void)?
+    /// Stows the ghost tab; the result says whether it was new or already saved.
+    var onStowURL: ((URL, String) -> AppModel.StowResult?)?
     var onToggleTask: ((UUID) -> Void)?
     /// When nil, clicking a snippet copies its content to the general pasteboard.
     var onCopySnippet: ((Snippet) -> Void)?
+    /// A group's "Open all". When nil, each of its links opens through `onOpenLink`.
+    var onOpenFolder: ((Folder) -> Void)?
     /// Nudge a screen-height browser window down to make the band under the menu bar.
     var makesRoomForBand = true
 
@@ -88,8 +91,12 @@ final class TablineController {
     private var monitorSubscriptions: Set<AnyCancellable> = []
     private(set) var content = TablineContent(workspaceId: nil, name: "", colorId: .defaultColor(), nodes: [], workspaces: [])
     private var entries: [TablineEntry] = []
-    private var pocketTasks: [TaskItem] = []
-    private var pocketSnippets: [Snippet] = []
+    private var pocket = Pocket.Contents()
+    /// The group, overflow, pocket and workspace lists, below the strip.
+    private let flyout = FlyoutListPresenter(takesKey: false)
+    private var outsideClickMonitor: Any?
+
+    private enum OpenList: Hashable { case chip, group(UUID), overflow, pocket }
 
     private let monitor = OpenTabsMonitor.shared
     private var lastFrontBundleId: String?
@@ -98,7 +105,6 @@ final class TablineController {
     private var dock: Dock = .above
     private var lipFrame: NSRect = .zero
     private var peekFrame: NSRect = .zero
-    private var isMenuOpen = false
 
     private struct Nudge {
         let window: AXUIElement
@@ -259,6 +265,7 @@ final class TablineController {
         panel.isOpaque = false
         panel.hasShadow = true
         strip.onActivate = { kind, rect in TablineController.shared.activate(kind, rect: rect) }
+        wireFlyout()
         panel.contentView = strip
         self.panel = panel
     }
@@ -271,50 +278,16 @@ final class TablineController {
         let ws = model.activeWorkspace
         content = TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
                                  workspaces: model.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
-        let nodes = Self.unarchived(content.nodes)
-        entries = nodes.compactMap { node in
+        entries = content.nodes.unarchived().compactMap { node in
             switch node {
             case .link(let link): return .link(link)
-            case .folder(let folder): return .group(folder, links: Self.links(in: folder.children))
+            case .folder(let folder): return .group(folder, links: folder.children.flattenLinks())
             case .task, .snippet: return nil
             }
         }
-        pocketTasks = []
-        pocketSnippets = []
-        Self.collectPocket(nodes, tasks: &pocketTasks, snippets: &pocketSnippets)
+        pocket = Pocket.collect(content.nodes)
         refreshStrip()
-    }
-
-    private static func unarchived(_ nodes: [Node]) -> [Node] {
-        nodes.compactMap { node in
-            guard !node.isArchived else { return nil }
-            if case .folder(var folder) = node {
-                folder.children = unarchived(folder.children)
-                return .folder(folder)
-            }
-            return node
-        }
-    }
-
-    private static func links(in nodes: [Node]) -> [Link] {
-        nodes.flatMap { node -> [Link] in
-            switch node {
-            case .link(let link): return [link]
-            case .folder(let folder): return links(in: folder.children)
-            case .task, .snippet: return []
-            }
-        }
-    }
-
-    private static func collectPocket(_ nodes: [Node], tasks: inout [TaskItem], snippets: inout [Snippet]) {
-        for node in nodes {
-            switch node {
-            case .task(let task): tasks.append(task)
-            case .snippet(let snippet): snippets.append(snippet)
-            case .folder(let folder): collectPocket(folder.children, tasks: &tasks, snippets: &snippets)
-            case .link: break
-            }
-        }
+        refreshOpenList()
     }
 
     /// Recomputes raised, live and ghost from the latest browser state and redraws.
@@ -323,7 +296,7 @@ final class TablineController {
         model.name = content.name
         model.colorId = content.colorId
         model.entries = entries
-        model.pocketCount = pocketTasks.count + pocketSnippets.count
+        model.pocketCount = pocket.count
 
         model.liveIndices = Self.liveIndices(entries: entries, openKeys: monitor.openKeys)
         if let page = monitor.frontPage, page.bundleId == lastFrontBundleId {
@@ -374,144 +347,176 @@ final class TablineController {
         return best?.index
     }
 
-    // MARK: - Clicks and menus
+    // MARK: - Clicks and flyouts
 
     private func activate(_ kind: TablineStripView.Kind, rect: NSRect) {
         switch kind {
-        case .chip: popUp(workspaceMenu(), under: rect)
+        case .chip: showList(.chip, under: rect)
         case .tab(let i):
+            flyout.closeAll()
             if case .link(let link) = entries[i] { onOpenLink?(link) }
         case .group(let i):
-            if case .group(let folder, _) = entries[i] { popUp(folderMenu(folder), under: rect) }
+            if case .group(let folder, _) = entries[i] { showList(.group(folder.id), under: rect) }
         case .ghost:
+            flyout.closeAll()
             guard let ghost = strip.model.ghost else { return }
-            onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title)
-        case .overflow: popUp(overflowMenu(), under: rect)
-        case .pocket: popUp(pocketMenu(), under: rect, alignRight: true)
+            let result = onStowURL?(ghost.url, ghost.title.isEmpty ? ghost.host : ghost.title)
+            if let message = result.flatMap(stowMessage) { showToast(message, duration: Toast.briefDuration * 2) }
+        case .overflow: showList(.overflow, under: rect)
+        case .pocket: showList(.pocket, under: rect)
         }
     }
 
-    private func popUp(_ menu: NSMenu, under rect: NSRect, alignRight: Bool = false) {
-        menu.appearance = strip.effectiveAppearance
-        isMenuOpen = true
-        let x = alignRight ? rect.maxX - menu.size.width : rect.minX
-        menu.popUp(positioning: nil, at: NSPoint(x: x, y: rect.maxY + 6), in: strip)
-        isMenuOpen = false
+    /// "Stowed in Research" or "Already in Research", for the toast under the strip.
+    private func stowMessage(_ result: AppModel.StowResult) -> String? {
+        switch result {
+        case .added:
+            return "Stowed in \(content.name)"
+        case .alreadyPresent(let id):
+            let name = model?.workspaces.first { $0.items.flattenIds().contains(id) }?.name ?? content.name
+            return "Already in \(name)"
+        }
     }
 
-    private func item(_ title: String, image: NSImage? = nil, key: String = "", action: @escaping () -> Void) -> NSMenuItem {
-        let item = TablineMenuItem(title: title, action: #selector(TablineMenuItem.fire), keyEquivalent: key)
-        item.target = item
-        item.handler = action
-        item.image = image
-        return item
+    /// The toast floats under the strip, since Stow's own window may be hidden.
+    private func showToast(_ message: String, duration: TimeInterval = Toast.briefDuration) {
+        Toast.show(message, in: panel, duration: duration, placement: .below)
     }
 
-    private func workspaceMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(.sectionHeader(title: "Workspaces"))
-        let list = content.workspaces.isEmpty
-            ? [TablineContent.WorkspaceEntry(id: content.workspaceId ?? UUID(), name: content.name, colorId: content.colorId)]
-            : content.workspaces
-        for (i, ws) in list.enumerated() {
-            let id = ws.id
-            let entry = item(ws.name, image: Self.dot(ws.colorId), key: i < 9 ? "\(i + 1)" : "") {
-                TablineController.shared.onSelectWorkspace?(id)
+    /// Opens the list for a strip item below it, or closes it when it's already open.
+    private func showList(_ id: OpenList, under rect: NSRect) {
+        guard let panel, let content = listContent(for: id) else { return }
+        flyout.toggle(id: id) {
+            let list = FlyoutListView(title: content.title, detail: content.detail, sections: content.sections,
+                                      footer: content.footer)
+            let anchor = panel.convertToScreen(strip.convert(rect, to: nil))
+            // The Tabline never takes focus from the browser: its lists are for the pointer.
+            flyout.show(list, id: id, anchor: anchor, edge: .below, topInset: 0, parent: panel, takeKeyboard: false)
+            installOutsideClickMonitor()
+        }
+    }
+
+    private struct ListContent {
+        var title: String
+        var detail: String?
+        var sections: [FlyoutListSection]
+        var footer: [FlyoutListView.FooterButton] = []
+    }
+
+    private func listContent(for id: OpenList) -> ListContent? {
+        let openKeys = monitor.openKeys
+        switch id {
+        case .chip:
+            let list = content.workspaces.isEmpty
+                ? [TablineContent.WorkspaceEntry(id: content.workspaceId ?? UUID(), name: content.name, colorId: content.colorId)]
+                : content.workspaces
+            let rows = FlyoutListModel.rows(forWorkspaces: list.map { ($0.id, $0.name, $0.colorId) },
+                                            current: content.workspaceId ?? list.first?.id,
+                                            shortcut: { WorkspaceShortcut.label(position: $0) })
+            return ListContent(title: "Workspaces", detail: nil, sections: [FlyoutListSection(title: nil, rows: rows)])
+        case .group(let folderId):
+            guard let folder = entries.lazy.compactMap({ entry -> Folder? in
+                if case .group(let f, _) = entry, f.id == folderId { return f }
+                return nil
+            }).first else { return nil }
+            let rows = FlyoutListModel.rows(for: folder, openKeys: openKeys)
+            let openAll = FlyoutListView.FooterButton(title: "Open all  ⌥↩", style: .primary) {
+                TablineController.shared.openAll(folder)
+                TablineController.shared.flyout.closeAll()
             }
-            entry.keyEquivalentModifierMask = .command
-            entry.state = ws.id == content.workspaceId || (content.workspaceId == nil && i == 0) ? .on : .off
-            menu.addItem(entry)
-        }
-        return menu
-    }
-
-    private static func dot(_ colorId: WorkspaceColorId) -> NSImage {
-        NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
-            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-            colorId.color.setFill()
-            circle.fill()
-            NSColor.black.withAlphaComponent(0.25).setStroke()
-            circle.lineWidth = 0.5
-            circle.stroke()
-            return true
-        }
-    }
-
-    private func linkItem(_ link: Link) -> NSMenuItem {
-        item(link.title, image: TablineGlyph.menuImage(title: link.title, url: link.url, faviconPath: link.faviconPath)) {
-            TablineController.shared.onOpenLink?(link)
-        }
-    }
-
-    private func folderMenu(_ folder: Folder) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(.sectionHeader(title: folder.name))
-        addNodes(folder.children, to: menu)
-        return menu
-    }
-
-    private func addNodes(_ nodes: [Node], to menu: NSMenu) {
-        for node in nodes {
-            switch node {
-            case .link(let link): menu.addItem(linkItem(link))
-            case .folder(let sub):
-                let parent = NSMenuItem(title: sub.name, action: nil, keyEquivalent: "")
-                parent.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-                let submenu = NSMenu()
-                submenu.autoenablesItems = false
-                addNodes(sub.children, to: submenu)
-                parent.submenu = submenu
-                menu.addItem(parent)
-            case .task, .snippet: break
+            return ListContent(title: folder.name, detail: "\(rows.count)", sections: [FlyoutListSection(title: nil, rows: rows)],
+                               footer: folder.children.flattenLinks().isEmpty ? [] : [openAll])
+        case .overflow:
+            let nodes: [Node] = strip.hiddenEntryIndices.filter(entries.indices.contains).map { i in
+                switch entries[i] {
+                case .link(let link): return .link(link)
+                case .group(let folder, _): return .folder(folder)
+                }
             }
+            guard !nodes.isEmpty else { return nil }
+            let rows = FlyoutListModel.rows(for: nodes, openKeys: openKeys)
+            return ListContent(title: content.name, detail: "\(rows.count) more", sections: [FlyoutListSection(title: nil, rows: rows)])
+        case .pocket:
+            guard !pocket.isEmpty else { return nil }
+            return ListContent(title: "Pocket", detail: content.name, sections: Self.pocketSections(pocket))
         }
     }
 
-    private func overflowMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for i in strip.hiddenEntryIndices where entries.indices.contains(i) {
-            switch entries[i] {
-            case .link(let link): menu.addItem(linkItem(link))
-            case .group(let folder, _):
-                let parent = NSMenuItem(title: folder.name, action: nil, keyEquivalent: "")
-                parent.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-                let submenu = NSMenu()
-                addNodes(folder.children, to: submenu)
-                parent.submenu = submenu
-                menu.addItem(parent)
+    /// Tasks, then snippets. The Tabline has no task or snippet editor, so rows carry no
+    /// trailing buttons and there's no "New task".
+    static func pocketSections(_ pocket: Pocket.Contents) -> [FlyoutListSection] {
+        func plain(_ rows: [FlyoutListRow]) -> [FlyoutListRow] {
+            rows.map { row in
+                var row = row
+                row.secondary = nil
+                row.hoverTrailing = nil
+                return row
             }
         }
-        return menu
+        var sections: [FlyoutListSection] = []
+        if !pocket.tasks.isEmpty {
+            sections.append(FlyoutListSection(title: nil, rows: plain(FlyoutListModel.rows(for: pocket.tasks, newTask: false))))
+        }
+        if !pocket.snippets.isEmpty {
+            sections.append(FlyoutListSection(title: pocket.tasks.isEmpty ? nil : "Snippets",
+                                              rows: plain(FlyoutListModel.rows(for: pocket.snippets))))
+        }
+        return sections
     }
 
-    private func pocketMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(.sectionHeader(title: "Pocket · \(content.name)"))
-        for task in pocketTasks {
-            let id = task.id
-            let entry = item(task.title) { TablineController.shared.onToggleTask?(id) }
-            entry.state = task.isCompleted ? .on : .off
-            menu.addItem(entry)
+    /// Re-reads the open list after the model changed: a task toggled in the pocket.
+    private func refreshOpenList() {
+        guard let id = flyout.rootId as? OpenList else { return }
+        guard let content = listContent(for: id) else { flyout.closeAll(); return }
+        flyout.refreshRoot(title: content.title, detail: content.detail, sections: content.sections)
+    }
+
+    private func openAll(_ folder: Folder) {
+        if let onOpenFolder {
+            onOpenFolder(folder)
+        } else {
+            folder.children.unarchived().flattenLinks().forEach { onOpenLink?($0) }
         }
-        if !pocketTasks.isEmpty && !pocketSnippets.isEmpty { menu.addItem(.separator()) }
-        for snippet in pocketSnippets {
-            let image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: nil)
-            let entry = item(snippet.title, image: image) {
-                if let copy = TablineController.shared.onCopySnippet {
+    }
+
+    private func wireFlyout() {
+        flyout.onOpenAll = { folder in TablineController.shared.openAll(folder) }
+        flyout.onClose = { TablineController.shared.removeOutsideClickMonitor() }
+        flyout.onAction = { action, _, _ in
+            let controller = TablineController.shared
+            switch action {
+            case .openLink(let id):
+                if let link = controller.content.nodes.flattenLinks().first(where: { $0.id == id }) { controller.onOpenLink?(link) }
+            case .toggleTask(let id):
+                controller.onToggleTask?(id)
+            case .copySnippet(let id):
+                guard let snippet = controller.pocket.snippets.first(where: { $0.id == id }) else { return }
+                if let copy = controller.onCopySnippet {
                     copy(snippet)
                 } else {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(snippet.content, forType: .string)
                 }
+                controller.showToast("Copied")
+            case .selectWorkspace(let id):
+                controller.onSelectWorkspace?(id)
+            case .pushFolder, .newTask, .setDueDate, .editSnippet:
+                break
             }
-            entry.toolTip = "Copy"
-            menu.addItem(entry)
         }
-        return menu
+    }
+
+    /// Clicks in the browser below never reach Stow's local monitor; close on those too.
+    private func installOutsideClickMonitor() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+            MainActor.assumeIsolated { TablineController.shared.flyout.closeAll() }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
     }
 
     // MARK: - Tracking the front browser window
@@ -614,7 +619,7 @@ final class TablineController {
     }
 
     private func checkLipHover() {
-        guard !isMenuOpen, lipFrame != .zero else { return }
+        guard !flyout.isOpen, lipFrame != .zero else { return }
         let mouse = NSEvent.mouseLocation
         switch dock {
         case .lip:
@@ -718,10 +723,4 @@ final class TablineController {
         }
         nudges.removeAll()
     }
-}
-
-/// An NSMenuItem that runs a closure.
-private final class TablineMenuItem: NSMenuItem {
-    var handler: (() -> Void)?
-    @objc func fire() { handler?() }
 }

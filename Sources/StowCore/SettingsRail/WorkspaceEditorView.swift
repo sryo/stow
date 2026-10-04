@@ -322,16 +322,14 @@ private final class SwatchButton: FlyoutControl {
 
     override func draw(_ dirtyRect: NSRect) {
         let dot = NSRect(x: bounds.midX - 10, y: bounds.midY - 10, width: 20, height: 20)
-        if isOn || isFocused {
-            (isFocused ? SettingsColors.accent : FlyoutColors.ink).setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -3.5, dy: -3.5)).fill()
-            FlyoutColors.background.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -2, dy: -2)).fill()
-        }
+        let style: WorkspaceDot.Style = isOn || isFocused
+            ? .ringed(ring: isFocused ? SettingsColors.accent : FlyoutColors.ink, gap: FlyoutColors.background)
+            : .plain
         if let colorId {
-            colorId.color.setFill()
-            NSBezierPath(ovalIn: dot).fill()
-        } else {
+            WorkspaceDot.draw(in: dot, color: colorId.color, style: style)
+            return
+        }
+        WorkspaceDot.draw(in: dot, style: style) { dot in
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(ovalIn: dot).addClip()
             for i in 0..<36 {
@@ -345,10 +343,6 @@ private final class SwatchButton: FlyoutControl {
             }
             NSGraphicsContext.restoreGraphicsState()
         }
-        NSColor(white: 0, alpha: 0.15).setStroke()
-        let edge = NSBezierPath(ovalIn: dot.insetBy(dx: 0.5, dy: 0.5))
-        edge.lineWidth = 1
-        edge.stroke()
     }
 }
 

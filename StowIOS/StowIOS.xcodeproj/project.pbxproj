@@ -12,6 +12,7 @@
 		A1000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003 /* ContentView.swift */; };
 		A1000004 /* WorkspaceSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* WorkspaceSidebarView.swift */; };
 		A1000006 /* WorkspaceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* WorkspaceRow.swift */; };
+		C12D0001 /* WorkspaceDotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12D0002 /* WorkspaceDotView.swift */; };
 		A1000007 /* NodeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* NodeListView.swift */; };
 		A1000008 /* WorkspacePageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* WorkspacePageView.swift */; };
 		A1000009 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D1000001 /* StowShared */; };
@@ -113,6 +114,7 @@
 		B1000003 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B1000004 /* WorkspaceSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarView.swift; sourceTree = "<group>"; };
 		B1000006 /* WorkspaceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRow.swift; sourceTree = "<group>"; };
+		C12D0002 /* WorkspaceDotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDotView.swift; sourceTree = "<group>"; };
 		B1000007 /* NodeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeListView.swift; sourceTree = "<group>"; };
 		B1000008 /* WorkspacePageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePageView.swift; sourceTree = "<group>"; };
 		B1000010 /* NodeRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRowView.swift; sourceTree = "<group>"; };
@@ -244,6 +246,7 @@
 				B1000003 /* ContentView.swift */,
 				B1000004 /* WorkspaceSidebarView.swift */,
 				B1000006 /* WorkspaceRow.swift */,
+				C12D0002 /* WorkspaceDotView.swift */,
 				B1000007 /* NodeListView.swift */,
 				B1000010 /* NodeRowView.swift */,
 				B1000011 /* AddItemView.swift */,
@@ -540,6 +543,7 @@
 				A1000003 /* ContentView.swift in Sources */,
 				A1000004 /* WorkspaceSidebarView.swift in Sources */,
 				A1000006 /* WorkspaceRow.swift in Sources */,
+				C12D0001 /* WorkspaceDotView.swift in Sources */,
 				A1000007 /* NodeListView.swift in Sources */,
 				A1000010 /* NodeRowView.swift in Sources */,
 				A1000011 /* AddItemView.swift in Sources */,
