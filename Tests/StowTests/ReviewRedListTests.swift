@@ -51,6 +51,37 @@ final class ReviewRedListTests: XCTestCase {
                        "modes-3: handlePendingInlineRename and beginInlineRename only accept NodeCollectionViewItem, never NodeTileItem")
     }
 
+    // MARK: modes-7
+
+    private func key(_ code: UInt16) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                         context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+    }
+
+    func testDownArrowInTheMosaicMovesToTheTileBelow() {
+        let ids = (0..<8).map { model.addLink(urlString: "https://site\($0).example", title: "Site \($0)", parentId: nil) }
+        harness.host(width: 900)
+        let list = harness.nodeList
+        XCTAssertEqual(list.elasticMode, .mosaic, "precondition: 900pt is mosaic")
+        guard let collection = list.view.descendants(of: NSCollectionView.self).first else { return XCTFail("no collection view") }
+        func frame(of id: UUID) -> NSRect? {
+            (0..<collection.numberOfItems(inSection: 0)).first { list.visibleNode(at: $0)?.id == id }
+                .flatMap { collection.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))?.frame }
+        }
+        var activated: UUID?
+        list.onNodeSelected = { activated = $0 }
+        _ = list.handleListKey(key(125)) // reveals the cursor on the first tile
+        let start = list.visibleNode(at: (0..<20).first { list.visibleNode(at: $0) != nil } ?? 0)?.id
+        _ = list.handleListKey(key(125))
+        _ = list.handleListKey(key(36))
+        guard let start, let activated, let from = frame(of: start), let to = frame(of: activated) else {
+            return XCTFail("nothing activated")
+        }
+        XCTAssertGreaterThan(Set(ids.compactMap { frame(of: $0)?.minY }).count, 1, "precondition: the tiles wrap onto more than one line")
+        XCTAssertGreaterThan(abs(to.minY - from.minY), 1,
+                             "modes-7: ↓ in the mosaic steps to the next tile in list order (same line, \(from.minX)→\(to.minX)), not the tile below")
+    }
+
     // MARK: modes-5
 
     func testJumpModeIsNotTurnedOnForTheHiddenListInTheRail() {
