@@ -27,6 +27,8 @@ final class MainViewController: NSViewController {
     private var lastShownWorkspaceId: UUID?
     /// Released in rail so the hidden list's minimum width can't hold the window wider than the rail.
     private var contentStackTrailing: NSLayoutConstraint!
+    /// The page content was hidden because the rail took over; leaving the rail shows it again.
+    private var contentHiddenByRail = false
     private var elasticMode: ElasticMode = .sidebar
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
     /// so its constraints are switched off whenever Settings isn't showing.
@@ -988,13 +990,16 @@ final class MainViewController: NSViewController {
         let page: RailPage = rail ? (onSettings ? .settings : .workspace) : .none
         topBar.isHidden = rail
         contentStackTrailing.isActive = !rail
+        // The rail only undoes its own hiding. Otherwise which page's content shows, mid-swipe
+        // included, belongs to showSettingsContent / showWorkspaceContent.
         if rail {
             contentStack.isHidden = true
             settingsViewController.view.isHidden = true
-        } else if onSettings {
-            settingsViewController.view.isHidden = false
-        } else {
-            contentStack.isHidden = false
+            contentHiddenByRail = true
+        } else if contentHiddenByRail {
+            contentHiddenByRail = false
+            settingsViewController.view.isHidden = !onSettings
+            contentStack.isHidden = onSettings
         }
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             view.window?.standardWindowButton(kind)?.isHidden = rail
