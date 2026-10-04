@@ -447,13 +447,51 @@ final class AppSheetFooterView: RailFlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// Whether the 30s "2 min ago" timer is running.
+    var isTicking: Bool { timer != nil }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let old = window {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: old)
+        }
+        if let newWindow {
+            NotificationCenter.default.addObserver(self, selector: #selector(visibilityChanged),
+                                                   name: NSWindow.didChangeOcclusionStateNotification, object: newWindow)
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateTimer()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateTimer()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateTimer()
+    }
+
+    @objc private func visibilityChanged() { updateTimer() }
+
+    /// "2 min ago" keeps counting only while the footer is on screen: a sheet ordered out
+    /// keeps its window, so the timer follows the window's visibility, not its presence.
+    func updateTimer() {
+        let visible = window?.isVisible == true && !isHiddenOrHasHiddenAncestor
+        guard visible != isTicking else { return }
         timer?.invalidate()
-        guard window != nil else { return }
-        // "2 min ago" keeps counting while the sheet is open.
+        timer = nil
+        guard visible else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // A tick after the window went away (no occlusion notice) stops it.
+                if self.window?.isVisible != true { self.updateTimer() } else { self.refresh() }
+            }
         }
         refresh()
     }

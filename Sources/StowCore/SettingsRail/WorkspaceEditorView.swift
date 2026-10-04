@@ -131,7 +131,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
             nameField.stringValue = content.name
         }
         nameField.ringColor = content.colorId.color.blended(withFraction: 0.3, of: FlyoutColors.ink) ?? FlyoutColors.ink
-        meta.stringValue = "\(content.itemCount) \(content.itemCount == 1 ? "item" : "items")" + (content.position <= 9 ? " · ⌃\(content.position)" : "")
+        meta.stringValue = "\(content.itemCount) \(content.itemCount == 1 ? "item" : "items")" + (WorkspaceShortcut.label(position: content.position).map { " · " + $0 } ?? "")
         for swatch in swatches {
             if let id = swatch.colorId { swatch.isOn = id == content.colorId } else if case .custom = content.colorId { swatch.isOn = true } else { swatch.isOn = false }
         }

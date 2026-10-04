@@ -106,3 +106,30 @@ enum AppMenus {
         return ((current + step) % count + count) % count
     }
 }
+
+/// The ⌘1–9 workspace shortcuts as the menu bar shows them, read from the Window menu so
+/// tips and VoiceOver can't drift from the real binding.
+@MainActor
+enum WorkspaceShortcut {
+    private static let builtMenu = AppMenus.build(target: nil)
+
+    /// "⌘1" for the first workspace; nil past the ninth, which has no shortcut.
+    static func label(position: Int) -> String? {
+        guard (1...9).contains(position) else { return nil }
+        let menus = [NSApp?.mainMenu, builtMenu].compactMap { $0 }
+        for menu in menus {
+            if let item = find(position, in: menu), !item.keyEquivalent.isEmpty {
+                return AllShortcuts.display(key: item.keyEquivalent, modifiers: item.keyEquivalentModifierMask)
+            }
+        }
+        return nil
+    }
+
+    private static func find(_ position: Int, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if let submenu = item.submenu, let hit = find(position, in: submenu) { return hit }
+            if item.action == #selector(AppMenuActions.switchToWorkspaceByTag(_:)), item.tag == position { return item }
+        }
+        return nil
+    }
+}

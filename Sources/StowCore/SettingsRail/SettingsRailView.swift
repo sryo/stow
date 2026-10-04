@@ -383,7 +383,7 @@ final class SettingsRailView: NSView {
 /// One workspace: its tile, the caption under it and, for the workspace you came from,
 /// a 4pt dot in the left margin.
 @MainActor
-private final class TileRowView: NSView {
+private final class TileRowView: RailFlippedView {
     weak var owner: SettingsRailView?
     private let tileView = WorkspaceTileView()
     private let caption = NSTextField(labelWithString: "")
@@ -406,8 +406,6 @@ private final class TileRowView: NSView {
 
     /// The 36pt tile within the row.
     var tileFrame: NSRect { NSRect(x: SettingsRailLayout.tileX, y: 0, width: 36, height: 36) }
-
-    override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 52, height: SettingsRailLayout.rowHeight))
@@ -697,6 +695,7 @@ final class RailGlyphButton: FocusableControl {
     }
 }
 
+/// The one flipped container for the rails, Settings and their flyouts.
 class RailFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
