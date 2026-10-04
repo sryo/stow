@@ -1,5 +1,6 @@
 import ActivityKit
 import Foundation
+import StowShared
 
 /// The Live Activity that keeps the current workspace in the Dynamic Island and on the
 /// Lock Screen. Compiled into both the app (which starts and updates it) and the widget
@@ -57,11 +58,9 @@ struct StowActivityAttributes: ActivityAttributes {
         return target
     }
 
-    /// One or two letters: the initials of the first two words, or the first letter of
-    /// a single-word name.
-    static func monogram(for name: String) -> String {
-        let words = name.split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "_" })
-        let letters = words.prefix(2).compactMap(\.first).map { String($0).uppercased() }
-        return letters.isEmpty ? "S" : letters.joined()
+    /// The workspace's letters, as the Mac draws them (`WorkspaceMonogram`). Pass every
+    /// workspace as `among` so colliding first letters resolve the same way.
+    static func monogram(for name: String, id: UUID = UUID(), among workspaces: [(id: UUID, name: String)] = []) -> String {
+        WorkspaceMonogram.resolve(id, name: name, among: workspaces)
     }
 }

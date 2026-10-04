@@ -24,12 +24,24 @@ final class RailView: NSView {
     var onReorder: ((UUID, Int) -> Void)?
     /// A link or folder dropped on another workspace's dot.
     var onMoveToWorkspace: ((UUID, UUID) -> Void)?
+    /// A workspace dot right-clicked: its id and the dot. Falls back to `onWorkspaceMenu`.
+    var onWorkspaceContextMenu: ((UUID, NSView) -> Void)?
+    /// Text dropped on the rail and the `AppModel` index it lands at. Not registered yet.
+    var onDropText: ((String, Int) -> Void)?
+    /// A snippet to edit, anchored to the rail view that asked.
+    var onEditSnippet: ((UUID, NSView) -> Void)?
+    /// A task whose due date to set, anchored to the rail view that asked.
+    var onSetDueDate: ((UUID, NSView) -> Void)?
+    var onNewTask: (() -> Void)?
+
+    /// The tips beside resting cells and dots. Hide them when a rail flyout opens.
+    let tips = RailTipController()
 
     private let gear = RailGlyphButton(glyph: .gear)
     private let separator = NSView()
     private var scrollTop: NSLayoutConstraint!
     private let scrollView = NSScrollView()
-    private let column = FlippedView()
+    private let column = RailFlippedView()
     private let fab = RailFabButton()
     private var dotButtons: [RailDotButton] = []
     private var cells: [RailCell] = []
@@ -62,6 +74,10 @@ final class RailView: NSView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = column
         addSubview(scrollView)
+        // Scrolling moves cells under a still pointer without any enter or exit.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
+                                               object: scrollView.contentView)
 
         fab.translatesAutoresizingMaskIntoConstraints = false
         fab.target = self
@@ -87,9 +103,11 @@ final class RailView: NSView {
 
     func configure(workspaces: [WorkspaceDot], selectedId: UUID?, colorId: WorkspaceColorId, items: [Node]) {
         colors = StowTheme.colors(for: colorId, tint: StowTheme.displayTint)
+        let pageChanged = currentWorkspaceId != selectedId
         currentWorkspaceId = selectedId
         itemIds = items.map(\.id)
         cancelDrag()
+        tips.hide()
 
         dotButtons.forEach { $0.removeFromSuperview() }
         dotButtons = workspaces.enumerated().map { i, ws in
@@ -97,13 +115,21 @@ final class RailView: NSView {
             b.workspaceId = ws.id
             b.fill = ws.color
             b.isCurrent = ws.id == selectedId
-            b.toolTip = i < 9 ? "\(ws.name) · ⌃\(i + 1)" : ws.name
+            b.tip = RailTipController.Tip(title: ws.name, detail: WorkspaceShortcut.label(position: i + 1))
             b.setAccessibilityLabel(ws.name)
             b.target = self
             b.action = #selector(dotTapped(_:))
             b.onRightClick = { [weak self, weak b] in
                 guard let self, let b else { return }
-                self.onWorkspaceMenu?(b)
+                if let id = b.workspaceId, let menu = self.onWorkspaceContextMenu {
+                    menu(id, b)
+                } else {
+                    self.onWorkspaceMenu?(b)
+                }
+            }
+            b.onHover = { [weak self, weak b] inside in
+                guard let self, let b, let tip = b.tip else { return }
+                self.tips.hover(b.tipId, view: b, tip: tip, inside: inside)
             }
             addSubview(b)
             return b
@@ -114,6 +140,25 @@ final class RailView: NSView {
         rebuildCells(items: items)
         applyColors()
         applyOpenState()
+        // ⌘1/⌘2 from a Tab-focused gear would otherwise carry its ring onto the next page.
+        if pageChanged, let window, window.firstResponder === gear { window.makeFirstResponder(nil) }
+        refreshHover()
+    }
+
+    /// The rail cell showing a top-level link or folder, for anchoring a flyout to it.
+    func cellView(for nodeId: UUID) -> NSView? {
+        cells.first { $0.node?.id == nodeId }
+    }
+
+    /// Re-reads which cell and dot sit under the pointer, after something moved them.
+    func refreshHover() {
+        cells.forEach { $0.refreshHoverState() }
+        dotButtons.forEach { $0.refreshHover() }
+    }
+
+    @objc private func scrolled() {
+        tips.hide()
+        refreshHover()
     }
 
     // MARK: - Swiping
@@ -193,6 +238,10 @@ final class RailView: NSView {
                 guard let self, let cell else { return }
                 self.handleDrag(cell, phase: phase, windowPoint: windowPoint)
             }
+            cell.onHover = { [weak self, weak cell] inside in
+                guard let self, let cell else { return }
+                self.tips.hover(cell.tipId, view: cell, tip: cell.tip, inside: inside)
+            }
             column.addSubview(cell)
             y += 40
         }
@@ -257,6 +306,7 @@ final class RailView: NSView {
         let point = convert(windowPoint, from: nil)
         switch phase {
         case .began:
+            tips.hide()
             beginDrag(cell)
             moveDrag(cell, to: point)
         case .moved:
@@ -454,13 +504,11 @@ private final class PassThroughImageView: NSImageView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 // MARK: - Workspace dot
 
 /// 12pt workspace dot. The current one gets a gap ring and an ink ring around it.
+/// It stays an NSButton (not BaseControl) so it keeps the button role and click handling
+/// VoiceOver and `toolTip` readers expect; its tip shows through RailTipController.
 private final class RailDotButton: NSButton {
     var workspaceId: UUID?
     var fill: NSColor = .gray { didSet { needsDisplay = true } }
@@ -471,7 +519,22 @@ private final class RailDotButton: NSButton {
     var onRightClick: (() -> Void)?
     /// A dragged item is over this dot: it swells, like the mockup's drop state.
     var isDropTarget = false { didSet { needsDisplay = true } }
-    private var isHovered = false { didSet { needsDisplay = true } }
+    private var isHovered = false {
+        didSet {
+            needsDisplay = true
+            if isHovered != oldValue { onHover?(isHovered) }
+        }
+    }
+    var onHover: ((Bool) -> Void)?
+    /// The name and shortcut shown beside the dot after a dwell.
+    var tip: RailTipController.Tip?
+    let tipId = UUID()
+
+    /// The tip's text. The system tooltip stays off: RailTipController shows the tip.
+    override var toolTip: String? {
+        get { tip?.text }
+        set {}
+    }
 
     /// The 12pt dot itself, centered in the button.
     var dotRect: NSRect { NSRect(x: bounds.midX - 6, y: bounds.midY - 6, width: 12, height: 12) }
@@ -498,6 +561,11 @@ private final class RailDotButton: NSButton {
     override func mouseExited(with event: NSEvent) { isHovered = false }
     override func rightMouseDown(with event: NSEvent) { onRightClick?() }
 
+    func refreshHover() {
+        guard let window else { isHovered = false; return }
+        isHovered = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let d: CGFloat = isDropTarget ? 18 : (isHovered ? 15 : 12)
         let dot = NSRect(x: bounds.midX - d / 2, y: bounds.midY - d / 2, width: d, height: d)
@@ -518,7 +586,7 @@ private final class RailDotButton: NSButton {
 
 // MARK: - Cell
 
-final class RailCell: NSView {
+final class RailCell: BaseView {
     enum Kind {
         case link(Link, letters: String)
         case folder(Folder)
@@ -533,11 +601,12 @@ final class RailCell: NSView {
     var onRightClick: (() -> Void)?
     /// Drag phases with the pointer in window coordinates; only links and folders drag.
     var onDrag: ((DragPhase, NSPoint) -> Void)?
+    /// The pointer entered (true) or left; the rail shows `tip` after a dwell.
+    var onHover: ((Bool) -> Void)?
+    private(set) var tip = RailTipController.Tip(title: "")
+    let tipId = UUID()
     private var mouseDownPoint: NSPoint?
     private var isDragging = false
-
-    // The window moves by its background; a cell press must drag the cell instead.
-    override var mouseDownCanMoveWindow: Bool { false }
 
     func snapshot() -> NSImage {
         let image = NSImage(size: bounds.size)
@@ -564,7 +633,6 @@ final class RailCell: NSView {
     private let openDot = NSView()
     private let badge = RailBadge()
     private var colors = StowTheme.colors(for: .defaultColor())
-    private var isHovered = false { didSet { updateBackground() } }
 
     var node: Node? {
         switch kind {
@@ -617,7 +685,7 @@ final class RailCell: NSView {
 
         switch kind {
         case .link(let link, let letters):
-            toolTip = "\(link.title)\n\(link.displayDomain ?? link.url)"
+            tip = .init(title: link.title, detail: link.displayDomain ?? link.url)
             baseAccessibilityLabel = [link.title, "link", link.displayDomain].compactMap { $0 }.joined(separator: ", ")
             if let image = SiteGlyph.favicon(link.faviconPath) {
                 iconLayer.contents = image
@@ -627,19 +695,19 @@ final class RailCell: NSView {
                 letterLabel.isHidden = false
             }
         case .folder(let folder):
-            toolTip = "\(folder.name) · \(folder.children.count)"
+            tip = .init(title: folder.name, detail: "\(folder.children.count) \(folder.children.count == 1 ? "item" : "items")")
             baseAccessibilityLabel = "\(folder.name), folder, \(folder.children.count) items"
             iconLayer.isHidden = true
             buildMosaic(folder)
         case .tasks(let tasks):
             let open = tasks.filter { !$0.isCompleted }.count
-            toolTip = "Tasks · \(open) open"
+            tip = .init(title: "Tasks", detail: "\(open) open")
             baseAccessibilityLabel = "Tasks, \(open) open"
             iconLayer.isHidden = true
             setGlyph("checklist")
             setBadge(open > 0 ? open : tasks.count)
         case .snippets(let snippets):
-            toolTip = "Snippets · \(snippets.count)"
+            tip = .init(title: "Snippets", detail: "\(snippets.count)")
             baseAccessibilityLabel = "Snippets, \(snippets.count)"
             iconLayer.isHidden = true
             setGlyph("chevron.left.forwardslash.chevron.right")
@@ -704,14 +772,18 @@ final class RailCell: NSView {
         backgroundLayer.backgroundColor = isHovered ? resolvedCGColor(colors.hover) : NSColor.clear.cgColor
     }
 
+    // The rail hovers while the app is active, not only in the key window.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func handleHoverStateChanged() {
+        updateBackground()
+        onHover?(isHovered)
+    }
+
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = event.locationInWindow
         isDragging = false
@@ -768,21 +840,28 @@ final class RailCell: NSView {
 
 // MARK: - Fab
 
-private final class RailFabButton: NSButton {
+private final class RailFabButton: BaseControl {
     private var colors = StowTheme.colors(for: .defaultColor())
-    private var isHovered = false { didSet { updateLook() } }
+    private let glyph = NSImageView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        isBordered = false
-        wantsLayer = true
         layer?.cornerRadius = 15
-        image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?
+        glyph.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
-        imagePosition = .imageOnly
+        glyph.imageScaling = .scaleNone
+        glyph.autoresizingMask = [.width, .height]
+        addSubview(glyph)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        glyph.frame = bounds
+    }
 
     func apply(colors: StowTheme.Colors) {
         self.colors = colors
@@ -791,17 +870,21 @@ private final class RailFabButton: NSButton {
 
     private func updateLook() {
         layer?.backgroundColor = resolvedCGColor(isHovered ? colors.inkPrimary : colors.hover)
-        contentTintColor = isHovered ? colors.surface : colors.inkPrimary
+        glyph.contentTintColor = isHovered ? colors.surface : colors.inkPrimary
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func handleHoverStateChanged() { updateLook() }
+
+    override func accessibilityPerformPress() -> Bool {
+        performAction()
+        return true
+    }
 }
 
 // MARK: - Badge

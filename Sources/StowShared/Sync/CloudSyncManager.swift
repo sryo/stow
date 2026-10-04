@@ -115,13 +115,57 @@ public final class CloudSyncManager {
             scheduleFullUpload()
         }
 
-        // Poll for changes periodically (covers environments without push notifications)
-        pollTimer?.invalidate()
+        // Poll for changes while the app is in front (covers environments without push
+        // notifications); hosts fetch once on each activation themselves.
+        pollsWhileActive = true
+        observeActivation()
+        appBecameActive()
+    }
+
+    // MARK: - Poll
+
+    private var pollsWhileActive = false
+    private var observesActivation = false
+
+    /// Whether the 30s poll is running: only while sync is on and the app is active.
+    var isPolling: Bool { pollTimer != nil }
+
+    private func observeActivation() {
+        guard !observesActivation else { return }
+        observesActivation = true
+        let center = NotificationCenter.default
+        #if os(macOS)
+        let active = Notification.Name("NSApplicationDidBecomeActiveNotification")
+        let resigned = Notification.Name("NSApplicationDidResignActiveNotification")
+        #else
+        let active = Notification.Name("UIApplicationDidBecomeActiveNotification")
+        let resigned = Notification.Name("UIApplicationWillResignActiveNotification")
+        #endif
+        center.addObserver(forName: active, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { CloudSyncManager.shared.appBecameActive() }
+        }
+        center.addObserver(forName: resigned, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { CloudSyncManager.shared.appResignedActive() }
+        }
+    }
+
+    func appBecameActive() {
+        guard pollsWhileActive, pollTimer == nil else { return }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.fetchChanges()
             }
         }
+    }
+
+    func appResignedActive() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    func setPollsWhileActiveForTesting(_ polls: Bool) {
+        pollsWhileActive = polls
+        if !polls { appResignedActive() }
     }
 
     // MARK: - Fetch

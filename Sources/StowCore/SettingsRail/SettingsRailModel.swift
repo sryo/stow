@@ -441,7 +441,7 @@ enum WorkspaceTileIdentity: Equatable {
 
     static func resolve(_ workspaces: [Workspace]) -> [UUID: WorkspaceTileIdentity] {
         var result: [UUID: WorkspaceTileIdentity] = [:]
-        var letterItems: [WorkspaceStripLayout.Item] = []
+        var letterItems: [(id: UUID, name: String)] = []
         for workspace in workspaces {
             switch workspace.icon {
             case .symbol(let name):
@@ -449,17 +449,16 @@ enum WorkspaceTileIdentity: Equatable {
             case .favicons:
                 let links = WorkspaceIconSites.pick(from: workspace.items)
                 if links.isEmpty {
-                    letterItems.append(.init(id: workspace.id, name: workspace.name))
+                    letterItems.append((workspace.id, workspace.name))
                 } else {
                     result[workspace.id] = .mosaic(links)
                 }
             case .letter:
-                letterItems.append(.init(id: workspace.id, name: workspace.name))
+                letterItems.append((workspace.id, workspace.name))
             }
         }
         // Letters only need to differ from the other letter tiles.
-        WorkspaceStripLayout.assignMonograms(&letterItems)
-        for item in letterItems { result[item.id] = .letter(item.monogram) }
+        for (id, letters) in WorkspaceMonogram.assign(letterItems) { result[id] = .letter(letters) }
         return result
     }
 }

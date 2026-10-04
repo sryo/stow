@@ -133,7 +133,7 @@ final class WorkspaceRowView: BaseView {
 
         iconView.colorId = content.colorId
         iconView.identity = content.identity ?? (content.iconLinks.isEmpty
-            ? .letter(content.name.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
+            ? .letter(WorkspaceMonogram.resolve(name: content.name))
             : .mosaic(content.iconLinks))
 
         if let opensIn = content.opensIn {

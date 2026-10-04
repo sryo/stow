@@ -29,7 +29,7 @@ final class SettingsContentViewController: NSViewController {
     // MARK: Views
 
     private let scrollView = NSScrollView()
-    private let pageView = FlippedView()
+    private let pageView = RailFlippedView()
     private let workspacesHeader = FlyoutLabel.section("Workspaces")
     private let workspaceCollectionView = WorkspaceListCollectionView()
     private let workspaceDropIndicator = WorkspaceDropIndicatorView()
@@ -427,12 +427,6 @@ extension SettingsContentViewController: NSCollectionViewDelegate, NSCollectionV
 /// The workspace list. The rows take keyboard focus themselves, so the list doesn't.
 private final class WorkspaceListCollectionView: NSCollectionView {
     override var canBecomeKeyView: Bool { false }
-}
-
-// MARK: - Flipped view
-
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
 }
 
 // MARK: - Workspace drop indicator

@@ -7,7 +7,6 @@ import AppKit
 final class SettingsRailController: NSObject {
     let view = SettingsRailView()
     private let model: AppModel
-    private(set) var navigation = SettingsRailNavigation()
     /// Leave Settings for this workspace.
     var onLeave: ((UUID) -> Void)?
     /// Tint the rail with a workspace's page color, or nil for Settings' own.
@@ -20,13 +19,12 @@ final class SettingsRailController: NSObject {
     private let editorPanel = FlyoutPanel()
     private let sheetPanel = FlyoutPanel()
     private let shortcutsPanel = FlyoutPanel()
-    private let tipPanel = FlyoutPanel(takesKey: false)
     private let editor = WorkspaceEditorView()
     private let sheet = AppSheetView()
-    private let tip = TileTipView()
+    /// The tip beside a resting tile; its dwell also previews the tile's page color.
+    let tips = RailTipController()
     private(set) var editingId: UUID?
     private var isSheetOpen: Bool { flyouts.isOpen(id: FlyoutId.sheet) }
-    private lazy var dwell = HoverDwell(clock: MainQueueDwellClock())
     private var previewId: UUID?
     /// The workspace the color panel is recoloring, and the color it shows. The drag
     /// previews it; the library is written once, when the editor or the panel closes.
@@ -37,15 +35,11 @@ final class SettingsRailController: NSObject {
     init(model: AppModel) {
         self.model = model
         super.init()
-        tipPanel.showsArrow = false
-        tipPanel.cornerRadius = 9
-        tipPanel.ignoresMouseEvents = true
         flyouts.onOutsideClick = { [weak self] in self?.closeFlyouts() }
         wireView()
         wireEditor()
         wireSheet()
-        dwell.onPreview = { [weak self] id in self?.preview(id) }
-        NotificationCenter.default.addObserver(self, selector: #selector(appResigned), name: NSApplication.didResignActiveNotification, object: nil)
+        tips.onDwell = { [weak self] id in self?.preview(id) }
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .stowAppPreferencesChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .workspaceOpensInChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: .tablineSettingChanged, object: nil)
@@ -56,8 +50,15 @@ final class SettingsRailController: NSObject {
 
     // MARK: Entering and leaving
 
-    func didEnter(from workspaceId: UUID?) {
-        navigation.didEnterSettings(from: workspaceId)
+    /// Settings returns to AppModel's active workspace, which stays the one you came
+    /// from; there's no separate copy to keep in step. Kept for callers that announce entry.
+    func didEnter(from workspaceId: UUID?) {}
+
+    /// Where you came from, as the navigation rules see it.
+    var navigation: SettingsRailNavigation {
+        var navigation = SettingsRailNavigation()
+        if !model.workspaces.isEmpty { navigation.didEnterSettings(from: model.activeWorkspaceId) }
+        return navigation
     }
 
     var returnTarget: UUID? { navigation.returnTarget(in: model.workspaces.map(\.id)) }
@@ -66,9 +67,12 @@ final class SettingsRailController: NSObject {
     func willLeave() {
         closeFlyouts()
         releaseColorPanel()
-        dwell.reset()
-        hideTip()
+        tips.hide()
         previewId = nil
+        // A focused gear or tile would keep its ring while hidden (⌘1 leaves from the keyboard).
+        if let window = view.window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
+            window.makeFirstResponder(nil)
+        }
     }
 
     /// Esc: closes a flyout first, then leaves for the workspace you came from.
@@ -133,23 +137,28 @@ final class SettingsRailController: NSObject {
         return "\(name), \(detail(for: ws, position: position))"
     }
 
-    /// "18 items · Chrome · Work · ⌃1", as in the tip; the browser only when one is set.
+    /// "18 items · Chrome · Work · ⌘1", as in the tip; the browser only when one is set.
     func detail(for ws: Workspace, position: Int) -> String {
         let count = WorkspaceDeletion.itemCount(of: ws)
         var parts = ["\(count) \(count == 1 ? "item" : "items")"]
         if let choice = OpensInStore().choice(for: ws.id) { parts.append(OpensInMenu.display(choice).title) }
-        if position <= 9 { parts.append("⌃\(position)") }
+        if let shortcut = WorkspaceShortcut.label(position: position) { parts.append(shortcut) }
         return parts.joined(separator: " · ")
     }
 
     func editorContent(for ws: Workspace, identities: [UUID: WorkspaceTileIdentity]) -> WorkspaceEditorView.Content {
         let position = (model.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0) + 1
         let favicons = WorkspaceIconSites.pick(from: ws.items)
-        var letterItems = [WorkspaceStripLayout.Item(id: ws.id, name: ws.name)]
-        WorkspaceStripLayout.assignMonograms(&letterItems)
+        // The Letter choice previews what the tile would read among every workspace.
+        let asLetters = model.workspaces.map { other -> Workspace in
+            var other = other
+            if other.id == ws.id { other.icon = .letter }
+            return other
+        }
+        let letter = WorkspaceTileIdentity.resolve(asLetters)[ws.id] ?? .letter("?")
         let choice = OpensInStore().choice(for: ws.id)
         return .init(id: ws.id, name: ws.name, colorId: shownColor(of: ws), icon: ws.icon,
-                     favicons: .mosaic(favicons), letter: .letter(letterItems[0].monogram),
+                     favicons: .mosaic(favicons), letter: letter,
                      current: identities[ws.id] ?? .letter("?"),
                      itemCount: WorkspaceDeletion.itemCount(of: ws), position: position,
                      opensIn: OpensInMenu.display(choice),
@@ -180,13 +189,13 @@ final class SettingsRailController: NSObject {
         }
         view.onTileHover = { [weak self] id, inside in
             guard let self else { return }
-            if inside { self.dwell.pointerEntered(id) } else { self.dwell.pointerExited(id) }
+            if inside { self.tips.pointerEntered(id) } else { self.tips.pointerExited(id) }
         }
-        view.onTileFocus = { [weak self] id in self?.dwell.focusChanged(id) }
+        view.onTileFocus = { [weak self] id in self?.tips.focusChanged(id) }
         view.onDragBegan = { [weak self] in
             guard let self else { return }
             self.closeFlyouts()
-            self.dwell.reset()
+            self.tips.hide()
             self.preview(nil)
         }
         view.onReorder = { [weak self] id, index in
@@ -202,8 +211,11 @@ final class SettingsRailController: NSObject {
 
     private func createWorkspace() {
         let lastViewed = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
+        let cameFrom = returnTarget
         let id = model.createWorkspace(name: "", colorId: SettingsRailNewWorkspace.color(existing: model.workspaces.map(\.colorId)))
-        // Creating selects the new workspace; stay on Settings and keep where you came from.
+        // Creating selects the new workspace; stay on Settings and keep where you came from
+        // as the active workspace (the main view reloads once, after both steps).
+        if let cameFrom { model.selectWorkspace(id: cameFrom) }
         model.selectSettings()
         UserDefaults.standard.set(lastViewed, forKey: UserDefaultsKeys.lastSelectedWorkspaceId)
         reload()
@@ -236,14 +248,13 @@ final class SettingsRailController: NSObject {
     private func showTip(for ws: Workspace) {
         guard let window = view.window, let anchor = view.screenFrame(ofTile: ws.id) else { return }
         let position = (model.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0) + 1
-        tip.set(name: ws.name.isEmpty ? "Untitled" : ws.name, detail: detail(for: ws, position: position))
-        let size = tip.fittingSize
-        tipPanel.present(tip, size: size, anchor: anchor, edge: .beside(column: railScreenFrame()),
-                         topInset: anchor.height / 2 - 4, parent: window)
+        tips.show(.init(title: ws.name.isEmpty ? "Untitled" : ws.name, detail: detail(for: ws, position: position)),
+                  anchor: anchor, column: railScreenFrame(), parent: window)
     }
 
+    /// Hides the tip; the dwell keeps previewing the hovered tile's color.
     private func hideTip() {
-        if tipPanel.isVisible { tipPanel.dismiss() }
+        tips.hide(resettingDwell: false)
     }
 
     private func railScreenFrame() -> NSRect {
@@ -398,12 +409,14 @@ final class SettingsRailController: NSObject {
         hideTip()
         sheet.refresh()
         positionSheet()
+        sheet.footer.updateTimer()
         reload()
     }
 
     private func closeSheet() {
         guard isSheetOpen else { return }
         flyouts.close(id: FlyoutId.sheet)
+        sheet.footer.updateTimer()
         view.window?.makeKey()
         reload()
     }
@@ -469,41 +482,11 @@ final class SettingsRailController: NSObject {
         FlyoutDismissPolicy.clickCloses(inStack: inFlyout, inHost: inRail, isColorPanel: isColorPanel, windowClassName: windowClassName)
     }
 
-    @objc private func appResigned() {
-        hideTip()
-    }
+    /// Whether the Settings rail is on screen; sidebar mode and the workspace page hide it.
+    var isRailVisible: Bool { view.window != nil && !view.isHiddenOrHasHiddenAncestor }
 
     @objc private func preferencesChanged() {
+        guard isRailVisible else { return }
         reload()
     }
-}
-
-/// The tip beside a resting tile: the full name, then items, profile and shortcut.
-@MainActor
-private final class TileTipView: RailFlippedView {
-    private let name = FlyoutLabel.text("", size: 12.5, weight: .semibold)
-    private let detail = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
-
-    init() {
-        super.init(frame: .zero)
-        addSubview(name)
-        addSubview(detail)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func set(name: String, detail: String) {
-        self.name.stringValue = name
-        self.detail.stringValue = detail
-        // Labels inset their text 2pt each side; the tip's text sits 10pt in.
-        func width(_ label: NSTextField) -> CGFloat {
-            (label.stringValue as NSString).size(withAttributes: [.font: label.font as Any]).width + 6
-        }
-        let text = ceil(max(width(self.name), width(self.detail)))
-        frame.size = NSSize(width: text + 16, height: 6 + 16 + 14 + 6)
-        self.name.frame = NSRect(x: 8, y: 6, width: text, height: 16)
-        self.detail.frame = NSRect(x: 8, y: 22, width: text, height: 14)
-    }
-
-    override var fittingSize: NSSize { frame.size }
 }

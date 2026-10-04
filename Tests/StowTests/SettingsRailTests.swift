@@ -533,3 +533,151 @@ final class SettingsPageWidthTests: XCTestCase {
         XCTAssertEqual(SettingsContentViewController.contentColumn(width: 300), 0...300, "narrow pages use the full width")
     }
 }
+
+// MARK: - Rail identity, tips and timers (review wave 2B)
+
+@MainActor
+final class SettingsRailFollowThroughTests: XCTestCase {
+    private var tempDir: URL!
+    private var model: AppModel!
+
+    override func setUp() async throws {
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-rail2b-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        model = AppModel(store: DataStore(baseDirectory: tempDir))
+    }
+
+    override func tearDown() async throws {
+        model = nil
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    func testWorkspaceShortcutLabelsReadTheWindowMenu() {
+        XCTAssertEqual(WorkspaceShortcut.label(position: 1), "⌘1")
+        XCTAssertEqual(WorkspaceShortcut.label(position: 9), "⌘9")
+        XCTAssertNil(WorkspaceShortcut.label(position: 10), "past nine there's no shortcut")
+    }
+
+    func testReturnTargetIsTheModelsActiveWorkspace() {
+        let first = model.currentWorkspace.id
+        let second = model.createWorkspace(name: "Second", colorId: .ocean)
+        model.selectWorkspace(id: second)
+        model.selectSettings()
+        let controller = SettingsRailController(model: model)
+        controller.didEnter(from: first)
+        XCTAssertEqual(controller.returnTarget, model.activeWorkspaceId)
+        XCTAssertEqual(controller.returnTarget, second, "B1: Settings goes back to AppModel's active workspace")
+    }
+
+    func testCreatingAWorkspaceFromSettingsKeepsWhereYouCameFrom() {
+        let first = model.currentWorkspace.id
+        model.selectSettings()
+        let controller = SettingsRailController(model: model)
+        controller.view.onAdd?()
+        XCTAssertEqual(model.workspaces.count, 2)
+        XCTAssertTrue(model.state.isSettingsSelected)
+        XCTAssertEqual(controller.returnTarget, first, "the new workspace doesn't become the way back")
+        controller.willLeave()
+    }
+
+    func testAHiddenSettingsRailSkipsPreferenceReloads() {
+        let controller = SettingsRailController(model: model)
+        NotificationCenter.default.post(name: .stowAppPreferencesChanged, object: nil)
+        XCTAssertTrue(controller.view.tiles.isEmpty, "X5: a Settings rail with no window (sidebar mode) still reloads")
+    }
+
+    func testTheFooterTimerStopsWhenItsSheetHides() {
+        let footer = AppSheetFooterView(showsVersion: false)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 276, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.contentView = footer
+        panel.orderFront(nil)
+        footer.updateTimer()
+        XCTAssertTrue(footer.isTicking, "precondition: the footer counts while shown")
+        panel.orderOut(nil)
+        footer.updateTimer()
+        XCTAssertFalse(footer.isTicking, "X5: the 30s timer keeps running after the sheet is ordered out")
+        footer.isHidden = true
+        panel.orderFront(nil)
+        footer.updateTimer()
+        XCTAssertFalse(footer.isTicking, "a hidden footer doesn't count")
+        panel.close()
+    }
+}
+
+// MARK: - Rail tips and hooks
+
+@MainActor
+final class RailTipAndHookTests: XCTestCase {
+    private func link(_ title: String) -> Link {
+        Link(id: UUID(), title: title, url: "https://\(title.lowercased()).com", faviconPath: nil)
+    }
+
+    private func rail(_ items: [Node], dots: [RailView.WorkspaceDot]) -> RailView {
+        let view = RailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
+        view.configure(workspaces: dots, selectedId: dots.first?.id, colorId: .defaultColor(), items: items)
+        return view
+    }
+
+    private func subviews<T: NSView>(of view: NSView, _ type: T.Type) -> [T] {
+        view.subviews.flatMap { ([$0 as? T].compactMap { $0 }) + subviews(of: $0, type) }
+    }
+
+    func testRailCellsUseTheRailTipNotASystemTooltip() {
+        let github = link("GitHub")
+        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", color: .systemBlue)])
+        let cell = subviews(of: view, RailCell.self).first
+        XCTAssertNil(cell?.toolTip, "C7: the cell sets a system toolTip")
+        XCTAssertEqual(cell?.tip, RailTipController.Tip(title: "GitHub", detail: "github.com"))
+        XCTAssertEqual(cell?.accessibilityLabel(), "GitHub, link, github.com", "the VoiceOver label stays")
+    }
+
+    func testCellViewFindsTheCellForANode() {
+        let github = link("GitHub")
+        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", color: .systemBlue)])
+        XCTAssertTrue(view.cellView(for: github.id) is RailCell)
+        XCTAssertNil(view.cellView(for: UUID()))
+    }
+
+    func testADotRightClickPrefersTheContextMenuHook() {
+        let alpha = RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)
+        let view = rail([], dots: [alpha])
+        var contextMenu: UUID?
+        var fallback = 0
+        view.onWorkspaceMenu = { _ in fallback += 1 }
+        let dot = subviews(of: view, NSButton.self).first { $0.toolTip?.hasPrefix("Alpha") == true }
+        XCTAssertEqual(dot?.toolTip, "Alpha · ⌘1", "the dot reports its tip text")
+        let click = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        dot?.rightMouseDown(with: click)
+        XCTAssertEqual(fallback, 1, "without the hook the old menu shows")
+        view.onWorkspaceContextMenu = { id, _ in contextMenu = id }
+        dot?.rightMouseDown(with: click)
+        XCTAssertEqual(contextMenu, alpha.id)
+        XCTAssertEqual(fallback, 1)
+    }
+
+    func testTheTipControllerShowsTheSourceTipAfterTheDwellAndHides() {
+        let clock = ManualClock()
+        let tips = RailTipController(clock: clock)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 52, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 38, height: 38))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        let id = UUID()
+        tips.hover(id, view: anchor, tip: .init(title: "GitHub", detail: "github.com"), inside: true)
+        XCTAssertNil(tips.shown, "nothing before the dwell")
+        clock.advance(by: 1)
+        XCTAssertEqual(tips.shown?.title, "GitHub")
+        XCTAssertTrue(tips.isVisible)
+        tips.hover(id, view: anchor, tip: .init(title: "GitHub", detail: "github.com"), inside: false)
+        XCTAssertNil(tips.shown, "leaving hides at once")
+        tips.hover(id, view: anchor, tip: .init(title: "GitHub", detail: "github.com"), inside: true)
+        clock.advance(by: 1)
+        tips.hide()
+        XCTAssertNil(tips.shown)
+        XCTAssertFalse(tips.isVisible)
+        window.close()
+    }
+}

@@ -105,38 +105,10 @@ struct WorkspaceStripLayout {
         }
     }
 
-    /// One or two letters per workspace, unique where first letters collide.
+    /// One or two letters per workspace, unique where first letters collide (`WorkspaceMonogram`).
     static func assignMonograms(_ items: inout [Item]) {
-        func letters(_ s: String) -> [Character] {
-            Array(s.lowercased().filter { $0.isLetter || $0.isNumber })
-        }
-        func first(_ s: String) -> String {
-            s.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?"
-        }
-        var result = items.map { first($0.name) }
-        let groups = Dictionary(grouping: items.indices, by: { result[$0] })
-        for (_, group) in groups where group.count > 1 {
-            for i in group {
-                let words = items[i].name.split(separator: " ")
-                if words.count > 1 {
-                    result[i] = first(String(words[0])) + first(String(words[1]))
-                } else {
-                    let l = letters(items[i].name)
-                    result[i] = first(items[i].name) + (l.count > 1 ? String(l[1]) : "")
-                }
-            }
-            for i in group where group.contains(where: { $0 != i && result[$0] == result[i] }) {
-                let l = letters(items[i].name)
-                for k in 1..<max(l.count, 1) {
-                    let candidate = first(items[i].name) + String(l[k])
-                    if !group.contains(where: { $0 != i && result[$0] == candidate }) {
-                        result[i] = candidate
-                        break
-                    }
-                }
-            }
-        }
-        for i in items.indices { items[i].monogram = result[i] }
+        let letters = WorkspaceMonogram.assign(items.map { ($0.id, $0.name) })
+        for i in items.indices { items[i].monogram = letters[items[i].id] ?? "?" }
     }
 
     // MARK: - Rest layout
