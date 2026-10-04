@@ -10,32 +10,27 @@ final class MainViewController: NSViewController {
     // Coordinators and child view controllers
     private let searchCoordinator = SearchCoordinator()
     private let nodeListViewController = NodeListViewController()
-    private let settingsViewController = SettingsContentViewController()
+    let settingsViewController = SettingsContentViewController()
 
     // UI Components
     private let workspaceSwitcher = WorkspaceStripView()
     private let titleSettingsButton = NSButton()
-    private let railView = RailView()
+    /// The workspace rail and the Settings rail.
+    private(set) lazy var rail = RailCoordinator(main: self)
+    private var railView: RailView { rail.railView }
     /// Rename, Edit URL, due date and snippet flyouts, for the list, the mosaic and the rail.
     let itemFlyouts = ItemFlyouts()
     /// The one snippet editor, moved between snippets.
     private lazy var snippetEditor = SnippetEditorView()
-    /// Settings in rail mode: workspace tiles, their editor and the app sheet.
-    private lazy var settingsRail = SettingsRailController(model: model)
+    private var settingsRail: SettingsRailController { rail.settingsRail }
     /// The workspace editor for the Settings page, rail dots, title-bar tabs and the
     /// Tabline chip (the Settings rail shows its own in its flyout stack).
     private(set) lazy var workspaceEditor = WorkspaceEditorController(model: model)
-    /// What the rail showed last, to grow dots into tiles (and back) when it changes.
-    private enum RailPage { case none, workspace, settings }
-    private var railPage: RailPage = .none
-    private var isRailMorphing = false
     /// The workspace on screen before Settings, for the 4pt dot and the way back.
-    private var lastShownWorkspaceId: UUID?
+    private(set) var lastShownWorkspaceId: UUID?
     /// Released in rail so the hidden list's minimum width can't hold the window wider than the rail.
-    private var contentStackTrailing: NSLayoutConstraint!
-    /// The page content was hidden because the rail took over; leaving the rail shows it again.
-    private var contentHiddenByRail = false
-    private var elasticMode: ElasticMode = .sidebar
+    var contentStackTrailing: NSLayoutConstraint!
+    private(set) var elasticMode: ElasticMode = .sidebar
     /// The first layout applies the width's mode even when it matches the default.
     private var hasAppliedElasticMode = false
     /// The Settings page's own width (~240pt) would stop the window narrowing to a rail,
@@ -54,13 +49,13 @@ final class MainViewController: NSViewController {
 
     // Page navigation
     private let pageController = ScrollWheelPageController()
-    private var topBar = NSView()
+    var topBar = NSView()
 
     // Content containers (show/hide for page switching)
-    private let contentStack = NSStackView()
+    let contentStack = NSStackView()
 
     // Swipe state
-    private var isSwiping = false
+    private(set) var isSwiping = false
     /// A reload asked for mid-swipe, run once the swipe ends.
     private var needsReloadAfterSwipe = false
     private var lastAddNewHapticTime: TimeInterval = 0
@@ -340,7 +335,7 @@ final class MainViewController: NSViewController {
         settingsRailView.translatesAutoresizingMaskIntoConstraints = false
         settingsRailView.isHidden = true
         view.addSubview(settingsRailView)
-        wireRail()
+        rail.wireRail()
 
         let pad = LayoutConstants.windowPadding
         contentStackTrailing = contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -pad)
@@ -779,7 +774,7 @@ final class MainViewController: NSViewController {
             }
             if case .noMatches = kind, kind != lastEmptyStateKind { announceNoMatches() }
             lastEmptyStateKind = kind
-            reloadRail()
+            rail.reloadRail()
             lastEmptyStateWorkspaceId = workspace.id
             refreshPasteAvailability()
 
@@ -826,7 +821,7 @@ final class MainViewController: NSViewController {
         handlePendingWorkspaceRename()
     }
 
-    private func applyBackgroundColor(for colorId: WorkspaceColorId) {
+    func applyBackgroundColor(for colorId: WorkspaceColorId) {
         let bgColor = colorId.adaptiveBackgroundColor
         view.layer?.backgroundColor = view.resolvedCGColor(bgColor)
         view.window?.backgroundColor = bgColor
@@ -898,25 +893,25 @@ final class MainViewController: NSViewController {
         contentStack.isHidden = true
         // In rail mode Settings is the rail of workspace tiles, not the page.
         settingsViewController.view.isHidden = elasticMode == .rail
-        updateRailVisibility()
+        rail.updateRailVisibility()
     }
 
     private func showWorkspaceContent() {
         if !settingsViewController.view.isHidden { settingsViewController.closeFlyouts() }
         settingsViewController.view.isHidden = true
         contentStack.isHidden = false
-        updateRailVisibility()
+        rail.updateRailVisibility()
     }
 
     // MARK: - Workspace Management
 
     /// Where the workspace editor goes relative to what opened it.
-    private enum WorkspaceEditorEdge { case below, besideWindow }
+    enum WorkspaceEditorEdge { case below, besideWindow }
 
     /// The native WorkspaceMenu at `point` in `view`, for a right-click on a title-bar tab,
     /// a rail dot or the Tabline chip. Its Edit… opens the workspace editor at
     /// `editorAnchor` (in `view`).
-    private func showWorkspaceMenu(for workspaceId: UUID, in view: NSView, at point: NSPoint,
+    func showWorkspaceMenu(for workspaceId: UUID, in view: NSView, at point: NSPoint,
                                    editorAnchor: NSRect, edge: WorkspaceEditorEdge) {
         guard view.window != nil else { return }
         let menu = WorkspaceMenu.make(for: workspaceId, model: model, presentingView: view) { [weak self, weak view] id in
@@ -1019,7 +1014,7 @@ final class MainViewController: NSViewController {
         if let parentId { model.setFolderExpanded(id: parentId, isExpanded: true) }
         let id = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
         for nodeId in nodeIds.reversed() { model.moveNode(id: nodeId, toParentId: id, index: 0) }
-        reloadRail()
+        rail.reloadRail()
         let anchor = railView.cellView(for: id) ?? railAnchor(for: parentId) ?? railView
         TextFieldFlyout.present(in: itemFlyouts, title: "New folder", value: NodeDefaults.folderName,
                                 placeholder: "Folder name", from: anchor,
@@ -1031,7 +1026,7 @@ final class MainViewController: NSViewController {
     }
 
     /// Names a task in a flyout beside the rail; it's added only when saved.
-    private func createTaskInRail(parentId: UUID?) {
+    func createTaskInRail(parentId: UUID?) {
         let anchor = railAnchor(for: parentId) ?? railView
         TextFieldFlyout.present(in: itemFlyouts, title: "New task", value: "", placeholder: "Task name", from: anchor,
                                 onSave: { [weak self] title in
@@ -1111,106 +1106,13 @@ final class MainViewController: NSViewController {
         updateFooterFit()
         nodeListViewController.elasticMode = mode
         updateSettingsConstraints()
-        updateRailVisibility()
-        reloadRail()
-    }
-
-    // MARK: - Rail
-
-    /// The rail replaces the workspace chrome (header, search, list, bottom bar) and, like
-    /// the mockup, drops the traffic lights. On Settings the rail shows workspace tiles.
-    private func updateRailVisibility() {
-        let rail = elasticMode == .rail
-        let onSettings = model.state.isSettingsSelected
-        let page: RailPage = rail ? (onSettings ? .settings : .workspace) : .none
-        topBar.isHidden = rail
-        contentStackTrailing.isActive = !rail
-        // The rail only undoes its own hiding. Otherwise which page's content shows, mid-swipe
-        // included, belongs to showSettingsContent / showWorkspaceContent.
-        if rail {
-            contentStack.isHidden = true
-            if !settingsViewController.view.isHidden { settingsViewController.closeFlyouts() }
-            settingsViewController.view.isHidden = true
-            contentHiddenByRail = true
-        } else if contentHiddenByRail {
-            contentHiddenByRail = false
-            settingsViewController.view.isHidden = !onSettings
-            contentStack.isHidden = onSettings
-        }
-        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            view.window?.standardWindowButton(kind)?.isHidden = rail
-        }
-        transitionRail(to: page)
-        updateOpenTabsPolling()
-    }
-
-    /// Swaps the workspace rail and the Settings rail. Between the two, the dots grow
-    /// into tiles on the way in and the tiles shrink back into dots on the way out.
-    private func transitionRail(to page: RailPage) {
-        let previous = railPage
-        guard page != previous else {
-            guard !isRailMorphing else { return }
-            railView.isHidden = page != .workspace
-            settingsRail.view.isHidden = page != .settings
-            return
-        }
-        railPage = page
-        let animate = RailMotion.animates(windowVisible: view.window?.isVisible == true, swiping: isSwiping, reduceMotion: RailMotion.reduceMotion)
-        let dotCenters = Dictionary(uniqueKeysWithValues: model.workspaces.enumerated().map {
-            ($1.id, SettingsRailLayout.dotCenterY(at: $0))
-        })
-        if page != .settings { settingsRail.willLeave() }
-
-        switch (previous, page) {
-        case (.workspace, .settings) where animate:
-            settingsRail.didEnter(from: lastShownWorkspaceId)
-            settingsRail.reload()
-            settingsRail.view.resetMorph()
-            settingsRail.view.isHidden = false
-            settingsRail.view.animateIn(dotCenters: dotCenters)
-            settingsRail.view.takeKeyboard()
-            isRailMorphing = true
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
-                railView.animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                guard let self else { return }
-                self.isRailMorphing = false
-                guard self.railPage == .settings else { return }
-                self.railView.isHidden = true
-                self.railView.alphaValue = 1
-            })
-        case (.settings, .workspace) where animate:
-            railView.alphaValue = 0
-            railView.isHidden = false
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.38
-                railView.animator().alphaValue = 1
-            }
-            isRailMorphing = true
-            settingsRail.view.animateOut(dotCenters: dotCenters) { [weak self] in
-                guard let self else { return }
-                self.isRailMorphing = false
-                guard self.railPage == .workspace else { return }
-                self.settingsRail.view.isHidden = true
-                self.settingsRail.view.resetMorph()
-            }
-        default:
-            if page == .settings {
-                settingsRail.didEnter(from: lastShownWorkspaceId)
-                settingsRail.reload()
-                settingsRail.view.takeKeyboard()
-            }
-            settingsRail.view.resetMorph()
-            railView.alphaValue = 1
-            railView.isHidden = page != .workspace
-            settingsRail.view.isHidden = page != .settings
-        }
+        self.rail.updateRailVisibility()
+        self.rail.reloadRail()
     }
 
     /// Open dots need the browsers' tab lists, read by OpenTabsMonitor only while a workspace
     /// with items (rail, list, sidebar or mosaic) is on a visible window.
-    private func updateOpenTabsPolling() {
+    func updateOpenTabsPolling() {
         let wanted = !model.state.isSettingsSelected
             && view.window?.occlusionState.contains(.visible) == true
             && model.activeWorkspace.items.contains(where: { !$0.isArchived })
@@ -1221,58 +1123,13 @@ final class MainViewController: NSViewController {
         updateOpenTabsPolling()
     }
 
-    private func reloadRail() {
-        guard elasticMode == .rail, !model.state.isSettingsSelected else { return }
-        let ws = model.currentWorkspace
-        railView.configure(
-            workspaces: model.workspaces.map { RailView.WorkspaceDot(id: $0.id, name: $0.name, color: $0.colorId.color) },
-            selectedId: ws.id,
-            colorId: ws.colorId,
-            items: ws.items
-        )
-        FaviconPrefetcher.shared.request(links: ws.items.flattenLinks().filter { !$0.isArchived }, in: ws.id)
-    }
-
-    private func selectWorkspaceAndPage(_ id: UUID) {
+    func selectWorkspaceAndPage(_ id: UUID) {
         guard let idx = model.workspaces.firstIndex(where: { $0.id == id }) else { return }
         model.selectWorkspace(id: id)
         pageController.jumpToPage(idx + 1)
     }
 
-    private func wireRail() {
-        railView.onSelectWorkspace = { [weak self] id in self?.selectWorkspaceAndPage(id) }
-        railView.onWorkspaceContextMenu = { [weak self] id, dot in
-            self?.showWorkspaceMenu(for: id, in: dot, at: NSPoint(x: dot.bounds.width - 4, y: dot.isFlipped ? 0 : dot.bounds.height),
-                                    editorAnchor: dot.bounds, edge: .besideWindow)
-        }
-        railView.onOpenLink = { [weak self] link in self?.openLink(link) }
-        railView.onOpenFolder = { [weak self] folder in self?.openLinksInFolder(folder) }
-        railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
-        railView.onCopySnippet = { [weak self] id in
-            guard let self, case .snippet(let snippet)? = self.model.nodeById(id) else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(snippet.content, forType: .string)
-            Toast.show("Copied", in: self.view.window, duration: Toast.briefDuration)
-        }
-        railView.onStowTab = { [weak self] in self?.stowFrontTab() }
-        railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
-        railView.onMoveToWorkspace = { [weak self] id, workspaceId in self?.model.moveNodeToWorkspace(id: id, workspaceId: workspaceId) }
-        railView.onSettings = { [weak self] in self?.enterSettings() }
-        railView.onNodeMenu = { [weak self] node, cell in
-            guard let self, let menu = self.nodeMenu(for: node) else { return }
-            menu.popUp(positioning: nil, at: NSPoint(x: cell.bounds.width - 4, y: cell.isFlipped ? 0 : cell.bounds.height), in: cell)
-        }
-        railView.onEditSnippet = { [weak self] id, anchor in self?.showSnippetEditor(id, from: anchor) }
-        railView.onSetDueDate = { [weak self] id, anchor in self?.showDatePickerForTask(id, from: anchor) }
-        railView.onNewTask = { [weak self] in self?.createTaskInRail(parentId: nil) }
-        railView.onDropText = { [weak self] text, index in self?.addDroppedText(text, parentId: nil, index: index) }
-        settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
-        settingsRail.onPreviewColor = { [weak self] colorId in
-            self?.applyBackgroundColor(for: colorId ?? .settingsBackground)
-        }
-    }
-
-    private func enterSettings() {
+    func enterSettings() {
         model.selectSettings()
         pageController.jumpToPage(0)
     }
@@ -1396,7 +1253,7 @@ final class MainViewController: NSViewController {
 
     /// Text dropped on the list or the rail: its links (and any tasks or snippets) go in
     /// at the drop position, in order, and the links fetch their titles.
-    private func addDroppedText(_ text: String, parentId: UUID?, index: Int) {
+    func addDroppedText(_ text: String, parentId: UUID?, index: Int) {
         addParsedItems(text, parentId: parentId, index: index)
     }
 
@@ -1446,7 +1303,7 @@ final class MainViewController: NSViewController {
         }
     }
 
-    private func openLinksInFolder(_ folder: Folder) {
+    func openLinksInFolder(_ folder: Folder) {
         let links = collectLinks(in: folder)
         guard !links.isEmpty else { return }
         let target = LinkTarget.forWorkspace(model.activeWorkspaceId)
