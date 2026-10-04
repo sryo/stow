@@ -18,6 +18,10 @@ final class MainViewController: NSViewController {
     /// In rail mode the strip collapses to one chip for the current workspace.
     private let railWorkspaceChip = NSButton()
     private let railView = RailView()
+    /// Rename, Edit URL, due date and snippet flyouts, for the list, the mosaic and the rail.
+    let itemFlyouts = ItemFlyouts()
+    /// The one snippet editor, moved between snippets.
+    private lazy var snippetEditor = SnippetEditorView()
     /// Settings in rail mode: workspace tiles, their editor and the app sheet.
     private lazy var settingsRail = SettingsRailController(model: model)
     /// What the rail showed last, to grow dots into tiles (and back) when it changes.
@@ -145,11 +149,11 @@ final class MainViewController: NSViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
         nodeListViewController.tintMode = StowTheme.displayTint
 
-        // Listen for favicon updates
+        // FaviconPrefetcher's results are written into the library here.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleFaviconUpdate),
-            name: .init("UpdateLinkFavicon"),
+            name: .stowLinkFaviconFetched,
             object: nil
         )
 
@@ -559,25 +563,86 @@ final class MainViewController: NSViewController {
         }
 
         nodeListViewController.onMoveToNewWorkspace = { [weak self] nodeIds in
-            guard let self else { return }
-            let workspaceId = self.model.createWorkspace(name: "Untitled")
-            for nodeId in nodeIds {
-                self.model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
-            }
-            if let idx = self.model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
-                self.pageController.jumpToPage(idx + 1)
-            }
-            self.scheduleWorkspaceInlineRename(for: workspaceId)
+            self?.moveToNewWorkspace(nodeIds)
         }
 
         nodeListViewController.onMoveToNewFolder = { [weak self] nodeIds in
-            guard let self, !nodeIds.isEmpty else { return }
-            let folderId = self.model.addFolder(name: NodeDefaults.folderName, parentId: nil)
-            for nodeId in nodeIds {
-                self.model.moveNode(id: nodeId, toParentId: folderId, index: 0)
-            }
-            self.nodeListViewController.scheduleInlineRename(for: folderId)
+            self?.moveToNewFolder(nodeIds)
         }
+
+        nodeListViewController.onDropText = { [weak self] text, parentId, index in
+            self?.addDroppedText(text, parentId: parentId, index: index)
+        }
+
+        nodeListViewController.flyouts = itemFlyouts
+        nodeListViewController.nodeMenuProvider = { [weak self] node in
+            self?.nodeMenu(for: node)
+        }
+    }
+
+    // MARK: - Item menu
+
+    /// The NodeMenu for an item in whatever the window shows: the list and mosaic edit
+    /// beside the row or tile, the rail beside its cell.
+    func nodeMenu(for node: Node) -> NSMenu? {
+        var actions = NodeMenu.Actions()
+        actions.rename = { [weak self] id in self?.beginRename(id) }
+        actions.editURL = { [weak self] id in
+            guard let self else { return }
+            self.nodeListViewController.presentEditURLFlyout(for: id, from: self.railAnchor(for: id))
+        }
+        actions.setDueDate = { [weak self] id in self?.showDatePickerForTask(id) }
+        actions.editSnippet = { [weak self] id in self?.showSnippetEditor(id) }
+        actions.copySnippet = { [weak self] id in self?.copySnippetToClipboard(id) }
+        actions.openIn = { [weak self] link, choice in self?.openLink(link, in: choice) }
+        actions.openFolder = { [weak self] folder in self?.openLinksInFolder(folder) }
+        actions.newFolderInside = { [weak self] id in self?.createFolderAndBeginRename(parentId: id) }
+        actions.moveToNewWorkspace = { [weak self] ids in self?.moveToNewWorkspace(ids) }
+        actions.moveToNewFolder = { [weak self] ids in self?.moveToNewFolder(ids) }
+        actions.archive = { [weak self] id in self?.archiveUndoably([id]) }
+        return NodeMenu.make(for: node, model: model, actions: actions)
+    }
+
+    /// In the rail, the cell an editor flyout points at (the whole rail for items it
+    /// shows inside a group cell); nil elsewhere, where the list finds the row.
+    private func railAnchor(for nodeId: UUID?) -> NSView? {
+        guard elasticMode == .rail else { return nil }
+        return nodeId.flatMap { railView.cellView(for: $0) } ?? railView
+    }
+
+    private func anchorView(for nodeId: UUID) -> NSView? {
+        railAnchor(for: nodeId) ?? nodeListViewController.rowAnchorView(for: nodeId)
+    }
+
+    private func beginRename(_ nodeId: UUID) {
+        if let anchor = railAnchor(for: nodeId) {
+            nodeListViewController.presentRenameFlyout(for: nodeId, from: anchor)
+        } else {
+            nodeListViewController.beginRename(for: nodeId)
+        }
+    }
+
+    private func moveToNewWorkspace(_ nodeIds: [UUID]) {
+        guard !nodeIds.isEmpty else { return }
+        if elasticMode == .rail { return createWorkspaceInRail(moving: nodeIds) }
+        let workspaceId = model.createWorkspace(name: "Untitled")
+        for nodeId in nodeIds {
+            model.moveNodeToWorkspace(id: nodeId, workspaceId: workspaceId)
+        }
+        if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
+            pageController.jumpToPage(idx + 1)
+        }
+        scheduleWorkspaceInlineRename(for: workspaceId)
+    }
+
+    private func moveToNewFolder(_ nodeIds: [UUID]) {
+        guard !nodeIds.isEmpty else { return }
+        if elasticMode == .rail { return createFolderInRail(parentId: nil, moving: nodeIds) }
+        let folderId = model.addFolder(name: NodeDefaults.folderName, parentId: nil)
+        for nodeId in nodeIds {
+            model.moveNode(id: nodeId, toParentId: folderId, index: 0)
+        }
+        nodeListViewController.scheduleInlineRename(for: folderId)
     }
 
     private func bindModel() {
@@ -842,7 +907,10 @@ final class MainViewController: NSViewController {
         menu.popUp(positioning: nil, at: view.convert(point, from: nil), in: view)
     }
 
+    /// ⌘N, the + menus and the add-new page. In the rail the strip is hidden, so the new
+    /// workspace is named in the Settings rail's editor instead.
     func promptCreateWorkspace() {
+        if elasticMode == .rail { return createWorkspaceInRail() }
         let workspaceId = model.createWorkspace(name: "Untitled")
         if let idx = model.workspaces.firstIndex(where: { $0.id == workspaceId }) {
             pageController.jumpToPage(idx + 1)
@@ -872,6 +940,7 @@ final class MainViewController: NSViewController {
     }
 
     func createTaskAndBeginRename(parentId: UUID?) {
+        if elasticMode == .rail { return createTaskInRail(parentId: parentId) }
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
@@ -883,16 +952,59 @@ final class MainViewController: NSViewController {
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
+        if elasticMode == .rail {
+            let newId = model.addSnippet(title: "Untitled", content: "", language: nil, parentId: parentId)
+            return showSnippetEditor(newId, discardOnCancel: true)
+        }
         let newId = model.addSnippet(title: "Untitled", content: "", language: nil, parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
     }
 
     func createFolderAndBeginRename(parentId: UUID?) {
+        if elasticMode == .rail { return createFolderInRail(parentId: parentId) }
         if let parentId {
             model.setFolderExpanded(id: parentId, isExpanded: true)
         }
         let newId = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
         nodeListViewController.scheduleInlineRename(for: newId)
+    }
+
+    // MARK: - Creating in the rail
+
+    /// Settings, then the new workspace's editor with its name focused.
+    private func createWorkspaceInRail(moving nodeIds: [UUID] = []) {
+        enterSettings()
+        reloadData(animated: false)
+        view.layoutSubtreeIfNeeded()
+        settingsRail.createWorkspace(moving: nodeIds)
+    }
+
+    /// Adds the folder, then names it in a flyout beside its cell. Cancelling takes an
+    /// empty new folder away again; one that was given items keeps the default name.
+    private func createFolderInRail(parentId: UUID?, moving nodeIds: [UUID] = []) {
+        if let parentId { model.setFolderExpanded(id: parentId, isExpanded: true) }
+        let id = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
+        for nodeId in nodeIds.reversed() { model.moveNode(id: nodeId, toParentId: id, index: 0) }
+        reloadRail()
+        let anchor = railView.cellView(for: id) ?? railAnchor(for: parentId) ?? railView
+        TextFieldFlyout.present(in: itemFlyouts, title: "New folder", value: NodeDefaults.folderName,
+                                placeholder: "Folder name", from: anchor,
+                                onSave: { [weak self] name in self?.model.renameNode(id: id, newName: name) },
+                                onCancel: { [weak self] in
+                                    guard nodeIds.isEmpty else { return }
+                                    self?.model.deleteNodeFromAnyWorkspace(id: id)
+                                })
+    }
+
+    /// Names a task in a flyout beside the rail; it's added only when saved.
+    private func createTaskInRail(parentId: UUID?) {
+        let anchor = railAnchor(for: parentId) ?? railView
+        TextFieldFlyout.present(in: itemFlyouts, title: "New task", value: "", placeholder: "Task name", from: anchor,
+                                onSave: { [weak self] title in
+                                    guard let self else { return }
+                                    if let parentId { self.model.setFolderExpanded(id: parentId, isExpanded: true) }
+                                    self.model.addTask(title: title, parentId: parentId)
+                                })
     }
 
     private func wireEmptyState() {
@@ -923,26 +1035,7 @@ final class MainViewController: NSViewController {
     }
 
     private func makeAddBookmarksMenu() -> NSMenu {
-        let menu = NSMenu()
-        let paste = NSMenuItem(title: "Paste", action: #selector(importClipboardContent), keyEquivalent: "v")
-        paste.target = self
-        paste.isEnabled = isPasteAvailable
-        menu.addItem(paste)
-        let arc = NSMenuItem(title: "Import from Arc…", action: #selector(importFromArcFromEmptyState), keyEquivalent: "")
-        arc.target = self
-        menu.addItem(arc)
-        menu.addItem(.separator())
-        for (title, action) in [("New Folder", #selector(menuNewFolder)), ("New Task", #selector(menuNewTask)), ("New Snippet", #selector(menuNewSnippet))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-        menu.autoenablesItems = false
-        return menu
-    }
-
-    @objc private func importFromArcFromEmptyState() {
-        ImportCoordinator.shared.importFromArc()
+        NewItemMenu.make(includePaste: true, includeImport: true, target: self, pasteEnabled: isPasteAvailable)
     }
 
     private var isPasteAvailable: Bool {
@@ -1119,13 +1212,7 @@ final class MainViewController: NSViewController {
             colorId: ws.colorId,
             items: ws.items
         )
-        for link in ws.items.flattenLinks() where link.faviconPath == nil {
-            guard let url = URL(string: link.url) else { continue }
-            FaviconService.shared.favicon(for: url, cachedPath: nil) { _, path in
-                guard let path else { return }
-                NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
-            }
-        }
+        FaviconPrefetcher.shared.request(links: ws.items.flattenLinks().filter { !$0.isArchived }, in: ws.id)
     }
 
     private func selectWorkspaceAndPage(_ id: UUID) {
@@ -1150,6 +1237,14 @@ final class MainViewController: NSViewController {
         railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
         railView.onMoveToWorkspace = { [weak self] id, workspaceId in self?.model.moveNodeToWorkspace(id: id, workspaceId: workspaceId) }
         railView.onSettings = { [weak self] in self?.enterSettings() }
+        railView.onNodeMenu = { [weak self] node, cell in
+            guard let self, let menu = self.nodeMenu(for: node) else { return }
+            menu.popUp(positioning: nil, at: NSPoint(x: cell.bounds.width - 4, y: cell.isFlipped ? 0 : cell.bounds.height), in: cell)
+        }
+        railView.onEditSnippet = { [weak self] id, anchor in self?.showSnippetEditor(id, from: anchor) }
+        railView.onSetDueDate = { [weak self] id, anchor in self?.showDatePickerForTask(id, from: anchor) }
+        railView.onNewTask = { [weak self] in self?.createTaskInRail(parentId: nil) }
+        railView.onDropText = { [weak self] text, index in self?.addDroppedText(text, parentId: nil, index: index) }
         settingsRail.onLeave = { [weak self] id in self?.selectWorkspaceAndPage(id) }
         settingsRail.onPreviewColor = { [weak self] colorId in
             self?.applyBackgroundColor(for: colorId ?? .settingsBackground)
@@ -1284,7 +1379,7 @@ final class MainViewController: NSViewController {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let add = NSMenuItem(title: "New Workspace…", action: #selector(titleAddTapped), keyEquivalent: "n")
+        let add = NSMenuItem(title: "New workspace…", action: #selector(titleAddTapped), keyEquivalent: "n")
         add.target = self
         menu.addItem(add)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
@@ -1314,31 +1409,9 @@ final class MainViewController: NSViewController {
     }
 
     @objc private func showNewItemMenu() {
-        let menu = NSMenu()
-        let entries: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
-            ("New Folder", "folder", "N", [.command], #selector(menuNewFolder)),
-            ("New Task", "circle", "", [], #selector(menuNewTask)),
-            ("New Snippet", "chevron.left.forwardslash.chevron.right", "", [], #selector(menuNewSnippet)),
-        ]
-        for (title, symbol, key, mask, action) in entries {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-            item.keyEquivalentModifierMask = mask
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            item.target = self
-            menu.addItem(item)
-        }
-        menu.addItem(.separator())
-        let workspace = NSMenuItem(title: "New Workspace…", action: #selector(menuNewWorkspace), keyEquivalent: "n")
-        workspace.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
-        workspace.target = self
-        menu.addItem(workspace)
+        let menu = NewItemMenu.make(includePaste: false, includeImport: false, target: self)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: titleAddButton.bounds.height + 4), in: titleAddButton)
     }
-
-    @objc private func menuNewFolder() { createFolderAndBeginRename(parentId: nil) }
-    @objc private func menuNewTask() { createTaskAndBeginRename(parentId: nil) }
-    @objc private func menuNewSnippet() { createSnippetAndBeginRename(parentId: nil) }
-    @objc private func menuNewWorkspace() { promptCreateWorkspace() }
 
     @objc private func importClipboardContent() {
         guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
@@ -1347,16 +1420,34 @@ final class MainViewController: NSViewController {
 
     /// Adds every link, task or snippet found in `text` to the current workspace.
     private func importText(_ text: String) {
+        addParsedItems(text, parentId: nil, index: nil)
+    }
+
+    /// Text dropped on the list or the rail: its links (and any tasks or snippets) go in
+    /// at the drop position, in order, and the links fetch their titles.
+    private func addDroppedText(_ text: String, parentId: UUID?, index: Int) {
+        addParsedItems(text, parentId: parentId, index: index)
+    }
+
+    /// Adds what ClipboardImportParser finds in `text` under `parentId`: at the end, or
+    /// from `index` on.
+    private func addParsedItems(_ text: String, parentId: UUID?, index: Int?) {
+        var position = index
         for item in ClipboardImportParser.parse(text) {
+            let id: UUID
             switch item {
             case .task(let title, let isCompleted):
-                let id = model.addTask(title: title, parentId: nil)
+                id = model.addTask(title: title, parentId: parentId)
                 if isCompleted { model.toggleTaskCompletion(id: id) }
             case .link(let url, let defaultTitle):
-                let id = model.addLink(urlString: url.absoluteString, title: defaultTitle, parentId: nil)
+                id = model.addLink(urlString: url.absoluteString, title: defaultTitle, parentId: parentId)
                 fetchTitleForNewLink(id: id, url: url)
             case .snippet(let title, let content):
-                model.addSnippet(title: title, content: content, language: nil, parentId: nil)
+                id = model.addSnippet(title: title, content: content, language: nil, parentId: parentId)
+            }
+            if let at = position {
+                model.moveNode(id: id, toParentId: parentId, index: at)
+                position = at + 1
             }
         }
     }
@@ -1430,28 +1521,26 @@ final class MainViewController: NSViewController {
         nodeListViewController.showCopiedFeedback(for: snippetId)
     }
 
-    private func showDatePickerForTask(_ taskId: UUID) {
-        guard let node = model.nodeById(taskId), case .task(let task) = node,
-              let anchor = nodeListViewController.rowAnchorView(for: taskId) else { return }
-        let editor = DueDatePopoverController(dueDate: task.dueDate) { [weak self] date in
+    /// The due date flyout beside the task's row, or beside `anchor` (a rail view).
+    func showDatePickerForTask(_ taskId: UUID, from anchor: NSView? = nil) {
+        guard case .task(let task)? = model.nodeById(taskId), let anchor = anchor ?? anchorView(for: taskId) else { return }
+        DueDateFlyout.present(in: itemFlyouts, title: task.title, dueDate: task.dueDate, from: anchor) { [weak self] date in
             self?.model.updateTaskDueDate(id: taskId, dueDate: date)
         }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = editor
-        editor.close = { [weak popover] in popover?.performClose(nil) }
-        let edge = DueDatePopoverController.preferredEdge(
-            rowInWindow: anchor.convert(anchor.bounds, to: nil),
-            windowHeight: view.window?.contentView?.bounds.height ?? view.bounds.height,
-            anchorIsFlipped: anchor.isFlipped)
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: edge)
     }
 
-    private func showSnippetEditor(_ snippetId: UUID) {
-        guard let node = model.nodeById(snippetId), case .snippet(let snippet) = node else { return }
-
-        let editor = SnippetEditorView(snippet: snippet) { [weak self] updatedTitle, updatedContent, updatedLanguage in
+    /// The snippet editor flyout beside the snippet's row, or beside `anchor` (a rail
+    /// view). `discardOnCancel` takes a snippet that was just added away again.
+    func showSnippetEditor(_ snippetId: UUID, from anchor: NSView? = nil, discardOnCancel: Bool = false) {
+        let editor = snippetEditor
+        // Moving to another snippet keeps the edits to the one on screen, as a click away does.
+        if itemFlyouts.isOpen(.snippet) { editor.save() }
+        guard case .snippet(let snippet)? = model.nodeById(snippetId), let anchor = anchor ?? anchorView(for: snippetId) else { return }
+        var saved = false
+        editor.load(snippet)
+        editor.onSave = { [weak self] updatedTitle, updatedContent, updatedLanguage in
             guard let self else { return }
+            saved = true
             let trimmedTitle = updatedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedTitle.isEmpty && trimmedTitle != snippet.title {
                 self.model.renameNode(id: snippetId, newName: trimmedTitle)
@@ -1460,15 +1549,16 @@ final class MainViewController: NSViewController {
             self.model.updateSnippetLanguage(id: snippetId, language: updatedLanguage)
             self.model.autoDeriveTitleIfNeeded(id: snippetId)
         }
-
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-                            styleMask: [.titled, .closable, .resizable],
-                            backing: .buffered, defer: false)
-        panel.title = "Edit snippet: \(snippet.title)"
-        panel.isFloatingPanel = true
-        panel.contentView = editor
-        panel.center()
-        panel.makeKeyAndOrderFront(nil)
+        editor.onClose = { [weak self] in
+            guard let self else { return }
+            self.itemFlyouts.close(.snippet)
+            if discardOnCancel, !saved { self.model.deleteNodeFromAnyWorkspace(id: snippetId) }
+        }
+        editor.frame.size = SnippetEditorView.size
+        guard itemFlyouts.show(.snippet, content: editor, size: SnippetEditorView.size, from: anchor, topInset: 30,
+                               onEscape: { [weak editor] in editor?.cancel() },
+                               onOutsideClick: { [weak editor] in editor?.save() }) else { return }
+        editor.focusContent()
     }
 
     // MARK: - Bulk Operations
@@ -1501,7 +1591,7 @@ final class MainViewController: NSViewController {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
         if flags == .command {
             // Modifier events often arrive without a window, so check key status instead.
-            guard commandHoldReveal == nil, !isCommandHoldJump,
+            guard commandHoldReveal == nil, !isCommandHoldJump, acceptsListShortcuts,
                   view.window?.isKeyWindow == true,
                   !model.state.isSettingsSelected, !isSwiping,
                   !(view.window?.firstResponder is NSTextView),
@@ -1610,7 +1700,7 @@ final class MainViewController: NSViewController {
         guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
               let scalar = chars.unicodeScalars.first else { return false }
 
-        if chars == "/" && flags.isEmpty {
+        if chars == "/" && flags.isEmpty && acceptsListShortcuts {
             focusSearch()
             return true
         }
@@ -1657,15 +1747,42 @@ final class MainViewController: NSViewController {
         view.window?.makeFirstResponder(nodeListViewController.focusTarget)
     }
 
+    /// Jump letters, ⌘-hold and / act on the list, which the rail hides.
+    var acceptsListShortcuts: Bool { elasticMode != .rail }
+
+    /// The workspace whose editor is open in the Settings rail.
+    var settingsRailEditingId: UUID? { settingsRail.editingId }
+
+    /// Whether the title-bar strip is renaming a workspace, or about to.
+    var isWorkspaceStripRenaming: Bool { workspaceSwitcher.isInlineRenaming || pendingWorkspaceRenameId != nil }
+
+    /// ⌘F. In the rail the panel first widens to the list, where the search field is.
     func focusSearch() {
         guard !model.state.isSettingsSelected else { return }
+        if elasticMode == .rail { widenToList() }
+        guard elasticMode != .rail else { return }
         nodeListViewController.isJumpModeActive = false
         searchField.focus()
     }
 
+    /// Grows the window from the rail to list width, toward whichever side has room.
+    private func widenToList() {
+        guard let window = view.window else { return }
+        let extra = Self.listWidthFromRail - view.bounds.width
+        guard extra > 0 else { return }
+        var frame = window.frame
+        frame.size.width += extra
+        if let screen = window.screen?.visibleFrame, frame.maxX > screen.maxX { frame.origin.x -= extra }
+        window.setFrame(frame, display: true)
+        window.layoutIfNeeded()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private static let listWidthFromRail: CGFloat = 220
+
     func toggleJumpMode() {
         guard !model.state.isSettingsSelected else { return }
-        guard nodeListViewController.hasNodeRows else {
+        guard acceptsListShortcuts, nodeListViewController.hasNodeRows else {
             NSSound.beep()
             return
         }
@@ -1933,4 +2050,15 @@ extension MainViewController: ScrollWheelPageDelegate {
     func pagerCurrentPage() -> Int {
         currentPageIndex()
     }
+}
+
+// MARK: - NewItemMenuTarget
+
+extension MainViewController: NewItemMenuTarget {
+    func newFolderFromMenu(_ sender: Any?) { createFolderAndBeginRename(parentId: nil) }
+    func newTaskFromMenu(_ sender: Any?) { createTaskAndBeginRename(parentId: nil) }
+    func newSnippetFromMenu(_ sender: Any?) { createSnippetAndBeginRename(parentId: nil) }
+    func newWorkspaceFromMenu(_ sender: Any?) { promptCreateWorkspace() }
+    func pasteFromMenu(_ sender: Any?) { importClipboardContent() }
+    func importFromArcFromMenu(_ sender: Any?) { ImportCoordinator.shared.importFromArc() }
 }

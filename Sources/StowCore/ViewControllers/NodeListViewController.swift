@@ -36,7 +36,6 @@ final class NodeListViewController: NSViewController {
     private let dropIndicator = DropIndicatorView()
     private let emptyStateView = EmptyStateView()
     private var listMetrics = ListMetrics()
-    private let contextMenu = NSMenu()
 
     // Overscroll shadow views
     private let topShadowView = NSView()
@@ -50,7 +49,6 @@ final class NodeListViewController: NSViewController {
     private var lastInput: ReloadInput?
     /// At list width, tasks and snippets fold into counted rows that expand in place.
     private var expandedListSections: Set<NodeSection> = []
-    private var contextIndexPath: IndexPath?
     private var isDraggingItems = false
     private var pendingInsertedIds: Set<UUID> = []
     private let rowAnimationDuration: TimeInterval = 0.16
@@ -101,6 +99,13 @@ final class NodeListViewController: NSViewController {
     var onNodePermanentlyDeleted: ((UUID) -> Void)?
     var onArchiveToggled: ((Bool) -> Void)?
     var onNewWorkspaceRequested: (() -> Void)?
+    /// Text dropped on the list: the text, the folder it lands in (nil at the top level)
+    /// and its index there. The drag registration comes with G1.
+    var onDropText: ((String, UUID?, Int) -> Void)?
+    /// The right-click menu for an item (NodeMenu), built by the owner, which has the model.
+    var nodeMenuProvider: ((Node) -> NSMenu?)?
+    /// Rename, Edit URL and the owner's due date and snippet editors open here.
+    var flyouts = ItemFlyouts()
 
     // Current workspace provider (for filtering "Move to" menu)
     var currentWorkspaceIdProvider: (() -> UUID?)?
@@ -260,9 +265,6 @@ final class NodeListViewController: NSViewController {
         collectionView.registerForDraggedTypes([nodePasteboardType])
         collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
 
-        collectionView.onContextRequest = { [weak self] indexPath in
-            self?.contextIndexPath = indexPath
-        }
         collectionView.onDragExit = { [weak self] in
             self?.hideDropIndicator()
         }
@@ -273,9 +275,6 @@ final class NodeListViewController: NSViewController {
 
         dropIndicator.isHidden = true
         collectionView.addSubview(dropIndicator)
-
-        contextMenu.delegate = self
-        collectionView.menu = contextMenu
     }
 
     private func setupScrollView() {
@@ -1085,16 +1084,11 @@ final class NodeListViewController: NSViewController {
     private func showContextMenu(forRowAt index: Int) {
         let indexPath = IndexPath(item: index, section: 0)
         guard let frame = frameForItem(at: indexPath) else { return }
-        contextIndexPath = indexPath
         if let node = visibleRows[index].node {
             isBulkContextMenu = selectedNodeIds.contains(node.id) && !selectedNodeIds.isEmpty
         }
-        contextMenu.popUp(positioning: nil, at: NSPoint(x: frame.minX + 40, y: frame.maxY), in: collectionView)
+        contextMenu(at: indexPath)?.popUp(positioning: nil, at: NSPoint(x: frame.minX + 40, y: frame.maxY), in: collectionView)
     }
-
-    /// Shown in context menus as hints for the list's keyboard shortcuts (F2, ⌘⌫).
-    fileprivate static let renameKey = String(Character(UnicodeScalar(NSF2FunctionKey)!))
-    fileprivate static let archiveKey = String(Character(UnicodeScalar(NSBackspaceCharacter)!))
 
     // MARK: - Drop Indicator
 
@@ -1253,7 +1247,6 @@ extension NodeListViewController {
         let title: String
         var isOpen = false
         var codePreview: String?
-        var shouldFetchFavicon: URL?
         switch node {
         case .folder(let folder):
             title = folder.name
@@ -1265,7 +1258,7 @@ extension NodeListViewController {
                let image = NSImage(contentsOfFile: path) {
                 favicon = image
             } else {
-                shouldFetchFavicon = URL(string: link.url)
+                FaviconPrefetcher.shared.request(links: [link], in: currentWorkspaceIdProvider?())
             }
             title = link.title
             kind = .link(favicon: favicon, domain: link.displayDomain)
@@ -1286,12 +1279,6 @@ extension NodeListViewController {
         if let tileItem = item as? NodeTileItem {
             tileItem.configure(content: content, metrics: listMetrics, isSelected: isSelected)
             tileItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
-            if let url = shouldFetchFavicon, case .link(let link) = node {
-                FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
-                    guard let path else { return }
-                    NotificationCenter.default.post(name: .init("UpdateLinkFavicon"), object: nil, userInfo: ["linkId": link.id, "path": path])
-                }
-            }
             return tileItem
         }
         guard let nodeItem = item as? NodeCollectionViewItem else { return item }
@@ -1323,17 +1310,6 @@ extension NodeListViewController {
             }
         } else {
             nodeItem.onDisclosure = nil
-        }
-
-        if let url = shouldFetchFavicon, case .link(let link) = node {
-            FaviconService.shared.favicon(for: url, cachedPath: link.faviconPath) { _, path in
-                guard let path else { return }
-                NotificationCenter.default.post(
-                    name: .init("UpdateLinkFavicon"),
-                    object: nil,
-                    userInfo: ["linkId": link.id, "path": path]
-                )
-            }
         }
 
         nodeItem.setKeyboardFocused(listHasFocus && row.id == keyboardCursorId)
@@ -1623,233 +1599,43 @@ extension NodeListViewController: NSCollectionViewDelegate {
     }
 }
 
-// MARK: - NSMenuDelegate
+// MARK: - Context menus
 
-extension NodeListViewController: NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-
-        // Check for bulk selection context menu
-        if isBulkContextMenu && selectedNodeIds.count > 0 {
+extension NodeListViewController: NewItemMenuTarget {
+    /// The menu for a right-click (or ⌥↩) at `indexPath`: the selection's bulk menu, an
+    /// archived item's menu, the item's NodeMenu, or the New… menu on the background.
+    func contextMenu(at indexPath: IndexPath?) -> NSMenu? {
+        if isBulkContextMenu && !selectedNodeIds.isEmpty {
+            let menu = NSMenu()
             populateBulkContextMenu(menu)
-            return
+            return menu
         }
-
-        guard let indexPath = contextIndexPath,
-              let row = row(at: indexPath),
-              let node = row.node else {
-            // No archive header context menu either
-            if let indexPath = contextIndexPath, let row = row(at: indexPath),
-               case .archiveHeader = row.kind {
-                return
-            }
-            let newFolder = NSMenuItem(title: "New folder…", action: #selector(contextNewFolder), keyEquivalent: "")
-            newFolder.target = self
-            menu.addItem(newFolder)
-
-            let newTask = NSMenuItem(title: "New task…", action: #selector(contextNewTask), keyEquivalent: "")
-            newTask.target = self
-            menu.addItem(newTask)
-
-            let newSnippet = NSMenuItem(title: "New snippet…", action: #selector(contextNewSnippet), keyEquivalent: "")
-            newSnippet.target = self
-            menu.addItem(newSnippet)
-
-            menu.addItem(.separator())
-            let newWorkspace = NSMenuItem(title: "New workspace…", action: #selector(contextNewWorkspace), keyEquivalent: "")
-            newWorkspace.target = self
-            menu.addItem(newWorkspace)
-            return
+        guard let indexPath, let row = row(at: indexPath) else {
+            return NewItemMenu.make(includePaste: false, includeImport: false, target: self)
         }
-
-        // Archived items get a different context menu
+        guard let node = row.node else {
+            if case .archiveHeader = row.kind { return nil }
+            return NewItemMenu.make(includePaste: false, includeImport: false, target: self)
+        }
         if case .archived = row.kind {
+            let menu = NSMenu()
             let unarchive = NSMenuItem(title: "Unarchive", action: #selector(contextUnarchive(_:)), keyEquivalent: "")
             unarchive.target = self
             unarchive.representedObject = node.id
             menu.addItem(unarchive)
-
-            let permDelete = NSMenuItem(title: "Delete Permanently", action: #selector(contextPermanentlyDelete(_:)), keyEquivalent: "")
+            let permDelete = NSMenuItem(title: "Delete permanently", action: #selector(contextPermanentlyDelete(_:)), keyEquivalent: "")
             permDelete.target = self
             permDelete.representedObject = node.id
             menu.addItem(permDelete)
-            return
+            return menu
         }
-
-        // Common items helper
-        func addMoveToSubmenu() {
-            let moveMenu = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
-            let submenu = NSMenu()
-            var hasWorkspaceItems = false
-            let currentWsId = currentWorkspaceIdProvider?()
-            if let workspaces = workspacesProvider?() {
-                for workspace in workspaces where workspace.id != currentWsId {
-                    let item = NSMenuItem(title: workspace.name, action: #selector(contextMoveToWorkspace), keyEquivalent: "")
-                    item.target = self
-                    item.representedObject = ["nodeId": node.id, "workspaceId": workspace.id]
-                    submenu.addItem(item)
-                    hasWorkspaceItems = true
-                }
-            }
-            if hasWorkspaceItems {
-                submenu.addItem(NSMenuItem.separator())
-            }
-            let newWorkspaceItem = NSMenuItem(title: "New workspace…", action: #selector(contextMoveToNewWorkspace(_:)), keyEquivalent: "")
-            newWorkspaceItem.target = self
-            newWorkspaceItem.representedObject = [node.id]
-            submenu.addItem(newWorkspaceItem)
-
-            let newFolderItem = NSMenuItem(title: "New folder", action: #selector(contextMoveToNewFolder(_:)), keyEquivalent: "")
-            newFolderItem.target = self
-            newFolderItem.representedObject = [node.id]
-            submenu.addItem(newFolderItem)
-
-            moveMenu.submenu = submenu
-            menu.addItem(moveMenu)
-        }
-
-        switch node {
-        case .folder(let folder):
-            let newNested = NSMenuItem(title: "New folder inside…", action: #selector(contextNewNestedFolder(_:)), keyEquivalent: "")
-            newNested.target = self
-            newNested.representedObject = node.id
-            menu.addItem(newNested)
-
-            // Count links in folder
-            let folderLinkCount = countLinksInFolder(folder)
-            if folderLinkCount > 0 {
-                let openAll = NSMenuItem(title: "Open All Links", action: #selector(contextOpenFolderLinks(_:)), keyEquivalent: "")
-                openAll.target = self
-                openAll.representedObject = folder.id
-                menu.addItem(openAll)
-            }
-
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
-            rename.keyEquivalentModifierMask = []
-            rename.target = self
-            menu.addItem(rename)
-
-            addMoveToSubmenu()
-
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
-            archive.target = self
-            archive.representedObject = node.id
-            menu.addItem(archive)
-        case .link(let link):
-            let openIn = NSMenuItem(title: "Open in", action: nil, keyEquivalent: "")
-            openIn.submenu = OpensInMenu.make(current: nil, includeBrowserImUsing: false) { [weak self] choice in
-                guard let choice else { return }
-                self?.onOpenLinkIn?(link, choice)
-            }
-            menu.addItem(openIn)
-            menu.addItem(.separator())
-
-            let editUrl = NSMenuItem(title: "Edit URL…", action: #selector(contextEditUrl(_:)), keyEquivalent: "")
-            editUrl.target = self
-            editUrl.representedObject = ["nodeId": link.id, "currentUrl": link.url]
-            menu.addItem(editUrl)
-
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
-            rename.keyEquivalentModifierMask = []
-            rename.target = self
-            menu.addItem(rename)
-
-            addMoveToSubmenu()
-
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
-            archive.target = self
-            archive.representedObject = node.id
-            menu.addItem(archive)
-        case .task(let task):
-            let toggleTitle = task.isCompleted ? "Mark incomplete" : "Mark complete"
-            let toggle = NSMenuItem(title: toggleTitle, action: #selector(contextToggleTask), keyEquivalent: "")
-            toggle.target = self
-            toggle.representedObject = node.id
-            menu.addItem(toggle)
-
-            let dueDate = NSMenuItem(title: "Set due date…", action: #selector(contextSetDueDate), keyEquivalent: "")
-            dueDate.target = self
-            dueDate.representedObject = node.id
-            menu.addItem(dueDate)
-
-            if task.dueDate != nil {
-                let clearDueDate = NSMenuItem(title: "Clear due date", action: #selector(contextClearDueDate), keyEquivalent: "")
-                clearDueDate.target = self
-                clearDueDate.representedObject = node.id
-                menu.addItem(clearDueDate)
-            }
-
-            menu.addItem(NSMenuItem.separator())
-
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
-            rename.keyEquivalentModifierMask = []
-            rename.target = self
-            menu.addItem(rename)
-
-            addMoveToSubmenu()
-
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
-            archive.target = self
-            archive.representedObject = node.id
-            menu.addItem(archive)
-        case .snippet:
-            let copyContent = NSMenuItem(title: "Copy content", action: #selector(contextCopySnippet), keyEquivalent: "")
-            copyContent.target = self
-            copyContent.representedObject = node.id
-            menu.addItem(copyContent)
-
-            let editSnippet = NSMenuItem(title: "Edit snippet…", action: #selector(contextEditSnippet), keyEquivalent: "")
-            editSnippet.target = self
-            editSnippet.representedObject = node.id
-            menu.addItem(editSnippet)
-
-            menu.addItem(NSMenuItem.separator())
-
-            let rename = NSMenuItem(title: "Rename…", action: #selector(contextRename), keyEquivalent: Self.renameKey)
-            rename.keyEquivalentModifierMask = []
-            rename.target = self
-            menu.addItem(rename)
-
-            addMoveToSubmenu()
-
-            let archive = NSMenuItem(title: "Archive", action: #selector(contextDelete), keyEquivalent: Self.archiveKey)
-            archive.target = self
-            archive.representedObject = node.id
-            menu.addItem(archive)
-        }
+        return nodeMenuProvider?(node)
     }
 
-    @objc private func contextNewFolder() {
-        onNewFolderRequested?(nil)
-    }
-
-    @objc private func contextNewTask() {
-        onNewTaskRequested?(nil)
-    }
-
-    @objc private func contextNewSnippet() {
-        onNewSnippetRequested?(nil)
-    }
-
-    @objc private func contextNewWorkspace() {
-        onNewWorkspaceRequested?()
-    }
-
-    @objc private func contextNewNestedFolder(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onNewFolderRequested?(nodeId)
-    }
-
-    @objc private func contextRename() {
-        guard let indexPath = contextIndexPath,
-              let row = row(at: indexPath) else { return }
-        beginInlineRename(nodeId: row.id, indexPath: indexPath)
-    }
-
-    @objc private func contextDelete(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onNodeDeleted?(nodeId)
-    }
+    func newFolderFromMenu(_ sender: Any?) { onNewFolderRequested?(nil) }
+    func newTaskFromMenu(_ sender: Any?) { onNewTaskRequested?(nil) }
+    func newSnippetFromMenu(_ sender: Any?) { onNewSnippetRequested?(nil) }
+    func newWorkspaceFromMenu(_ sender: Any?) { onNewWorkspaceRequested?() }
 
     @objc private func contextUnarchive(_ sender: NSMenuItem) {
         guard let nodeId = sender.representedObject as? UUID else { return }
@@ -1861,48 +1647,42 @@ extension NodeListViewController: NSMenuDelegate {
         onNodePermanentlyDeleted?(nodeId)
     }
 
-    @objc private func contextMoveToWorkspace(_ sender: NSMenuItem) {
-        guard let dict = sender.representedObject as? [String: UUID],
-              let nodeId = dict["nodeId"],
-              let workspaceId = dict["workspaceId"] else { return }
-        onNodeMovedToWorkspace?(nodeId, workspaceId)
+    // MARK: Rename and Edit URL
+
+    /// Renames in place on a list row; anywhere a row can't edit its own title (a mosaic
+    /// tile), in the rename flyout beside it.
+    func beginRename(for nodeId: UUID) {
+        guard let index = visibleRows.firstIndex(where: { $0.id == nodeId }) else { return }
+        let indexPath = IndexPath(item: index, section: 0)
+        if collectionView.item(at: indexPath) is NodeCollectionViewItem {
+            beginInlineRename(nodeId: nodeId, indexPath: indexPath)
+        } else {
+            presentRenameFlyout(for: nodeId)
+        }
     }
 
-    @objc private func contextMoveToNewWorkspace(_ sender: NSMenuItem) {
-        guard let nodeIds = sender.representedObject as? [UUID] else { return }
-        onMoveToNewWorkspace?(nodeIds)
+    /// The rename flyout beside the item's row or tile, or beside `anchor` (a rail cell).
+    @discardableResult
+    func presentRenameFlyout(for nodeId: UUID, from anchor: NSView? = nil) -> TextFieldFlyout? {
+        guard let node = findNodeById?(nodeId), let anchor = anchor ?? rowAnchorView(for: nodeId) else { return nil }
+        return TextFieldFlyout.present(in: flyouts, title: "Rename", value: node.displayName, placeholder: "Name",
+                                       from: anchor, onSave: { [weak self] name in
+                                           guard name != node.displayName else { return }
+                                           self?.onNodeRenamed?(nodeId, name)
+                                       })
     }
 
-    @objc private func contextMoveToNewFolder(_ sender: NSMenuItem) {
-        guard let nodeIds = sender.representedObject as? [UUID] else { return }
-        onMoveToNewFolder?(nodeIds)
+    /// Edit URL… in a flyout beside the link's row (or `anchor`), instead of an app-modal alert.
+    @discardableResult
+    func presentEditURLFlyout(for nodeId: UUID, from anchor: NSView? = nil) -> TextFieldFlyout? {
+        guard case .link(let link)? = findNodeById?(nodeId), let anchor = anchor ?? rowAnchorView(for: nodeId) else { return nil }
+        return TextFieldFlyout.present(in: flyouts, title: "Edit URL", detail: link.title, value: link.url,
+                                       placeholder: "https://", monospaced: true, from: anchor,
+                                       onSave: { [weak self] url in
+                                           guard url != link.url else { return }
+                                           self?.onLinkUrlEdited?(nodeId, url)
+                                       })
     }
-
-    @objc private func contextToggleTask(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onTaskToggled?(nodeId)
-    }
-
-    @objc private func contextSetDueDate(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onTaskDueDateRequested?(nodeId)
-    }
-
-    @objc private func contextClearDueDate(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onTaskDueDateCleared?(nodeId)
-    }
-
-    @objc private func contextCopySnippet(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onSnippetClicked?(nodeId)
-    }
-
-    @objc private func contextEditSnippet(_ sender: NSMenuItem) {
-        guard let nodeId = sender.representedObject as? UUID else { return }
-        onSnippetEditRequested?(nodeId)
-    }
-
     private func populateBulkContextMenu(_ menu: NSMenu) {
         let count = selectedNodeIds.count
 
@@ -2009,40 +1789,6 @@ extension NodeListViewController: NSMenuDelegate {
         guard !nodeIds.isEmpty else { return }
         onBulkOpenLinks?(nodeIds)
         clearSelections()
-    }
-
-    @objc private func contextEditUrl(_ sender: NSMenuItem) {
-        guard let dict = sender.representedObject as? [String: Any],
-              let nodeId = dict["nodeId"] as? UUID,
-              let currentUrl = dict["currentUrl"] as? String else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Edit URL"
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.stringValue = currentUrl
-        textField.isEditable = true
-        textField.isSelectable = true
-        alert.accessoryView = textField
-
-        alert.window.initialFirstResponder = textField
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            let newUrl = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !newUrl.isEmpty, newUrl != currentUrl else { return }
-            onLinkUrlEdited?(nodeId, newUrl)
-        }
-    }
-
-    @objc private func contextOpenFolderLinks(_ sender: NSMenuItem) {
-        guard let folderId = sender.representedObject as? UUID else { return }
-        onOpenFolderLinks?(folderId)
-    }
-
-    private func countLinksInFolder(_ folder: Folder) -> Int {
-        folder.children.flattenLinks().count
     }
 
     @objc private func bulkDelete() {
@@ -2168,7 +1914,6 @@ private final class DropIndicatorView: NSView {
 }
 
 private final class ContextMenuCollectionView: NSCollectionView {
-    var onContextRequest: ((IndexPath?) -> Void)?
     var onDragExit: (() -> Void)?
     var onBackgroundClick: (() -> Void)?
     weak var parentViewController: NodeListViewController?
@@ -2208,8 +1953,7 @@ private final class ContextMenuCollectionView: NSCollectionView {
             }
         }
 
-        onContextRequest?(indexPath)
-        return menu
+        return parentViewController?.contextMenu(at: indexPath)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
