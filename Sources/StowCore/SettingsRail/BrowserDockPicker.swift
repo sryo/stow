@@ -1,180 +1,311 @@
 import AppKit
 
-/// "With your browser": a small browser window with four clickable edges. Left and right
-/// attach the sidebar there; top and bottom dock the Tabline on that edge. Clicking the
-/// selected edge again detaches. Arrow keys move between edges, Space or Return chooses,
-/// Delete detaches.
+/// The edge picker that opens under Attached: a small browser window with four clickable
+/// edges, and beside it what the edge does. Left and right attach the sidebar there; top
+/// and bottom put the Tabline on that edge and ask nothing more. The sides are drawn as
+/// panels and the top and bottom as tab strips, so it's clear before you click.
 ///
-/// Its whole API is `dock` in and `onChange` out, so the drawing can be replaced without
-/// touching AppPreferences.
+/// Hovering an edge previews its caption. Arrow keys choose the edge they point at (↑
+/// top, ↓ bottom, ← left, → right); Space or Return chooses the focused one. Its API is
+/// `dock` in and `onChange` out.
 @MainActor
 final class BrowserDockPicker: NSView {
-    enum Key { case up, down, left, right, select, clear }
+    enum Key { case up, down, left, right, select }
 
-    static let edges: [BrowserDock] = [.left, .right, .top, .bottom]
-    static let preferredHeight: CGFloat = 112
-    /// Room around the window drawing for the docked sidebar and Tabline.
-    private static let margin: CGFloat = 16
-    private static let sideMargin: CGFloat = 32
+    /// VoiceOver and drawing order: top, left, right, bottom, as in the design.
+    static let order: [BrowserDock] = [.top, .left, .right, .bottom]
 
-    var dock: BrowserDock = .none { didSet { if dock != oldValue { stateChanged() } } }
-    /// The workspace accent the selected edge is drawn in.
-    var accent: NSColor = .controlAccentColor { didSet { needsDisplay = true } }
+    var dock: BrowserDock = .left { didSet { if dock != oldValue { stateChanged() } } }
+    /// Accessibility is missing: the chosen edge is drawn dashed amber.
+    var isWaiting = false { didSet { if isWaiting != oldValue { needsDisplay = true } } }
+    var surface: PlacementColors.Surface = .flyout { didSet { refreshCaption(); needsDisplay = true } }
+    /// The sheet's smaller drawing (96×66) or the page's (104×70).
+    var compact = true { didSet { if compact != oldValue { needsLayout = true; needsDisplay = true } } }
     var onChange: ((BrowserDock) -> Void)?
+    var onHeightChange: (() -> Void)?
 
+    var hoveredEdge: BrowserDock? { didSet { if hoveredEdge != oldValue { refreshCaption(); needsDisplay = true } } }
     private(set) var focusedEdge: BrowserDock?
-    private var hoveredEdge: BrowserDock? { didSet { if hoveredEdge != oldValue { needsDisplay = true } } }
-    private var isFocused = false
-    private var tracking: NSTrackingArea?
-    private lazy var edgeElements: [EdgeElement] = Self.edges.map { EdgeElement(edge: $0, picker: self) }
+    private var hasFocus = false
+    private var focusVisible = false
+    private let captionText = PlacementText()
+    private lazy var edgeElements: [EdgeElement] = Self.order.map { EdgeElement(edge: $0, picker: self) }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         focusRingType = .none
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        addSubview(captionText)
         setAccessibilityElement(true)
         setAccessibilityRole(.radioGroup)
-        setAccessibilityLabel("With your browser")
+        setAccessibilityLabel(WindowPlacementCopy.edgeGroup)
         stateChanged()
     }
 
-    convenience init() { self.init(frame: NSRect(x: 0, y: 0, width: 240, height: Self.preferredHeight)) }
+    convenience init() { self.init(frame: NSRect(x: 0, y: 0, width: 252, height: 91)) }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var isFlipped: Bool { true }
 
-    // MARK: Choosing
+    var showsFocusRing: Bool { hasFocus && focusVisible }
 
-    /// What a click or Space on `edge` does: choose it, or detach if it's already chosen.
-    func choose(_ edge: BrowserDock) {
-        focusedEdge = edge
-        onChange?(edge == dock ? .none : edge)
+    // MARK: Caption
+
+    struct Caption: Equatable { var title: String; var detail: String; var hint: String }
+
+    /// The hovered edge's words, else the chosen edge's.
+    var caption: Caption {
+        let edge = hoveredEdge ?? dock
+        return Caption(title: WindowPlacementCopy.edgeTitle(edge), detail: WindowPlacementCopy.edgeDetail(edge),
+                       hint: WindowPlacementCopy.edgeHint(edge))
     }
 
-    func handleKey(_ key: Key) {
-        switch key {
-        case .up: focus(.top)
-        case .down: focus(.bottom)
-        case .left: focus(.left)
-        case .right: focus(.right)
-        case .select: if let focusedEdge { choose(focusedEdge) }
-        case .clear: if dock != .none { onChange?(.none) }
-        }
-    }
-
-    private func focus(_ edge: BrowserDock) {
-        focusedEdge = edge
-        needsDisplay = true
-        if let element = edgeElements.first(where: { $0.edge == edge }) {
-            NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
-        }
+    private func refreshCaption() {
+        let words = caption
+        let ink2 = PlacementColors.inkSecondary(surface)
+        captionText.paragraphs = [
+            .init(runs: [PlacementRun(text: words.title, font: PlacementFonts.ui(11.5, 650), color: PlacementColors.ink(surface))], lineHeight: 15),
+            .init(runs: [PlacementRun(text: words.detail, font: PlacementFonts.ui(11.5), color: ink2)], lineHeight: 15),
+            .init(runs: [PlacementRun(text: words.hint, font: PlacementFonts.ui(10.5), color: ink2)], lineHeight: 13, spacingBefore: 4),
+        ]
+        needsLayout = true
+        onHeightChange?()
     }
 
     private func stateChanged() {
         for element in edgeElements { element.setAccessibilityValue(NSNumber(value: element.edge == dock)) }
+        refreshCaption()
         needsDisplay = true
     }
 
     // MARK: Geometry
 
-    /// The browser window drawing inside `bounds`.
-    var windowRect: NSRect {
-        let m = Self.margin
-        let width = min(bounds.width - Self.sideMargin * 2, 200)
-        return NSRect(x: (bounds.width - width) / 2, y: m, width: width, height: bounds.height - m * 2)
+    /// The drawing's size: .eb.
+    static func drawingSize(compact: Bool) -> NSSize {
+        compact ? NSSize(width: 96, height: 66) : NSSize(width: 104, height: 70)
     }
 
-    /// The edge under `point` (flipped coordinates), or nil for the middle of the window
-    /// and anywhere outside it and its margin.
-    static func edge(at point: NSPoint, window: NSRect) -> BrowserDock? {
-        guard window.insetBy(dx: -sideMargin, dy: -margin).contains(point) else { return nil }
-        let thickness = 0.28 * min(window.width, window.height)
-        let distances: [(BrowserDock, CGFloat)] = [
-            (.left, point.x - window.minX), (.right, window.maxX - point.x),
-            (.top, point.y - window.minY), (.bottom, window.maxY - point.y),
+    /// The browser window in the drawing: .ebw.
+    static func windowRect(compact: Bool) -> NSRect {
+        compact ? NSRect(x: 20, y: 15, width: 56, height: 36) : NSRect(x: 22, y: 16, width: 60, height: 38)
+    }
+
+    /// Each edge's clickable zone in the drawing: .ez.
+    static func zones(compact: Bool) -> [BrowserDock: NSRect] {
+        let size = drawingSize(compact: compact)
+        let window = windowRect(compact: compact)
+        let side: CGFloat = 13, inset: CGFloat = compact ? 4 : 5, strip: CGFloat = compact ? 9 : 10
+        return [
+            .left: NSRect(x: inset, y: window.minY, width: side, height: window.height),
+            .right: NSRect(x: size.width - inset - side, y: window.minY, width: side, height: window.height),
+            .top: NSRect(x: window.minX, y: 3, width: window.width, height: strip),
+            .bottom: NSRect(x: window.minX, y: size.height - 3 - strip, width: window.width, height: strip),
         ]
-        guard let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= thickness else { return nil }
-        return nearest.0
     }
 
-    /// Where the docked sidebar or Tabline is drawn for `edge`.
-    private func dockRect(_ edge: BrowserDock) -> NSRect {
-        let w = windowRect
-        let side: CGFloat = 26, strip: CGFloat = 9, gap: CGFloat = 3
-        switch edge {
-        case .left: return NSRect(x: w.minX - side - gap, y: w.minY, width: side, height: w.height)
-        case .right: return NSRect(x: w.maxX + gap, y: w.minY, width: side, height: w.height)
-        case .top: return NSRect(x: w.minX, y: w.minY - strip - gap, width: w.width, height: strip)
-        case .bottom: return NSRect(x: w.minX, y: w.maxY + gap, width: w.width, height: strip)
-        case .none: return .zero
+    /// The edge under `point`, in the drawing's coordinates: a zone, with 3pt of slack
+    /// around the thin strips; the nearest zone wins where the slack overlaps.
+    static func edge(at point: NSPoint, compact: Bool) -> BrowserDock? {
+        let hits = zones(compact: compact).filter { $0.value.insetBy(dx: -3, dy: -3).contains(point) }
+        func distance(_ rect: NSRect) -> CGFloat {
+            let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+            let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+            return dx * dx + dy * dy
+        }
+        return hits.min { distance($0.value) < distance($1.value) }?.key
+    }
+
+    /// Where the drawing sits in the picker: 8pt in, centered on the caption.
+    private var drawingOrigin: NSPoint {
+        let size = Self.drawingSize(compact: compact)
+        return NSPoint(x: 8, y: (bounds.height - size.height) / 2)
+    }
+
+    private func captionWidth(_ width: CGFloat, compact: Bool) -> CGFloat {
+        width - 8 - Self.drawingSize(compact: compact).width - 10 - 8
+    }
+
+    func height(forWidth width: CGFloat, compact: Bool) -> CGFloat {
+        8 + max(Self.drawingSize(compact: compact).height, captionText.height(forWidth: captionWidth(width, compact: compact))) + 8
+    }
+
+    override func layout() {
+        super.layout()
+        let width = captionWidth(bounds.width, compact: compact)
+        let h = captionText.height(forWidth: width)
+        captionText.frame = NSRect(x: 8 + Self.drawingSize(compact: compact).width + 10, y: ((bounds.height - h) / 2).rounded(.down),
+                                   width: width, height: h)
+    }
+
+    private func zoneInView(_ edge: BrowserDock) -> NSRect {
+        let origin = drawingOrigin
+        return (Self.zones(compact: compact)[edge] ?? .zero).offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    private func edge(atViewPoint point: NSPoint) -> BrowserDock? {
+        let origin = drawingOrigin
+        return Self.edge(at: NSPoint(x: point.x - origin.x, y: point.y - origin.y), compact: compact)
+    }
+
+    // MARK: Choosing
+
+    /// A click, Space or VoiceOver press on `edge`. Choosing the chosen edge again keeps
+    /// it (and asks for Accessibility again if it's still missing).
+    func choose(_ edge: BrowserDock) {
+        focusedEdge = edge
+        onChange?(edge)
+        needsDisplay = true
+    }
+
+    func handleKey(_ key: Key) {
+        switch key {
+        case .up: choose(.top)
+        case .down: choose(.bottom)
+        case .left: choose(.left)
+        case .right: choose(.right)
+        case .select: choose(focusedEdge ?? dock)
+        }
+        if let focusedEdge, let element = edgeElements.first(where: { $0.edge == focusedEdge }) {
+            NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
         }
     }
 
     // MARK: Drawing
 
+    override var wantsUpdateLayer: Bool { false }
+
     override func draw(_ dirtyRect: NSRect) {
-        let w = windowRect
-        let body = NSBezierPath(roundedRect: w, xRadius: 6, yRadius: 6)
-        FlyoutColors.background.setFill()
-        body.fill()
-        FlyoutColors.field.setFill()
-        body.fill()
+        layer?.backgroundColor = placementCG(PlacementColors.field(surface))
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let origin = drawingOrigin
+        context.saveGState()
+        context.translateBy(x: origin.x, y: origin.y)
+        drawWindow(context)
+        for edge in Self.order { drawZone(edge, context) }
+        context.restoreGState()
+    }
 
-        // Title bar with traffic lights, then a tab strip.
-        let titleBar = NSRect(x: w.minX, y: w.minY, width: w.width, height: 12)
-        for (i, color) in [NSColor.systemRed, .systemYellow, .systemGreen].enumerated() {
-            color.withAlphaComponent(0.85).setFill()
-            NSBezierPath(ovalIn: NSRect(x: w.minX + 6 + CGFloat(i) * 7, y: titleBar.midY - 2.5, width: 5, height: 5)).fill()
+    private func drawWindow(_ context: CGContext) {
+        let w = Self.windowRect(compact: compact)
+        let path = CGPath(roundedRect: w, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        // box-shadow: 0 0 0 .5px var(--w-edge), 0 1px 3px rgba(0,0,0,.12)
+        context.saveGState()
+        context.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: NSColor(white: 0, alpha: 0.12).cgColor)
+        context.setFillColor(placementCG(PlacementColors.browser))
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
+        context.setStrokeColor(placementCG(PlacementColors.edge))
+        context.setLineWidth(0.5)
+        context.addPath(CGPath(roundedRect: w.insetBy(dx: -0.25, dy: -0.25), cornerWidth: 4.25, cornerHeight: 4.25, transform: nil))
+        context.strokePath()
+        context.saveGState()
+        context.addPath(path)
+        context.clip()
+        context.setFillColor(placementCG(PlacementColors.bar))
+        context.fill(CGRect(x: w.minX, y: w.minY, width: w.width, height: 7))
+        context.setFillColor(placementCG(PlacementColors.edge))
+        for x: CGFloat in [3, 7, 11] {
+            context.fillEllipse(in: CGRect(x: w.minX + x, y: w.minY + 2.5, width: 2.5, height: 2.5))
         }
-        FlyoutColors.line.setFill()
-        for i in 0..<3 {
-            let tab = NSRect(x: w.minX + 30 + CGFloat(i) * 34, y: titleBar.minY + 3, width: 30, height: 6)
-            NSBezierPath(roundedRect: tab, xRadius: 2, yRadius: 2).fill()
+        context.setFillColor(placementCG(PlacementColors.textLine))
+        for (top, right) in [(12, 10), (18, 20), (24, 10)] as [(CGFloat, CGFloat)] {
+            let line = CGRect(x: w.minX + 6, y: w.minY + top, width: w.width - 6 - right, height: 2.5)
+            context.addPath(CGPath(roundedRect: line, cornerWidth: 1.25, cornerHeight: 1.25, transform: nil))
+            context.fillPath()
         }
-        NSRect(x: w.minX, y: titleBar.maxY, width: w.width, height: 1).fill()
+        context.restoreGState()
+    }
 
-        FlyoutColors.line.setStroke()
-        let edge = NSBezierPath(roundedRect: w.insetBy(dx: 0.5, dy: 0.5), xRadius: 5.5, yRadius: 5.5)
-        edge.lineWidth = 1
-        edge.stroke()
-
-        if let hoveredEdge, hoveredEdge != dock { drawDock(hoveredEdge, alpha: 0.3) }
-        if dock != .none { drawDock(dock, alpha: 1) }
-
-        if isFocused, let focusedEdge {
-            accent.setStroke()
-            let ring = NSBezierPath(roundedRect: dockRect(focusedEdge).insetBy(dx: -2, dy: -2), xRadius: 4, yRadius: 4)
-            ring.lineWidth = 2
-            ring.stroke()
+    private func drawZone(_ edge: BrowserDock, _ context: CGContext) {
+        guard let zone = Self.zones(compact: compact)[edge] else { return }
+        let chosen = edge == dock
+        let hovered = edge == hoveredEdge
+        let focused = showsFocusRing && edge == (focusedEdge ?? dock)
+        let radius: CGFloat = 3.5
+        if focused {
+            // box-shadow: 0 0 0 3px var(--focus), outside the zone.
+            let ring = CGMutablePath()
+            ring.addRoundedRect(in: zone.insetBy(dx: -3, dy: -3), cornerWidth: radius + 3, cornerHeight: radius + 3)
+            ring.addRoundedRect(in: zone, cornerWidth: radius, cornerHeight: radius)
+            context.addPath(ring)
+            context.setFillColor(placementCG(PlacementColors.focus))
+            context.fillPath(using: .evenOdd)
+        }
+        if chosen {
+            if isWaiting {
+                // .ez.on.wn: a 1.5px dashed amber border, the stripes at a third.
+                context.setStrokeColor(placementCG(PlacementColors.warning))
+                context.setLineWidth(1.5)
+                context.setLineDash(phase: 0, lengths: [4.5, 3])
+                context.addPath(CGPath(roundedRect: zone.insetBy(dx: 0.75, dy: 0.75), cornerWidth: radius - 0.75, cornerHeight: radius - 0.75,
+                                       transform: nil))
+                context.strokePath()
+                context.setLineDash(phase: 0, lengths: [])
+                drawStripes(edge, in: zone.insetBy(dx: 1.5, dy: 1.5), opacity: 0.35, context)
+            } else {
+                let path = CGPath(roundedRect: zone, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                context.setFillColor(placementCG(PlacementColors.stow))
+                context.addPath(path)
+                context.fillPath()
+                // inset 0 0 0 1px var(--w-edge)
+                context.setStrokeColor(placementCG(PlacementColors.edge))
+                context.setLineWidth(1)
+                context.addPath(CGPath(roundedRect: zone.insetBy(dx: 0.5, dy: 0.5), cornerWidth: radius - 0.5, cornerHeight: radius - 0.5,
+                                       transform: nil))
+                context.strokePath()
+                drawStripes(edge, in: zone, opacity: 1, context)
+            }
+            return
+        }
+        let inner = CGPath(roundedRect: zone.insetBy(dx: 0.5, dy: 0.5), cornerWidth: radius - 0.5, cornerHeight: radius - 0.5, transform: nil)
+        if hovered {
+            context.setFillColor(placementCG(PlacementColors.hover(surface)))
+            context.addPath(CGPath(roundedRect: zone, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            context.fillPath()
+            context.setStrokeColor(placementCG(PlacementColors.ink(surface)))
+            context.setLineWidth(1)
+            context.addPath(inner)
+            context.strokePath()
+        } else {
+            // A 1px dashed border in ink2 at 75%, like the CSS default.
+            let ink2 = PlacementColors.inkSecondary(surface)
+            context.setStrokeColor(placementCG(ink2.withAlphaComponent(ink2.alphaComponent * (focused ? 1 : 0.75))))
+            context.setLineWidth(1)
+            context.setLineDash(phase: 0, lengths: [3, 2])
+            context.addPath(inner)
+            context.strokePath()
+            context.setLineDash(phase: 0, lengths: [])
         }
     }
 
-    private func drawDock(_ edge: BrowserDock, alpha: CGFloat) {
-        let rect = dockRect(edge)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
-        accent.withAlphaComponent(0.28 * alpha).setFill()
-        path.fill()
-        accent.withAlphaComponent(alpha).setStroke()
-        path.lineWidth = 1
-        path.stroke()
-        accent.withAlphaComponent(0.7 * alpha).setFill()
+    /// The chosen edge's content: rows of links in a side panel (1.5pt lines every 5pt,
+    /// 3pt in), tabs in a strip (4pt bars every 7pt, 2.5pt by 4pt in).
+    private func drawStripes(_ edge: BrowserDock, in zone: NSRect, opacity: CGFloat, _ context: CGContext) {
+        let ink = PlacementColors.stowInk
+        context.setFillColor(placementCG(ink.withAlphaComponent(ink.alphaComponent * opacity)))
         if edge.isSidebar {
-            // A few rows of links.
-            for i in 0..<4 {
-                NSRect(x: rect.minX + 5, y: rect.minY + 7 + CGFloat(i) * 8, width: rect.width - 10, height: 3).fill()
+            let area = zone.insetBy(dx: 3, dy: 3)
+            var y = area.minY
+            while y < area.maxY {
+                context.fill(CGRect(x: area.minX, y: y, width: area.width, height: min(1.5, area.maxY - y)))
+                y += 5
             }
         } else {
-            // A few tabs.
-            for i in 0..<4 {
-                let tab = NSRect(x: rect.minX + 6 + CGFloat(i) * 30, y: rect.minY + 2.5, width: 24, height: rect.height - 5)
-                guard tab.maxX < rect.maxX - 4 else { break }
-                NSBezierPath(roundedRect: tab, xRadius: 1.5, yRadius: 1.5).fill()
+            let area = zone.insetBy(dx: 4, dy: 2.5)
+            var x = area.minX
+            while x < area.maxX {
+                context.fill(CGRect(x: x, y: area.minY, width: min(4, area.maxX - x), height: area.height))
+                x += 7
             }
         }
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        refreshCaption()
         needsDisplay = true
     }
 
@@ -182,91 +313,72 @@ final class BrowserDockPicker: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
     }
 
     override func mouseMoved(with event: NSEvent) {
-        hoveredEdge = Self.edge(at: convert(event.locationInWindow, from: nil), window: windowRect)
+        hoveredEdge = edge(atViewPoint: convert(event.locationInWindow, from: nil))
     }
+
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
 
     override func mouseExited(with event: NSEvent) { hoveredEdge = nil }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        guard let edge = Self.edge(at: convert(event.locationInWindow, from: nil), window: windowRect) else { return }
+        guard let edge = edge(atViewPoint: convert(event.locationInWindow, from: nil)) else { return }
         choose(edge)
     }
 
     override func resetCursorRects() {
-        for edge in Self.edges { addCursorRect(dockRect(edge).union(zoneRect(edge)), cursor: .pointingHand) }
-    }
-
-    /// The clickable part of the window for `edge`, for cursors and VoiceOver frames.
-    private func zoneRect(_ edge: BrowserDock) -> NSRect {
-        let w = windowRect
-        let t = 0.28 * min(w.width, w.height)
-        switch edge {
-        case .left: return NSRect(x: w.minX, y: w.minY, width: t, height: w.height)
-        case .right: return NSRect(x: w.maxX - t, y: w.minY, width: t, height: w.height)
-        case .top: return NSRect(x: w.minX, y: w.minY, width: w.width, height: t)
-        case .bottom: return NSRect(x: w.minX, y: w.maxY - t, width: w.width, height: t)
-        case .none: return .zero
-        }
+        for edge in Self.order { addCursorRect(zoneInView(edge).insetBy(dx: -3, dy: -3), cursor: .pointingHand) }
     }
 
     // MARK: Keyboard
 
-    /// Clicks don't move focus (as with system buttons); Tab does.
-    override var acceptsFirstResponder: Bool { NSApplication.shared.currentEvent?.type != .leftMouseDown }
+    /// Clicks, and windows opening after one, don't move focus (FocusRing); Tab does.
+    override var acceptsFirstResponder: Bool { FocusRing.acceptsFocusNow }
     override var canBecomeKeyView: Bool { !isHiddenOrHasHiddenAncestor }
 
     override func becomeFirstResponder() -> Bool {
-        isFocused = true
-        if focusedEdge == nil { focusedEdge = dock == .none ? .left : dock }
+        hasFocus = true
+        focusVisible = FocusRing.focusCameFromKeyboard()
+        focusedEdge = dock
         needsDisplay = true
         return true
     }
 
     override func resignFirstResponder() -> Bool {
-        isFocused = false
+        hasFocus = false
+        focusVisible = false
         needsDisplay = true
         return true
     }
 
     override func keyDown(with event: NSEvent) {
+        let key: Key?
         switch event.keyCode {
-        case 126: handleKey(.up)
-        case 125: handleKey(.down)
-        case 123: handleKey(.left)
-        case 124: handleKey(.right)
-        case 49, 36, 76: handleKey(.select)
-        case 51, 117: handleKey(.clear)
-        default: super.keyDown(with: event)
+        case 126: key = .up
+        case 125: key = .down
+        case 123: key = .left
+        case 124: key = .right
+        case 49, 36, 76: key = .select
+        default: key = nil
         }
+        // Keys a focused child (Allow…) passes up aren't for the group.
+        guard let key, window?.firstResponder.map({ $0 === self }) ?? true else { return super.keyDown(with: event) }
+        focusVisible = true
+        handleKey(key)
     }
 
     // MARK: Accessibility
 
     override func accessibilityChildren() -> [Any]? { edgeElements }
 
-    fileprivate func accessibilityFrame(for edge: BrowserDock) -> NSRect {
-        dockRect(edge).union(zoneRect(edge))
-    }
-
-    static func accessibilityLabel(_ edge: BrowserDock) -> String {
-        switch edge {
-        case .left: return "Sidebar on the left"
-        case .right: return "Sidebar on the right"
-        case .top: return "Tabline on top"
-        case .bottom: return "Tabline at the bottom"
-        case .none: return "Not attached"
-        }
-    }
+    fileprivate func accessibilityFrame(for edge: BrowserDock) -> NSRect { zoneInView(edge) }
 }
 
 /// One edge, as VoiceOver sees it: a radio button whose value says whether it's chosen.
@@ -280,7 +392,8 @@ private final class EdgeElement: NSAccessibilityElement {
         self.picker = picker
         super.init()
         setAccessibilityRole(.radioButton)
-        setAccessibilityLabel(BrowserDockPicker.accessibilityLabel(edge))
+        setAccessibilityLabel(WindowPlacementCopy.edgeTitle(edge))
+        setAccessibilityHelp(WindowPlacementCopy.edgeDetail(edge))
         setAccessibilityParent(picker)
         setAccessibilityValue(NSNumber(value: false))
     }

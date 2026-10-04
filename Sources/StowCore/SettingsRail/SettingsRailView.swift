@@ -545,7 +545,8 @@ private final class TileRowView: RailFlippedView {
     override var focusRingMaskBounds: NSRect { .zero }
 
     override func becomeFirstResponder() -> Bool {
-        isFocused = true
+        // The ring waits for the keyboard (FocusRing), so opening Settings shows none.
+        isFocused = FocusRing.focusCameFromKeyboard()
         owner?.rowFocused(self, true)
         return true
     }
@@ -557,6 +558,7 @@ private final class TileRowView: RailFlippedView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if window?.firstResponder === self { isFocused = true }
         switch event.keyCode {
         case 49, 36, 76: owner?.rowActivated(self)
         case 125: owner?.focusNeighbor(of: self, step: 1)

@@ -341,19 +341,147 @@ enum FlyoutPlacement {
 
 // MARK: - App sheet
 
-enum AppWindowMode: Int { case floating, onTop, attached }
+/// The three "Where Stow lives" cards. Floating and On top are Stow's own window (On top
+/// is Floating that stays above other apps); Attached is any edge of the browser.
+enum AppWindowMode: Int, CaseIterable { case floating, onTop, attached }
 
-enum AppSheetWindowRow: Equatable { case dock, keepOnTop, openAtLogin }
+enum AppSheetWindowRow: Equatable { case placement, openAtLogin }
 
 enum AppSheetSection: CaseIterable {
     case window, keyboard, appearance
 
     var title: String {
         switch self {
-        case .window: return "Window"
+        case .window: return WindowPlacementCopy.groupTitle
         case .keyboard: return "Keyboard"
         case .appearance: return "Appearance"
         }
+    }
+}
+
+extension BrowserDock {
+    /// The four edges: the sidebar's sides, then the Tabline's edges.
+    static let edges: [BrowserDock] = [.left, .right, .top, .bottom]
+}
+
+/// Which card is chosen, and which edge the Attached card and the edge picker draw: the
+/// dock while attached, and the edge Attached would go back to while not.
+struct WindowPlacement: Equatable {
+    var mode: AppWindowMode
+    var edge: BrowserDock
+
+    init(dock: BrowserDock, keepsOnTop: Bool, lastEdge: BrowserDock) {
+        if dock != .none {
+            mode = .attached
+            edge = dock
+        } else {
+            mode = keepsOnTop ? .onTop : .floating
+            edge = lastEdge == .none ? .left : lastEdge
+        }
+    }
+
+    var dock: BrowserDock { mode == .attached ? edge : .none }
+}
+
+/// What sits under the cards: nothing, or the edge picker, alone or with the
+/// Accessibility warning or the quiet "no browser in front" note.
+enum WindowPlacementStatus: Equatable {
+    case plain, edges, edgesNeedingAccessibility, edgesWithoutBrowser
+
+    init(mode: AppWindowMode, hasAccessibility: Bool, browserInFront: Bool) {
+        if mode != .attached {
+            self = .plain
+        } else if !hasAccessibility {
+            self = .edgesNeedingAccessibility
+        } else if !browserInFront {
+            self = .edgesWithoutBrowser
+        } else {
+            self = .edges
+        }
+    }
+
+    var showsEdges: Bool { self != .plain }
+}
+
+/// The words of "Where Stow lives".
+enum WindowPlacementCopy {
+    static let groupTitle = "Where Stow lives"
+    static let ownWindow = "Its own window"
+    static let onBrowser = "On your browser"
+    static let previewTag = "CLICK TO USE"
+    static let needsAccessibility = "Needs Accessibility permission."
+    static let warningDetail = "Stow floats until you allow it."
+    static let allow = "Allow…"
+    static let noBrowser = "No browser window in front. Stow floats until one is."
+    static let edgeGroup = "Edge of the browser window"
+
+    static func name(_ mode: AppWindowMode) -> String {
+        switch mode {
+        case .floating: return "Floating"
+        case .onTop: return "On top"
+        case .attached: return "Attached"
+        }
+    }
+
+    static func meaning(_ mode: AppWindowMode) -> String {
+        switch mode {
+        case .floating: return "A regular window you place anywhere. Other windows can cover it."
+        case .onTop: return "A free window that stays above every other app."
+        case .attached: return "Glued to your browser window. Moves and resizes with it."
+        }
+    }
+
+    static func example(_ mode: AppWindowMode) -> String {
+        switch mode {
+        case .floating: return "Open Zoom over it and Stow waits behind."
+        case .onTop: return "Stays above Zoom and Figma."
+        case .attached: return "Drag Safari to another display; Stow comes along."
+        }
+    }
+
+    static func edgeTitle(_ edge: BrowserDock) -> String {
+        switch edge {
+        case .left: return "Sidebar on the left"
+        case .right: return "Sidebar on the right"
+        case .top: return "Tabline on top"
+        case .bottom: return "Tabline at the bottom"
+        case .none: return "Not attached"
+        }
+    }
+
+    static func edgeDetail(_ edge: BrowserDock) -> String {
+        switch edge {
+        case .left: return "Docks to the browser’s left side."
+        case .right: return "Docks to the browser’s right side."
+        case .top: return "Your tabs ride above the browser’s own."
+        case .bottom: return "Your tabs ride under the browser window."
+        case .none: return ""
+        }
+    }
+
+    static func edgeHint(_ edge: BrowserDock) -> String {
+        edge.isTabline ? "Tabline only rides the top or bottom edge." : "Click the top or bottom edge for the Tabline."
+    }
+
+    static func warningTitle(_ edge: BrowserDock) -> String {
+        edge.isTabline ? "The Tabline needs Accessibility." : "Attached needs Accessibility."
+    }
+
+    /// The caption under the cards: the shown card's name, meaning and example, marked
+    /// "Click to use" while hovering a card that isn't chosen (with the permission
+    /// Attached needs, if it's missing).
+    struct Description: Equatable {
+        var mode: AppWindowMode
+        var isPreview: Bool
+        var accessibilityNote: String?
+        var text: String { "\(WindowPlacementCopy.name(mode)). \(WindowPlacementCopy.meaning(mode))" }
+        var example: String { WindowPlacementCopy.example(mode) }
+    }
+
+    static func description(shown: AppWindowMode, selected: AppWindowMode, hasAccessibility: Bool) -> Description {
+        let preview = shown != selected
+        let note = shown == .attached && !hasAccessibility && preview ? needsAccessibility : nil
+        return Description(mode: shown, isPreview: preview, accessibilityNote: note)
     }
 }
 
@@ -362,21 +490,9 @@ enum AppSheetSection: CaseIterable {
 enum AppSheet {
     static let sections: [AppSheetSection] = [.window, .keyboard, .appearance]
 
-    /// The line under the "With your browser" picker.
-    static func dockCaption(_ dock: BrowserDock) -> String {
-        switch dock {
-        case .none: return "Not attached · pick an edge"
-        case .left: return "Sidebar on the left of your browser"
-        case .right: return "Sidebar on the right of your browser"
-        case .top: return "Tabs ride above your browser · ⌥⌘L"
-        case .bottom: return "Tabs ride below your browser · ⌥⌘L"
-        }
-    }
-
-    /// The Window group's rows. On top is for the free-floating window, so it goes while
-    /// the sidebar is attached; the Tabline leaves the window free and keeps it.
+    /// The Where Stow lives group's rows. Keep on top is the On top card.
     static func windowRows(dock: BrowserDock) -> [AppSheetWindowRow] {
-        dock.isSidebar ? [.dock, .openAtLogin] : [.dock, .keepOnTop, .openAtLogin]
+        [.placement, .openAtLogin]
     }
 
     struct SyncLine: Equatable {
@@ -407,7 +523,7 @@ enum AppSheet {
                                 automationDenied browserName: String?) -> [PermissionNeed] {
         var needs: [PermissionNeed] = []
         if !hasAccessibility {
-            if dock.isSidebar { needs.append(.accessibility(reason: "The sidebar needs Accessibility")) }
+            if dock.isSidebar { needs.append(.accessibility(reason: "Attached needs Accessibility")) }
             if dock.isTabline { needs.append(.accessibility(reason: "The Tabline needs Accessibility")) }
         }
         if let browserName {

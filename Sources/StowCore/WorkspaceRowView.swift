@@ -30,7 +30,10 @@ final class WorkspaceRowView: BaseView {
     private let countLabel = NSTextField(labelWithString: "")
     private var content: Content?
     private var pagePalette: StowTheme.Colors?
-    private(set) var isFocused = false
+    private var hasFocus = false
+    private var focusVisible = false
+    /// Whether the focus ring shows: focused, and the keyboard is in use (FocusRing).
+    var isFocused: Bool { hasFocus && focusVisible }
 
     /// Opens the workspace editor beside the row.
     var onEdit: (() -> Void)?
@@ -210,18 +213,24 @@ final class WorkspaceRowView: BaseView {
     override var canBecomeKeyView: Bool { !isHiddenOrHasHiddenAncestor }
 
     override func becomeFirstResponder() -> Bool {
-        isFocused = true
+        hasFocus = true
+        focusVisible = FocusRing.focusCameFromKeyboard()
         applyState()
         return true
     }
 
     override func resignFirstResponder() -> Bool {
-        isFocused = false
+        hasFocus = false
+        focusVisible = false
         applyState()
         return true
     }
 
     override func keyDown(with event: NSEvent) {
+        if hasFocus, !focusVisible {
+            focusVisible = true
+            applyState()
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch event.keyCode {
         case 36 where flags.isEmpty, 76 where flags.isEmpty, 49: // Return, Space

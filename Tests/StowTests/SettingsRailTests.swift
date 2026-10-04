@@ -332,26 +332,16 @@ final class FlyoutPlacementTests: XCTestCase {
 
 final class AppSheetTests: XCTestCase {
     func testGroupsFollowThePlan() {
-        // Window, Keyboard, Appearance; Import moved to the footer, Theme and Browser are gone.
+        // Where Stow lives, Keyboard, Appearance; Import moved to the footer, Theme and Browser are gone.
         XCTAssertEqual(AppSheet.sections, [.window, .keyboard, .appearance])
-        XCTAssertEqual(AppSheet.sections.map(\.title), ["Window", "Keyboard", "Appearance"])
+        XCTAssertEqual(AppSheet.sections.map(\.title), ["Where Stow lives", "Keyboard", "Appearance"])
     }
 
-    func testDockCaptionSaysWhatEachEdgeDoes() {
-        XCTAssertEqual(AppSheet.dockCaption(.none), "Not attached · pick an edge")
-        XCTAssertEqual(AppSheet.dockCaption(.left), "Sidebar on the left of your browser")
-        XCTAssertEqual(AppSheet.dockCaption(.right), "Sidebar on the right of your browser")
-        XCTAssertEqual(AppSheet.dockCaption(.top), "Tabs ride above your browser · ⌥⌘L")
-        XCTAssertEqual(AppSheet.dockCaption(.bottom), "Tabs ride below your browser · ⌥⌘L")
-    }
-
-    func testWindowRowsFollowTheDock() {
-        // No Browser side row any more, and no left/right question for the Tabline.
-        XCTAssertEqual(AppSheet.windowRows(dock: .none), [.dock, .keepOnTop, .openAtLogin])
-        XCTAssertEqual(AppSheet.windowRows(dock: .top), [.dock, .keepOnTop, .openAtLogin])
-        XCTAssertEqual(AppSheet.windowRows(dock: .bottom), [.dock, .keepOnTop, .openAtLogin])
-        XCTAssertEqual(AppSheet.windowRows(dock: .left), [.dock, .openAtLogin], "On top doesn't apply while attached")
-        XCTAssertEqual(AppSheet.windowRows(dock: .right), [.dock, .openAtLogin])
+    func testWindowRowsAreTheCardsAndOpenAtLogin() {
+        // No Keep on top switch (it's the On top card) and no left/right question for the Tabline.
+        for dock in BrowserDock.allCases {
+            XCTAssertEqual(AppSheet.windowRows(dock: dock), [.placement, .openAtLogin])
+        }
     }
 
     func testICloudLine() {
