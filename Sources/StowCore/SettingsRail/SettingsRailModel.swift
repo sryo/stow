@@ -343,6 +343,8 @@ enum FlyoutPlacement {
 
 enum AppWindowMode: Int { case floating, onTop, attached }
 
+enum AppSheetWindowRow: Equatable { case dock, keepOnTop, openAtLogin }
+
 enum AppSheetSection: CaseIterable {
     case window, keyboard, appearance
 
@@ -360,16 +362,21 @@ enum AppSheetSection: CaseIterable {
 enum AppSheet {
     static let sections: [AppSheetSection] = [.window, .keyboard, .appearance]
 
-    static func windowHelp(_ mode: AppWindowMode) -> String {
-        switch mode {
-        case .floating: return "A regular window you can place anywhere"
-        case .onTop: return "Stays above every other app"
-        case .attached: return "Picked up from where you attached it"
+    /// The line under the "With your browser" picker.
+    static func dockCaption(_ dock: BrowserDock) -> String {
+        switch dock {
+        case .none: return "Not attached · pick an edge"
+        case .left: return "Sidebar on the left of your browser"
+        case .right: return "Sidebar on the right of your browser"
+        case .top: return "Tabs ride above your browser · ⌥⌘L"
+        case .bottom: return "Tabs ride below your browser · ⌥⌘L"
         }
     }
 
-    static func showsBrowserSide(_ mode: AppWindowMode) -> Bool {
-        mode == .attached
+    /// The Window group's rows. On top is for the free-floating window, so it goes while
+    /// the sidebar is attached; the Tabline leaves the window free and keeps it.
+    static func windowRows(dock: BrowserDock) -> [AppSheetWindowRow] {
+        dock.isSidebar ? [.dock, .openAtLogin] : [.dock, .keepOnTop, .openAtLogin]
     }
 
     struct SyncLine: Equatable {
@@ -396,16 +403,12 @@ enum AppSheet {
     }
 
     /// The permissions line: one entry per missing permission, each with a Fix button.
-    static func permissionNeeds(windowMode: AppWindowMode, tabline: Bool, hasAccessibility: Bool,
+    static func permissionNeeds(dock: BrowserDock, hasAccessibility: Bool,
                                 automationDenied browserName: String?) -> [PermissionNeed] {
         var needs: [PermissionNeed] = []
         if !hasAccessibility {
-            switch (tabline, windowMode == .attached) {
-            case (true, true): needs.append(.accessibility(reason: "Tabline and Attached need Accessibility"))
-            case (true, false): needs.append(.accessibility(reason: "Tabline needs Accessibility"))
-            case (false, true): needs.append(.accessibility(reason: "Attached needs Accessibility"))
-            case (false, false): break
-            }
+            if dock.isSidebar { needs.append(.accessibility(reason: "The sidebar needs Accessibility")) }
+            if dock.isTabline { needs.append(.accessibility(reason: "The Tabline needs Accessibility")) }
         }
         if let browserName {
             needs.append(.automation(reason: "Switching to open tabs needs Automation for \(browserName)"))

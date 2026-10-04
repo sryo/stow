@@ -17,21 +17,20 @@ final class AppSheetView: RailFlippedView {
     /// "All shortcuts…", from Keyboard: the owner pushes AllShortcutsView beside the sheet.
     var onShowAllShortcuts: ((NSView) -> Void)?
 
-    private let preferences = AppPreferences.shared
+    private let preferences: AppPreferences
     private let title = FlyoutLabel.text("App settings", size: 13, weight: .bold)
     private let version = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private var sectionLabels: [AppSheetSection: NSTextField] = [:]
     private let syncsTag = SyncsTag()
 
     // Window
-    private var windowControl: FlyoutSegmented!
+    private let dockLabel = FlyoutLabel.text("With your browser", size: 11.5, color: FlyoutColors.inkSecondary)
+    let dockPicker = BrowserDockPicker()
+    private let dockCaptionLabel = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private var permissionRows: [PermissionRow] = []
-    private let sideLabel = FlyoutLabel.text("Browser side", size: 11.5, color: FlyoutColors.inkSecondary)
-    private var sideControl: FlyoutSegmented!
-    private let windowHelp = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
-    private let tablineTitle = FlyoutLabel.text("Tabline", size: 13, weight: .medium)
-    private let tablineDetail = FlyoutLabel.text("Tabs ride above your browser · ⌥⌘L", size: 11, color: FlyoutColors.inkSecondary)
-    private let tablineSwitch = FlyoutSwitch(isOn: false, accessibilityLabel: "Tabline")
+    private let onTopTitle = FlyoutLabel.text("Keep on top", size: 13, weight: .medium)
+    private let onTopDetail = FlyoutLabel.text("Above every other app · ⌥⌘T", size: 11, color: FlyoutColors.inkSecondary)
+    private let onTopSwitch = FlyoutSwitch(isOn: false, accessibilityLabel: "Keep on top")
     private let loginTitle = FlyoutLabel.text("Open at login", size: 13, weight: .medium)
     private let loginDetail = FlyoutLabel.text("", size: 11, color: FlyoutColors.inkSecondary)
     private let loginSwitch = FlyoutSwitch(isOn: false, accessibilityLabel: "Open at login")
@@ -55,11 +54,15 @@ final class AppSheetView: RailFlippedView {
 
     /// The workspace whose color the page-color previews use.
     var previewColor: WorkspaceColorId = .defaultColor() {
-        didSet { tintSwatches.forEach { $0.colorId = previewColor } }
+        didSet {
+            tintSwatches.forEach { $0.colorId = previewColor }
+            dockPicker.accent = StowTheme.colors(for: previewColor).accent
+        }
     }
 
-    init(style: Style = .flyout) {
+    init(style: Style = .flyout, preferences: AppPreferences = .shared) {
         self.style = style
+        self.preferences = preferences
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 388))
         version.stringValue = "Stow " + AppSheetFooterView.versionString
         version.alignment = .right
@@ -77,19 +80,10 @@ final class AppSheetView: RailFlippedView {
         syncsTag.text = style == .page ? "syncs with iPhone" : "syncs"
         addSubview(syncsTag)
 
-        windowControl = FlyoutSegmented([
-            .init(title: "Floating", leading: Self.glyph("macwindow")),
-            .init(title: "On top", leading: Self.glyph("macwindow.on.rectangle")),
-            .init(title: "Attached", leading: Self.glyph("sidebar.left")),
-        ], selected: preferences.windowMode.rawValue, accessibilityLabel: "Window")
-        windowControl.onChange = { [weak self] index in
-            self?.preferences.setWindowMode(AppWindowMode(rawValue: index) ?? .floating)
-        }
-        sideControl = FlyoutSegmented([.init(title: "Left"), .init(title: "Right")],
-                                      selected: preferences.browserSide, accessibilityLabel: "Browser side")
-        sideControl.onChange = { [weak self] index in self?.preferences.setBrowserSide(index) }
-        tablineDetail.toolTip = "The Tabline shows this workspace's links as tabs riding above your browser window."
-        tablineSwitch.onChange = { [weak self] on in self?.preferences.setTabline(on) }
+        dockPicker.accent = StowTheme.colors(for: previewColor).accent
+        dockPicker.onChange = { [weak self] dock in self?.preferences.setDock(dock) }
+        dockCaptionLabel.toolTip = "Click an edge to dock Stow there. Click it again to detach."
+        onTopSwitch.onChange = { [weak self] on in self?.preferences.setKeepOnTop(on) }
         loginSwitch.onChange = { [weak self] on in
             guard let self else { return }
             self.loginError = self.preferences.setOpenAtLogin(on)
@@ -112,7 +106,7 @@ final class AppSheetView: RailFlippedView {
                                       selected: tints.firstIndex(of: preferences.tint) ?? 0, accessibilityLabel: "Page color")
         tintControl.onChange = { [weak self] index in self?.preferences.setTint(tints[index]) }
 
-        for view in [windowControl!, sideLabel, sideControl!, windowHelp, tablineTitle, tablineDetail, tablineSwitch,
+        for view in [dockLabel, dockPicker, dockCaptionLabel, onTopTitle, onTopDetail, onTopSwitch,
                      loginTitle, loginDetail, loginSwitch, toggleLabel, toggleRecorder, frontTabLabel, frontTabRecorder,
                      keyboardHelp, allShortcuts, tintLabel, tintControl!] as [NSView] {
             addSubview(view)
@@ -128,23 +122,29 @@ final class AppSheetView: RailFlippedView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private static func glyph(_ name: String) -> NSImageView {
-        let view = NSImageView()
-        view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 10, weight: .medium))
-        view.imageScaling = .scaleNone
-        view.frame = NSRect(x: 0, y: 0, width: 14, height: 12)
-        view.setAccessibilityElement(false)
-        return view
-    }
-
     // MARK: State
 
+    var dockCaption: String { dockCaptionLabel.stringValue }
+
+    /// The Window rows on show right now.
+    var visibleWindowRows: [AppSheetWindowRow] {
+        [(AppSheetWindowRow.dock, dockPicker as NSView), (.keepOnTop, onTopSwitch), (.openAtLogin, loginSwitch)]
+            .filter { !$0.1.isHidden }.map(\.0)
+    }
+
+    var permissionReasons: [String] { permissionRows.map(\.need.reason) }
+
     @objc func refresh() {
-        let mode = preferences.windowMode
-        windowControl.selectedIndex = mode.rawValue
-        sideControl.selectedIndex = preferences.browserSide
-        windowHelp.stringValue = AppSheet.windowHelp(mode)
+        let dock = preferences.dock
+        dockPicker.dock = dock
+        dockCaptionLabel.stringValue = AppSheet.dockCaption(dock)
+        let rows = AppSheet.windowRows(dock: dock)
+        for (row, views) in [(AppSheetWindowRow.dock, [dockLabel, dockPicker, dockCaptionLabel] as [NSView]),
+                             (.keepOnTop, [onTopTitle, onTopDetail, onTopSwitch]),
+                             (.openAtLogin, [loginTitle, loginDetail, loginSwitch])] {
+            views.forEach { $0.isHidden = !rows.contains(row) }
+        }
+        onTopSwitch.isOn = preferences.keepsOnTop
         let needs = preferences.permissionNeeds
         if needs.map(\.reason) != permissionRows.map(\.need.reason) {
             permissionRows.forEach { $0.removeFromSuperview() }
@@ -155,7 +155,6 @@ final class AppSheetView: RailFlippedView {
                 return row
             }
         }
-        tablineSwitch.isOn = preferences.tablineEnabled
         loginSwitch.isOn = preferences.openAtLogin
         if let loginError {
             loginDetail.stringValue = loginError
@@ -262,20 +261,21 @@ final class AppSheetView: RailFlippedView {
             header(section, first: index == 0)
             switch section {
             case .window:
-                place(windowControl, NSRect(x: pad, y: y, width: w, height: 28))
-                y += 28
+                let rows = AppSheet.windowRows(dock: preferences.dock)
+                place(dockLabel, NSRect(x: pad + 2, y: y, width: w - 2, height: 14))
+                y += 14
+                place(dockPicker, NSRect(x: pad, y: y, width: w, height: BrowserDockPicker.preferredHeight))
+                y += BrowserDockPicker.preferredHeight
+                dockCaptionLabel.alignment = .center
+                place(dockCaptionLabel, NSRect(x: pad, y: y, width: w, height: 14))
+                y += 14
                 for row in permissionRows {
                     y += 6
                     let h = row.height(forWidth: w)
                     place(row, NSRect(x: pad, y: y, width: w, height: h))
                     y += h
                 }
-                let attached = AppSheet.showsBrowserSide(preferences.windowMode)
-                sideLabel.isHidden = !attached
-                sideControl.isHidden = !attached
-                if attached { line(sideLabel, sideControl, height: 28) }
-                helpLine(windowHelp)
-                switchRow(tablineTitle, tablineDetail, tablineSwitch)
+                if rows.contains(.keepOnTop) { switchRow(onTopTitle, onTopDetail, onTopSwitch) }
                 switchRow(loginTitle, loginDetail, loginSwitch)
             case .keyboard:
                 line(toggleLabel, toggleRecorder, height: 26)

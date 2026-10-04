@@ -226,7 +226,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Window ▸ Window Mode ▸ Floating / On Top / Attached, through the same setter as
+    /// Window ▸ Window Mode ▸ Floating / On Top / Attached, mapped onto the dock like
     /// the sheet so both stay in step.
     @objc public func setWindowModeFromMenu(_ sender: NSMenuItem) {
         AppPreferences.shared.setWindowMode(AppWindowMode(rawValue: sender.tag) ?? .floating)
@@ -237,7 +237,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         AppPreferences.shared.toggleOnTop()
     }
 
-    /// ⌥⌘L: the same switch as the sheet's Tabline row.
+    /// ⌥⌘L: the Tabline on top, or back to the dock before it.
     @objc public func toggleTabline(_ sender: Any?) {
         AppPreferences.shared.toggleTabline()
     }

@@ -337,16 +337,21 @@ final class AppSheetTests: XCTestCase {
         XCTAssertEqual(AppSheet.sections.map(\.title), ["Window", "Keyboard", "Appearance"])
     }
 
-    func testWindowHelpFollowsTheMode() {
-        XCTAssertEqual(AppSheet.windowHelp(.floating), "A regular window you can place anywhere")
-        XCTAssertEqual(AppSheet.windowHelp(.onTop), "Stays above every other app")
-        XCTAssertEqual(AppSheet.windowHelp(.attached), "Picked up from where you attached it")
+    func testDockCaptionSaysWhatEachEdgeDoes() {
+        XCTAssertEqual(AppSheet.dockCaption(.none), "Not attached · pick an edge")
+        XCTAssertEqual(AppSheet.dockCaption(.left), "Sidebar on the left of your browser")
+        XCTAssertEqual(AppSheet.dockCaption(.right), "Sidebar on the right of your browser")
+        XCTAssertEqual(AppSheet.dockCaption(.top), "Tabs ride above your browser · ⌥⌘L")
+        XCTAssertEqual(AppSheet.dockCaption(.bottom), "Tabs ride below your browser · ⌥⌘L")
     }
 
-    func testBrowserSideShowsOnlyWhileAttached() {
-        XCTAssertTrue(AppSheet.showsBrowserSide(.attached))
-        XCTAssertFalse(AppSheet.showsBrowserSide(.floating))
-        XCTAssertFalse(AppSheet.showsBrowserSide(.onTop))
+    func testWindowRowsFollowTheDock() {
+        // No Browser side row any more, and no left/right question for the Tabline.
+        XCTAssertEqual(AppSheet.windowRows(dock: .none), [.dock, .keepOnTop, .openAtLogin])
+        XCTAssertEqual(AppSheet.windowRows(dock: .top), [.dock, .keepOnTop, .openAtLogin])
+        XCTAssertEqual(AppSheet.windowRows(dock: .bottom), [.dock, .keepOnTop, .openAtLogin])
+        XCTAssertEqual(AppSheet.windowRows(dock: .left), [.dock, .openAtLogin], "On top doesn't apply while attached")
+        XCTAssertEqual(AppSheet.windowRows(dock: .right), [.dock, .openAtLogin])
     }
 
     func testICloudLine() {

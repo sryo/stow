@@ -17,35 +17,39 @@ final class MainAppLoginItem: LoginItemControlling {
 }
 
 /// App-wide preferences shared by the Settings page, the rail's app sheet and the menus,
-/// so all of them change the same state the same way: window mode, browser side,
-/// Tabline, Open at login and page color. Posts `.stowAppPreferencesChanged` after every
+/// so all of them change the same state the same way: where Stow docks on the browser,
+/// On top, Open at login and page color. Posts `.stowAppPreferencesChanged` after every
 /// change (plus the older per-setting notifications the window code observes).
 @MainActor
 final class AppPreferences {
     static let shared = AppPreferences(defaults: .standard, loginItem: MainAppLoginItem(),
                                        hasAccessibility: AppPreferences.systemHasAccessibility,
-                                       applyTabline: { TablineController.shared.setRunning($0) })
+                                       applyTabline: { TablineController.shared.setRunning(edge: $0) },
+                                       requestAccessibility: { AppPreferences.promptForAccessibility() })
 
-    /// Attached was chosen but Accessibility isn't granted yet; applied once it is.
-    private(set) var attachRequested = false
-    /// Which side of the browser Stow is on right now (0 left, 1 right), read when it
-    /// attaches so Browser side follows where you put it. Nil without a browser window.
+    /// Which side of the browser Stow is on right now (0 left, 1 right), read when the
+    /// Window menu's Attached docks it. Nil without a browser window.
     var attachSide: (() -> Int?)?
     private let defaults: UserDefaults
     private let loginItem: LoginItemControlling
     private let accessibilityCheck: () -> Bool
-    private let applyTabline: (Bool) -> Void
+    /// Runs the Tabline on an edge, or stops it with nil.
+    private let applyTabline: (TablineEdge?) -> Void
+    /// Starts the system's Accessibility prompt.
+    private let requestAccessibility: () -> Void
     /// Page color, mirrored to iCloud so the iPhone shows the same one.
     private let tintPreference: SyncedTintPreference
     private var tintObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults, loginItem: LoginItemControlling,
-         hasAccessibility: @escaping () -> Bool, applyTabline: @escaping (Bool) -> Void,
+         hasAccessibility: @escaping () -> Bool, applyTabline: @escaping (TablineEdge?) -> Void,
+         requestAccessibility: @escaping () -> Void,
          tintPreference: SyncedTintPreference = .shared) {
         self.defaults = defaults
         self.loginItem = loginItem
         self.accessibilityCheck = hasAccessibility
         self.applyTabline = applyTabline
+        self.requestAccessibility = requestAccessibility
         self.tintPreference = tintPreference
         // Fires for a local choice and for one made on another device alike.
         tintObserver = NotificationCenter.default.addObserver(
@@ -91,12 +95,78 @@ final class AppPreferences {
         tintPreference.set(tint)
     }
 
+    // MARK: Browser dock
+
+    static let dockKey = "browserDock"
+    /// The dock ⌥⌘L goes back to when it hides the Tabline.
+    static let dockBeforeTablineKey = "browserDockBeforeTabline"
+
+    /// Where Stow sits on the browser: the one source of truth for the attached sidebar and
+    /// the Tabline. Read for the first time, it's worked out from the older settings.
+    var dock: BrowserDock {
+        if let stored = defaults.string(forKey: Self.dockKey), let dock = BrowserDock(rawValue: stored) { return dock }
+        let migrated = BrowserDock.migrated(attached: defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled),
+                                            position: defaults.string(forKey: UserDefaultsKeys.sidebarPosition),
+                                            tabline: defaults.bool(forKey: TablineController.defaultsKey))
+        defaults.set(migrated.rawValue, forKey: Self.dockKey)
+        defaults.set(migrated.isTabline, forKey: TablineController.defaultsKey)
+        defaults.set((migrated.tablineEdge ?? .top).rawValue, forKey: TablineController.edgeKey)
+        return migrated
+    }
+
+    /// The picker, the Window ▸ Window Mode submenu, ⌥⌘T and ⌥⌘L all come through here.
+    /// Without Accessibility the choice is kept, the system permission prompt starts and
+    /// the permissions line offers Fix…; the dock applies once access is granted.
+    func setDock(_ newDock: BrowserDock) {
+        let old = dock
+        if newDock != .none, !hasAccessibility { requestAccessibility() }
+        guard newDock != old else { return }
+        if newDock.isTabline, !old.isTabline {
+            defaults.set(old.rawValue, forKey: Self.dockBeforeTablineKey)
+        }
+        defaults.set(newDock.rawValue, forKey: Self.dockKey)
+
+        if let position = newDock.sidebarPosition {
+            let moved = defaults.string(forKey: UserDefaultsKeys.sidebarPosition) != position
+            defaults.set(position, forKey: UserDefaultsKeys.sidebarPosition)
+            setAlwaysOnTop(false)
+            if defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) {
+                if moved {
+                    NotificationCenter.default.post(name: .sidebarPositionChanged, object: nil, userInfo: ["position": position])
+                }
+            } else if hasAccessibility {
+                setAttachment(true)
+            }
+        } else {
+            setAttachment(false)
+        }
+
+        if old.isTabline || newDock.isTabline {
+            defaults.set(newDock.isTabline, forKey: TablineController.defaultsKey)
+            if let edge = newDock.tablineEdge { defaults.set(edge.rawValue, forKey: TablineController.edgeKey) }
+            tablineRunning = newDock.isTabline && hasAccessibility
+            applyTabline(tablineRunning ? newDock.tablineEdge : nil)
+            NotificationCenter.default.post(name: .tablineSettingChanged, object: nil, userInfo: ["enabled": newDock.isTabline])
+        }
+        changed()
+    }
+
     // MARK: Window
 
+    /// Floating, On top or Attached, as the Window ▸ Window Mode submenu shows it. The
+    /// Tabline leaves the window where it is, so with it Stow is Floating or On top.
     var windowMode: AppWindowMode {
-        if attachRequested || defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) { return .attached }
-        if defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) { return .onTop }
-        return .floating
+        if dock.isSidebar { return .attached }
+        return keepsOnTop ? .onTop : .floating
+    }
+
+    /// On top for the free-floating window; it doesn't apply while attached.
+    var keepsOnTop: Bool { defaults.bool(forKey: UserDefaultsKeys.alwaysOnTopEnabled) }
+
+    func setKeepOnTop(_ enabled: Bool) {
+        if enabled, dock.isSidebar { setDock(.none) }
+        setAlwaysOnTop(enabled)
+        changed()
     }
 
     nonisolated static func systemHasAccessibility() -> Bool {
@@ -109,31 +179,19 @@ final class AppPreferences {
 
     var hasAccessibility: Bool { accessibilityCheck() }
 
-    /// The one setter for window mode: the sheet's segment, the Settings page and the
-    /// Window ▸ Window Mode submenu all come through here.
+    /// Window ▸ Window Mode: Floating and On top leave a Tabline alone and drop the
+    /// sidebar; Attached docks on the side Stow sits on (or the last side).
     func setWindowMode(_ mode: AppWindowMode) {
         switch mode {
-        case .floating:
-            attachRequested = false
-            setAttachment(false)
-            setAlwaysOnTop(false)
-        case .onTop:
-            attachRequested = false
-            setAttachment(false)
-            setAlwaysOnTop(true)
+        case .floating, .onTop:
+            if dock.isSidebar { setDock(.none) }
+            setAlwaysOnTop(mode == .onTop)
+            changed()
         case .attached:
-            if windowMode != .attached, let side = attachSide?() {
-                defaults.set(side == 0 ? "left" : "right", forKey: UserDefaultsKeys.sidebarPosition)
-            }
-            setAlwaysOnTop(false)
-            if hasAccessibility {
-                attachRequested = false
-                setAttachment(true)
-            } else {
-                attachRequested = true
-            }
+            if dock.isSidebar { return setDock(dock) }
+            let side = attachSide?() ?? ((defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right") == "left" ? 0 : 1)
+            setDock(side == 0 ? .left : .right)
         }
-        changed()
     }
 
     /// ⌥⌘T: On Top and Floating swap; from Attached it goes On Top.
@@ -144,8 +202,7 @@ final class AppPreferences {
     /// Attaches once Accessibility has been granted. Returns true when it just did.
     @discardableResult
     func applyPendingAttachment() -> Bool {
-        guard attachRequested, hasAccessibility else { return false }
-        attachRequested = false
+        guard dock.isSidebar, !defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled), hasAccessibility else { return false }
         setAttachment(true)
         changed()
         return true
@@ -164,22 +221,6 @@ final class AppPreferences {
         NotificationCenter.default.post(name: .attachmentSettingChanged, object: nil, userInfo: ["enabled": enabled, "position": position])
     }
 
-    // MARK: Browser side
-
-    /// 0 is left, 1 is right.
-    var browserSide: Int {
-        (defaults.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right") == "left" ? 0 : 1
-    }
-
-    func setBrowserSide(_ index: Int) {
-        let position = index == 0 ? "left" : "right"
-        defaults.set(position, forKey: UserDefaultsKeys.sidebarPosition)
-        if defaults.bool(forKey: UserDefaultsKeys.sidebarAttachmentEnabled) {
-            NotificationCenter.default.post(name: .sidebarPositionChanged, object: nil, userInfo: ["position": position])
-        }
-        changed()
-    }
-
     /// Which side of the browser Stow sits on when it attaches: the side it's already on.
     /// Frames are in any one coordinate space. Nil when there's no browser window.
     static func side(of stow: NSRect, besides browser: NSRect?) -> Int? {
@@ -189,32 +230,28 @@ final class AppPreferences {
 
     // MARK: Tabline
 
-    var tablineEnabled: Bool { defaults.bool(forKey: TablineController.defaultsKey) }
+    /// Window ▸ Show Tabline is checked while the Tabline rides either edge.
+    var tablineEnabled: Bool { dock.isTabline }
 
-    /// Whether the strip is running; it waits for Accessibility while the switch is on.
+    /// Whether the strip is running; it waits for Accessibility while the dock asks for it.
     private var tablineRunning = false
 
-    /// The sheet's switch, the Window menu item and ⌥⌘L all come through here. Without
-    /// Accessibility the switch stays on and the permissions line offers Fix…; the
-    /// strip starts once access is granted.
-    func setTabline(_ enabled: Bool) {
-        defaults.set(enabled, forKey: TablineController.defaultsKey)
-        tablineRunning = enabled && hasAccessibility
-        applyTabline(tablineRunning)
-        NotificationCenter.default.post(name: .tablineSettingChanged, object: nil, userInfo: ["enabled": enabled])
-        changed()
-    }
-
+    /// ⌥⌘L: the Tabline on top, or back to the dock before it.
     func toggleTabline() {
-        setTabline(!tablineEnabled)
+        if dock.isTabline {
+            let previous = defaults.string(forKey: Self.dockBeforeTablineKey).flatMap(BrowserDock.init(rawValue:)) ?? .none
+            setDock(previous.isTabline ? .none : previous)
+        } else {
+            setDock(.top)
+        }
     }
 
     /// Starts the strip once Accessibility arrives (or at launch). Returns true when it did.
     @discardableResult
     func applyPendingTabline() -> Bool {
-        guard tablineEnabled, !tablineRunning, hasAccessibility else { return false }
+        guard let edge = dock.tablineEdge, !tablineRunning, hasAccessibility else { return false }
         tablineRunning = true
-        applyTabline(true)
+        applyTabline(edge)
         changed()
         return true
     }
@@ -248,8 +285,16 @@ final class AppPreferences {
     /// What's missing right now: Accessibility for Attached and Tabline, Automation for
     /// switching to an open tab in the browser you use.
     var permissionNeeds: [PermissionNeed] {
-        AppSheet.permissionNeeds(windowMode: windowMode, tabline: tablineEnabled,
-                                 hasAccessibility: hasAccessibility, automationDenied: automationDeniedBrowser())
+        AppSheet.permissionNeeds(dock: dock, hasAccessibility: hasAccessibility, automationDenied: automationDeniedBrowser())
+    }
+
+    /// The system's "Stow would like to control this computer" prompt.
+    static func promptForAccessibility() {
+        #if DEBUG
+        // The simulated missing-permission state has nothing to prompt for.
+        if ProcessInfo.processInfo.environment["STOW_NO_ACCESSIBILITY"] != nil { return }
+        #endif
+        WindowAttachmentService.shared.requestAccessibilityPermissions()
     }
 
     /// The browser in front's name when the user has refused Stow Automation for it.
@@ -266,12 +311,7 @@ final class AppPreferences {
     }
 
     func openAccessibilitySettings() {
-        var prompt = true
-        #if DEBUG
-        // The simulated missing-permission state opens the pane without the system prompt.
-        if ProcessInfo.processInfo.environment["STOW_NO_ACCESSIBILITY"] != nil { prompt = false }
-        #endif
-        if prompt { WindowAttachmentService.shared.requestAccessibilityPermissions() }
+        Self.promptForAccessibility()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

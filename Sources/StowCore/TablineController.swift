@@ -37,13 +37,77 @@ enum TablineTracking {
                                       kAXWindowMiniaturizedNotification, kAXUIElementDestroyedNotification]
 }
 
+/// How the strip sits against the window: outside it (above or below), inside its bottom
+/// edge, in a band made under the menu bar, or as a full-screen lip that peeks on hover.
+enum TablineDock: Equatable { case above, below, inside, band, lip, peek }
+
+/// Where the Tabline goes for a window, in AppKit screen coordinates (y up).
+///
+/// On the top edge: 3pt above a floating window (below it when there's no room above); a
+/// band under the menu bar for a window that fills the screen's height, which wants the
+/// window nudged down to make room; a thin lip at the top of a full-screen window that
+/// expands while the pointer is over it.
+///
+/// On the bottom edge: 3pt below the window, or inside its bottom edge when the window
+/// reaches the bottom of the screen (maximized and full screen included). It never moves
+/// the window.
+struct TablinePlacement: Equatable {
+    static let height: CGFloat = 32
+    static let gap: CGFloat = 3
+    static let lipHeight: CGFloat = 5
+    /// Room made under the menu bar for a window that fills the screen's height.
+    static let band: CGFloat = gap + height + gap
+
+    var dock: TablineDock
+    var frame: NSRect
+    /// The band wants the window's top edge moved down by `band`. If that fails, the same
+    /// frame sits inside the window instead.
+    var wantsNudge = false
+    /// Full screen on top: the lip and the strip it expands into.
+    var lipFrame: NSRect?
+    var peekFrame: NSRect?
+
+    static func place(edge: TablineEdge, window frame: NSRect, isFullScreen: Bool, screen: NSRect, visible: NSRect,
+                      safeAreaTop: CGFloat = 0, alreadyNudged: Bool = false, peeking: Bool = false) -> TablinePlacement {
+        let h = height
+        let width = max(200, frame.width)
+        switch edge {
+        case .bottom:
+            let floor = isFullScreen ? screen : frame
+            if !isFullScreen, frame.minY - gap - h >= visible.minY {
+                return TablinePlacement(dock: .below, frame: NSRect(x: frame.minX, y: frame.minY - gap - h, width: width, height: h))
+            }
+            let bottom = max(floor.minY, isFullScreen ? screen.minY : visible.minY)
+            return TablinePlacement(dock: .inside, frame: NSRect(x: floor.minX + 4, y: bottom + gap, width: floor.width - 8, height: h))
+
+        case .top:
+            if isFullScreen {
+                // The screen's top below the notch. Not the window's: Chrome's focused window in full
+                // screen starts under its toolbar, which is a separate window.
+                let top = screen.maxY - safeAreaTop
+                let inset = (screen.width * 0.143).rounded()
+                let lip = NSRect(x: screen.minX + inset, y: top - 2 - lipHeight, width: screen.width - inset * 2, height: lipHeight)
+                let peek = NSRect(x: lip.minX, y: top - 6 - h, width: lip.width, height: h)
+                return TablinePlacement(dock: peeking ? .peek : .lip, frame: peeking ? peek : lip, lipFrame: lip, peekFrame: peek)
+            }
+            let bandFrame = NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
+            if alreadyNudged { return TablinePlacement(dock: .band, frame: bandFrame) }
+            let fillsHeight = abs(frame.maxY - visible.maxY) <= 2 && abs(frame.minY - visible.minY) <= 2
+            if fillsHeight { return TablinePlacement(dock: .band, frame: bandFrame, wantsNudge: true) }
+            if frame.maxY + gap + h <= visible.maxY {
+                return TablinePlacement(dock: .above, frame: NSRect(x: frame.minX, y: frame.maxY + gap, width: width, height: h))
+            }
+            if frame.minY - gap - h >= visible.minY {
+                return TablinePlacement(dock: .below, frame: NSRect(x: frame.minX, y: frame.minY - gap - h, width: width, height: h))
+            }
+            return TablinePlacement(dock: .inside, frame: NSRect(x: frame.minX + 4, y: frame.minY + 6, width: frame.width - 8, height: h))
+        }
+    }
+}
+
 /// Tabline: the active workspace as a row of tabs riding whichever browser window is in
 /// front. It never takes focus, so clicking a tab opens the site in the browser you're using.
-///
-/// Docking follows the window: 3pt above a floating window (below it when there's no room
-/// above); a band under the menu bar for a window that fills the screen's height, nudging
-/// the window down to make room; a thin lip at the top of a full-screen window that expands
-/// while the pointer is over it.
+/// It docks on the window's top or bottom edge, as `TablinePlacement` lays out.
 ///
 /// The tab for the page in front is raised; tabs whose page is open in any browser carry a
 /// live dot; a page not saved in the workspace gets a dashed ghost tab. Both come from
@@ -56,11 +120,10 @@ final class TablineController {
     static let shared = TablineController()
 
     static let defaultsKey = "tablineEnabled"
-    private static let height: CGFloat = 32
-    private static let gap: CGFloat = 3
-    private static let lipHeight: CGFloat = 5
-    /// Room made under the menu bar for a window that fills the screen's height.
-    private static let band: CGFloat = gap + height + gap
+    /// Which edge the strip rides, "top" or "bottom". AppPreferences writes it from the dock.
+    static let edgeKey = "tablineEdge"
+    private static let height = TablinePlacement.height
+    private static let band = TablinePlacement.band
 
     var onOpenLink: ((Link) -> Void)?
     var onSelectWorkspace: ((UUID) -> Void)?
@@ -101,8 +164,8 @@ final class TablineController {
     private let monitor = OpenTabsMonitor.shared
     private var lastFrontBundleId: String?
 
-    private enum Dock: Equatable { case above, below, inside, band, lip, peek }
-    private var dock: Dock = .above
+    private var dock: TablineDock = .above
+    private var edge: TablineEdge = .top
     private var lipFrame: NSRect = .zero
     private var peekFrame: NSRect = .zero
 
@@ -113,9 +176,6 @@ final class TablineController {
     }
     private var nudges: [Nudge] = []
 
-    /// The stored switch. Change it through AppPreferences.setTabline so the sheet, the
-    /// Settings page and the Window menu stay in step.
-    var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.defaultsKey) }
 
     private init() {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
@@ -137,9 +197,17 @@ final class TablineController {
         AppPreferences.shared.applyPendingTabline()
     }
 
-    /// Starts or stops the strip without touching the stored switch (AppPreferences owns it).
-    func setRunning(_ running: Bool) {
-        running ? start() : stop()
+    /// Runs the strip on `edge`, or stops it with nil, without touching the stored dock
+    /// (AppPreferences owns it).
+    func setRunning(edge: TablineEdge?) {
+        guard let edge else { return stop() }
+        if edge != self.edge {
+            self.edge = edge
+            restoreNudgedWindows()
+            dock = .above
+            lastFrame = .zero
+        }
+        start()
     }
 
     private func start() {
@@ -571,46 +639,20 @@ final class TablineController {
     private func placement(for window: FrontWindow) -> NSRect {
         let frame = window.frame
         let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? frame
-        let h = Self.height, gap = Self.gap
-
-        if window.isFullScreen {
-            // The screen's top below the notch. Not the window's: Chrome's focused window in full
-            // screen starts under its toolbar, which is a separate window.
-            let full = screen?.frame ?? frame
-            let top = full.maxY - (screen?.safeAreaInsets.top ?? 0)
-            let inset = (full.width * 0.143).rounded()
-            lipFrame = NSRect(x: full.minX + inset, y: top - 2 - Self.lipHeight, width: full.width - inset * 2, height: Self.lipHeight)
-            peekFrame = NSRect(x: lipFrame.minX, y: top - 6 - h, width: lipFrame.width, height: h)
-            if dock != .peek { dock = .lip }
-            return dock == .peek ? peekFrame : lipFrame
-        }
-        if dock == .lip || dock == .peek { dock = .above }
-
-        if nudges.contains(where: { CFEqual($0.window, window.element) && Self.close($0.nudged, axRect(frame)) }) {
-            dock = .band
-            return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
-        }
-        let fillsHeight = abs(frame.maxY - visible.maxY) <= 2 && abs(frame.minY - visible.minY) <= 2
-        if fillsHeight {
-            if nudge(window, visible: visible) {
-                dock = .band
-                return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
-            }
+        let alreadyNudged = edge == .top
+            && nudges.contains { CFEqual($0.window, window.element) && Self.close($0.nudged, axRect(frame)) }
+        let placed = TablinePlacement.place(edge: edge, window: frame, isFullScreen: window.isFullScreen,
+                                            screen: screen?.frame ?? frame, visible: screen?.visibleFrame ?? frame,
+                                            safeAreaTop: screen?.safeAreaInsets.top ?? 0, alreadyNudged: alreadyNudged,
+                                            peeking: dock == .peek)
+        lipFrame = placed.lipFrame ?? .zero
+        peekFrame = placed.peekFrame ?? .zero
+        dock = placed.dock
+        if placed.wantsNudge, !nudge(window) {
+            // Same frame, laid over the window's top instead.
             dock = .inside
-            return NSRect(x: frame.minX + 4, y: visible.maxY - gap - h, width: frame.width - 8, height: h)
         }
-        let width = max(200, frame.width)
-        if frame.maxY + gap + h <= visible.maxY {
-            dock = .above
-            return NSRect(x: frame.minX, y: frame.maxY + gap, width: width, height: h)
-        }
-        if frame.minY - gap - h >= visible.minY {
-            dock = .below
-            return NSRect(x: frame.minX, y: frame.minY - gap - h, width: width, height: h)
-        }
-        dock = .inside
-        return NSRect(x: frame.minX + 4, y: frame.minY + 6, width: frame.width - 8, height: h)
+        return placed.frame
     }
 
     // MARK: - Full-screen lip
@@ -712,7 +754,7 @@ final class TablineController {
     }
 
     /// Moves the window's top edge down by the band height. Remembered so it can be undone.
-    private func nudge(_ window: FrontWindow, visible: NSRect) -> Bool {
+    private func nudge(_ window: FrontWindow) -> Bool {
         let original = axRect(window.frame)
         var target = original
         target.origin.y += Self.band
