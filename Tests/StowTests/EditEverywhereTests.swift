@@ -64,7 +64,7 @@ final class EditEverywhereTests: XCTestCase {
 
     func testAWorkspaceRowInAFlyoutListAsksForTheEditorOnRightClick() throws {
         let ids = [UUID(), UUID()]
-        let rows = FlyoutListModel.rows(forWorkspaces: [(ids[0], "One", .ocean), (ids[1], "Two", .ember)], current: ids[0],
+        let rows = FlyoutListModel.rows(forWorkspaces: [(ids[0], "One", .ocean, .letter("O")), (ids[1], "Two", .ember, .letter("T"))], current: ids[0],
                                         shortcut: { _ in nil })
         let host = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 300), styleMask: [.titled],
                             backing: .buffered, defer: false)

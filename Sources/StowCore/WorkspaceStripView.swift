@@ -11,6 +11,7 @@ final class WorkspaceStripView: NSView {
         let id: UUID
         let name: String
         let colorId: WorkspaceColorId
+        var identity: WorkspaceTileIdentity = .letter("?")
     }
 
     var workspaces: [WorkspaceItem] = [] {
@@ -227,7 +228,7 @@ final class WorkspaceStripView: NSView {
         guard let window else { return }
         let hidden = Set(overflowIds)
         // Built over every workspace so each row keeps its real ⌘-number.
-        let rows = FlyoutListModel.rows(forWorkspaces: workspaces.map { ($0.id, $0.name, $0.colorId) },
+        let rows = FlyoutListModel.rows(forWorkspaces: workspaces.map { ($0.id, $0.name, $0.colorId, $0.identity) },
                                         current: isSettingsSelected ? nil : selectedWorkspaceId,
                                         shortcut: { WorkspaceShortcut.label(position: $0) })
             .filter { row in hidden.contains { $0.uuidString == row.id } }

@@ -9,7 +9,7 @@ struct FlyoutListRow: Equatable {
         case folder
         case task(done: Bool)
         case snippet
-        case workspace(WorkspaceColorId)
+        case workspace(WorkspaceColorId, WorkspaceTileIdentity)
         case symbol(String)
     }
 
@@ -140,12 +140,12 @@ enum FlyoutListModel {
     }
 
     /// A workspace switcher: the colored dot, the ⌘-number shortcut, a check on the current one.
-    static func rows(forWorkspaces workspaces: [(id: UUID, name: String, colorId: WorkspaceColorId)], current: UUID?,
+    static func rows(forWorkspaces workspaces: [(id: UUID, name: String, colorId: WorkspaceColorId, identity: WorkspaceTileIdentity)], current: UUID?,
                      shortcut: (Int) -> String?) -> [FlyoutListRow] {
         workspaces.enumerated().map { i, ws in
             FlyoutListRow(
                 id: ws.id.uuidString,
-                glyph: .workspace(ws.colorId),
+                glyph: .workspace(ws.colorId, ws.identity),
                 title: ws.name,
                 trailing: shortcut(i + 1),
                 isChecked: ws.id == current,

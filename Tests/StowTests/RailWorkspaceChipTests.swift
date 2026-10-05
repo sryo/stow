@@ -203,7 +203,7 @@ final class RailWorkspaceChipTests: XCTestCase {
 @MainActor
 final class WorkspaceListFooterTests: XCTestCase {
     func testTheFootersButtonsFitTheList() {
-        let list = WorkspaceListFlyout.make(workspaces: [(UUID(), "Research", .ocean)], current: nil, edit: {}, newWorkspace: {})
+        let list = WorkspaceListFlyout.make(workspaces: [(UUID(), "Research", .ocean, .letter("R"))], current: nil, edit: {}, newWorkspace: {})
         list.frame.size = list.preferredSize
         list.layoutSubtreeIfNeeded()
         let buttons = list.descendants(of: FlyoutButton.self)

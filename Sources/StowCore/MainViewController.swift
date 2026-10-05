@@ -769,12 +769,14 @@ final class MainViewController: NSViewController {
 
     private func reloadWorkspaceStrip() {
         let workspaces = model.workspaces
+        let identities = WorkspaceTileIdentity.resolve(workspaces)
 
         workspaceSwitcher.workspaces = workspaces.map { workspace in
             WorkspaceStripView.WorkspaceItem(
                 id: workspace.id,
                 name: workspace.name,
-                colorId: workspaceEditor.shownColor(of: workspace)
+                colorId: workspaceEditor.shownColor(of: workspace),
+                identity: identities[workspace.id] ?? .letter("?")
             )
         }
 

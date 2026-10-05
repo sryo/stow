@@ -114,15 +114,19 @@ final class FlyoutListModelTests: XCTestCase {
 
     // MARK: Workspaces
 
-    func testWorkspaceRowsShowTheDotColorShortcutAndCurrent() {
+    /// Each row shows the workspace's own tile (favicons, letter or symbol, as set in the
+    /// editor) on its color, not a bare dot.
+    func testWorkspaceRowsShowTheTileColorShortcutAndCurrent() {
         let one = UUID(), two = UUID()
         let rows = FlyoutListModel.rows(
-            forWorkspaces: [(one, "Alpha", .defaultColor()), (two, "Beta", WorkspaceColorId.allCases[2])],
+            forWorkspaces: [(one, "Alpha", .defaultColor(), .letter("A")),
+                            (two, "Beta", WorkspaceColorId.allCases[2], .symbol("book"))],
             current: two, shortcut: { "⌘\($0)" })
         XCTAssertEqual(rows.map(\.title), ["Alpha", "Beta"])
         XCTAssertEqual(rows.map(\.trailing), ["⌘1", "⌘2"])
         XCTAssertEqual(rows.map(\.isChecked), [false, true])
-        XCTAssertEqual(rows[1].glyph, .workspace(WorkspaceColorId.allCases[2]))
+        XCTAssertEqual(rows[1].glyph, .workspace(WorkspaceColorId.allCases[2], .symbol("book")))
+        XCTAssertEqual(rows[0].glyph, .workspace(.defaultColor(), .letter("A")))
         XCTAssertEqual(rows[0].action, .selectWorkspace(one))
     }
 }
@@ -296,7 +300,7 @@ final class FlyoutListViewTests: XCTestCase {
             ("tasks", FlyoutListView(title: "Tasks", detail: "2 open",
                                      rows: FlyoutListModel.rows(for: [overdue, task("Send design notes"), task("Book flights", done: true)]))),
             ("workspaces", FlyoutListView(title: "Workspaces", rows: FlyoutListModel.rows(
-                forWorkspaces: [(UUID(), "Research", .defaultColor()), (UUID(), "Home", WorkspaceColorId.allCases[4])],
+                forWorkspaces: [(UUID(), "Research", .defaultColor(), .letter("R")), (UUID(), "Home", WorkspaceColorId.allCases[4], .symbol("house"))],
                 current: nil, shortcut: { "⌘\($0)" }))),
         ]
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {

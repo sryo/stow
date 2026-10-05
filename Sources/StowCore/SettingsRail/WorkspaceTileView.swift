@@ -34,7 +34,6 @@ final class WorkspaceTileView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = tileRect
-        let s = rect.width / 36
         let radius = radiusOverride ?? Self.radius(for: rect.width)
         if showsRing {
             ringInk.setFill()
@@ -42,6 +41,24 @@ final class WorkspaceTileView: NSView {
             ringGap.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: -2, dy: -2), xRadius: radius + 2, yRadius: radius + 2).fill()
         }
+        Self.drawTile(identity, colorId: colorId, in: rect, radius: radius)
+
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            FlyoutColors.tileEdge.setStroke()
+        }
+        let edge = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: radius - 0.5, yRadius: radius - 0.5)
+        edge.lineWidth = 1
+        edge.stroke()
+    }
+
+
+    /// Draws a workspace tile without a view, e.g. as a list row's glyph.
+    static func draw(_ identity: WorkspaceTileIdentity, colorId: WorkspaceColorId, in rect: NSRect) {
+        drawTile(identity, colorId: colorId, in: rect, radius: radius(for: rect.width))
+    }
+
+    private static func drawTile(_ identity: WorkspaceTileIdentity, colorId: WorkspaceColorId, in rect: NSRect, radius: CGFloat) {
+        let s = rect.width / 36
         let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         colorId.color.setFill()
         shape.fill()
@@ -57,7 +74,7 @@ final class WorkspaceTileView: NSView {
                 let frame = NSRect(x: rect.minX + inset + CGFloat(i % 2) * (cell + gap),
                                    y: rect.minY + inset + CGFloat(i / 2) * (cell + gap), width: cell, height: cell)
                 let r = 4 * s
-                if i < links.count, let image = Self.image(for: links[i]) {
+                if i < links.count, let image = image(for: links[i]) {
                     NSGraphicsContext.saveGraphicsState()
                     NSBezierPath(roundedRect: frame, xRadius: r, yRadius: r).addClip()
                     image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
@@ -88,13 +105,6 @@ final class WorkspaceTileView: NSView {
             }
         }
         NSGraphicsContext.restoreGraphicsState()
-
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            FlyoutColors.tileEdge.setStroke()
-        }
-        let edge = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: radius - 0.5, yRadius: radius - 0.5)
-        edge.lineWidth = 1
-        edge.stroke()
     }
 
     private static func image(for link: Link) -> NSImage? {

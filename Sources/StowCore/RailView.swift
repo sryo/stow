@@ -510,7 +510,7 @@ final class RailView: NSView {
         switch id {
         case .workspaces:
             guard !workspaces.isEmpty else { return nil }
-            let sections = WorkspaceListFlyout.sections(workspaces: workspaces.map { ($0.id, $0.name, $0.colorId) },
+            let sections = WorkspaceListFlyout.sections(workspaces: workspaces.map { ($0.id, $0.name, $0.colorId, $0.identity) },
                                                         current: currentWorkspaceId)
             let footer = WorkspaceListFlyout.footer(edit: { [weak self] in
                 guard let self, let id = self.currentWorkspaceId else { return }

@@ -8,10 +8,12 @@ struct TablineContent {
         let id: UUID
         let name: String
         let colorId: WorkspaceColorId
-        init(id: UUID, name: String, colorId: WorkspaceColorId) {
+        var identity: WorkspaceTileIdentity
+        init(id: UUID, name: String, colorId: WorkspaceColorId, identity: WorkspaceTileIdentity = .letter("?")) {
             self.id = id
             self.name = name
             self.colorId = colorId
+            self.identity = identity
         }
     }
 
@@ -367,12 +369,18 @@ final class TablineController {
 
     // MARK: - Content
 
+    /// The chip list's entries, each with the tile the editor's icon choice resolves to.
+    static func workspaceEntries(_ workspaces: [Workspace]) -> [TablineContent.WorkspaceEntry] {
+        let identities = WorkspaceTileIdentity.resolve(workspaces)
+        return workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId, identity: identities[$0.id] ?? .letter("?")) }
+    }
+
     /// Refreshes the tabs from the model's active workspace.
     func reload() {
         guard let model else { return }
         let ws = model.activeWorkspace
         content = TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
-                                 workspaces: model.workspaces.map { .init(id: $0.id, name: $0.name, colorId: $0.colorId) })
+                                 workspaces: Self.workspaceEntries(model.workspaces))
         entries = content.nodes.unarchived().compactMap { node in
             switch node {
             case .link(let link): return .link(link)
@@ -527,7 +535,7 @@ final class TablineController {
             let list = content.workspaces.isEmpty
                 ? [TablineContent.WorkspaceEntry(id: content.workspaceId ?? UUID(), name: content.name, colorId: content.colorId)]
                 : content.workspaces
-            let sections = WorkspaceListFlyout.sections(workspaces: list.map { ($0.id, $0.name, $0.colorId) },
+            let sections = WorkspaceListFlyout.sections(workspaces: list.map { ($0.id, $0.name, $0.colorId, $0.identity) },
                                                         current: content.workspaceId ?? list.first?.id)
             let footer = WorkspaceListFlyout.footer(edit: { TablineController.shared.editWorkspace() },
                                                     newWorkspace: { TablineController.shared.newWorkspace() })

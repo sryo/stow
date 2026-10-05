@@ -518,8 +518,8 @@ final class FlyoutListRowView: NSView, NSDraggingSource {
                 image.draw(in: NSRect(x: rect.midX - image.size.width / 2, y: rect.midY - image.size.height / 2,
                                       width: image.size.width, height: image.size.height))
             }
-        case .workspace(let colorId):
-            WorkspaceDot.draw(in: NSRect(x: rect.midX - 6, y: rect.midY - 6, width: 12, height: 12), color: colorId.color)
+        case .workspace(let colorId, let identity):
+            WorkspaceTileView.draw(identity, colorId: colorId, in: rect)
         }
     }
 
