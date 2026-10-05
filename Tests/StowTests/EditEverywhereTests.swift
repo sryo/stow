@@ -46,26 +46,6 @@ final class EditEverywhereTests: XCTestCase {
 
     // MARK: Right-click opens the editor, on every surface
 
-    func testRightClickingARailDotOpensTheEditorOnThatWorkspace() throws {
-        let second = model.createWorkspace(name: "Second", colorId: .ocean)
-        harness.host(width: 52)
-        let dot = try XCTUnwrap(rail().dotView(for: second))
-        rightClick(dot)
-        XCTAssertEqual(editor.editingId, second, "a dot's right-click opens the editor, not a menu")
-        XCTAssertFalse(editor.isNew)
-    }
-
-    func testControlReturnOnARailDotOpensTheEditor() throws {
-        let second = model.createWorkspace(name: "Second", colorId: .ocean)
-        harness.host(width: 52)
-        let dot = try XCTUnwrap(rail().dotView(for: second))
-        dot.keyDown(with: key("\r", code: 36, flags: .control))
-        XCTAssertEqual(editor.editingId, second, "⌃Return is the keyboard's right-click")
-        editor.close()
-        XCTAssertTrue(dot.accessibilityPerformShowMenu(), "VoiceOver's Show Menu opens the editor too")
-        XCTAssertEqual(editor.editingId, second)
-    }
-
     func testRightClickingAStripTabOpensTheEditorOnThatWorkspace() throws {
         let second = model.createWorkspace(name: "Second", colorId: .ocean)
         harness.host(width: 320)
@@ -124,7 +104,7 @@ final class EditEverywhereTests: XCTestCase {
         let second = model.createWorkspace(name: "Second", colorId: .ocean)
         let before = WorkspaceEditorController.liveCount
         harness.host(width: 52)
-        rightClick(try XCTUnwrap(rail().dotView(for: second)))
+        rightClick(try rail().workspaceChip)
         main.toggleSettings()
         harness.window.setContentSize(NSSize(width: 320, height: 620))
         harness.window.contentView?.layoutSubtreeIfNeeded()
@@ -148,6 +128,22 @@ final class EditEverywhereTests: XCTestCase {
         let share = try XCTUnwrap(titles.firstIndex(of: "Share…"))
         let export = try XCTUnwrap(titles.firstIndex(of: "Export…"))
         XCTAssertEqual(export, share + 1, "Export… sits next to Share…")
+    }
+
+    func testTheEditorsFooterButtonsDontOverlap() throws {
+        let controller = WorkspaceEditorController(model: model)
+        let view = controller.editor
+        let ws = model.currentWorkspace
+        view.configure(controller.editorContent(for: ws, identities: WorkspaceTileIdentity.resolve(model.workspaces)))
+        view.frame.size = NSSize(width: WorkspaceEditorView.width, height: view.preferredHeight)
+        view.layoutSubtreeIfNeeded()
+        let buttons = view.descendants(of: FlyoutButton.self).sorted { $0.frame.minX < $1.frame.minX }
+        XCTAssertEqual(buttons.count, 4)
+        for (a, b) in zip(buttons, buttons.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.frame.maxX, b.frame.minX, "\(a.title) runs into \(b.title)")
+        }
+        XCTAssertLessThanOrEqual(try XCTUnwrap(buttons.last).frame.maxX, WorkspaceEditorView.width - 12 + 0.5)
+        XCTAssertEqual(buttons.last?.accessibilityLabel(), "Delete", "the trash still says Delete to VoiceOver")
     }
 
     func testTheEditorsExportExportsThatWorkspace() throws {
@@ -329,23 +325,10 @@ final class EditEverywhereTests: XCTestCase {
 
     // MARK: New workspace through the editor
 
-    func testTheRailHasANewWorkspaceDotAfterTheDots() throws {
-        _ = model.createWorkspace(name: "Second", colorId: .ocean)
-        harness.host(width: 52)
-        let rail = try rail()
-        let plus = rail.newWorkspaceButton
-        XCTAssertEqual(plus.railTip?.title, "New workspace…", "the rail's tip, like the dots'")
-        XCTAssertEqual(plus.accessibilityLabel(), "New workspace…")
-        let lastId = model.workspaces[model.workspaces.count - 1].id
-        let lastDot = try XCTUnwrap(rail.dotView(for: lastId))
-        XCTAssertGreaterThan(plus.frame.midY, lastDot.frame.midY, "it ends the dot stack")
-        XCTAssertEqual(plus.frame.midX, lastDot.frame.midX, accuracy: 0.5)
-    }
-
-    func testThePlusDotNamesANewWorkspaceInTheEditorBeforeCreatingIt() throws {
+    func testANewWorkspaceIsCreatedOnlyWhenCommitted() throws {
         harness.host(width: 52)
         let before = model.workspaces.map(\.id)
-        try rail().onNewWorkspace?()
+        main.promptCreateWorkspace()
         XCTAssertTrue(editor.isNew, "the editor opens on a workspace that doesn't exist yet")
         XCTAssertEqual(editor.editor.nameField.stringValue, "")
         XCTAssertEqual(model.workspaces.map(\.id), before, "nothing is created until it's committed")
@@ -365,7 +348,7 @@ final class EditEverywhereTests: XCTestCase {
     func testEscOnANewWorkspaceCreatesNothing() throws {
         harness.host(width: 52)
         let before = model.workspaces.map(\.id)
-        try rail().onNewWorkspace?()
+        main.promptCreateWorkspace()
         editor.editor.onRename?("Half typed")
         editor.editor.onEscape?()
         XCTAssertFalse(editor.isOpen)
@@ -419,22 +402,5 @@ final class EditEverywhereTests: XCTestCase {
         let created = try XCTUnwrap(model.workspaces.first { $0.name == "Later" })
         XCTAssertEqual(created.items.map(\.id), [link])
         XCTAssertFalse(model.workspaces.first { $0.id == source }!.items.contains { $0.id == link })
-    }
-
-    // MARK: Reordering in the rail
-
-    func testDraggingADotReordersWorkspaces() throws {
-        let second = model.createWorkspace(name: "Second", colorId: .ocean)
-        harness.host(width: 52)
-        let first = model.workspaces[0].id
-        try rail().onReorderWorkspace?(second, 0)
-        XCTAssertEqual(model.workspaces.map(\.id).prefix(2), [second, first])
-    }
-
-    func testTheDotSlotFollowsThePointer() {
-        let centers = (0..<3).map { RailLayout.dotCenterY(at: $0) }
-        XCTAssertEqual(RailDrag.dotSlot(y: centers[0] - 20, count: 3), 0)
-        XCTAssertEqual(RailDrag.dotSlot(y: centers[1] + 1, count: 3), 1)
-        XCTAssertEqual(RailDrag.dotSlot(y: centers[2] + 40, count: 3), 2)
     }
 }

@@ -83,8 +83,8 @@ final class TablineSettingsTests: XCTestCase {
 
     func testChipListOffersEditWorkspace() {
         var edited = false
-        let footer = TablineController.chipFooter { edited = true }
-        XCTAssertEqual(footer.map(\.title), ["Edit Workspace…"])
+        let footer = WorkspaceListFlyout.footer(edit: { edited = true }, newWorkspace: {})
+        XCTAssertEqual(footer.map(\.title), ["Edit Workspace…", "New workspace…"])
         footer.first?.action()
         XCTAssertTrue(edited)
     }

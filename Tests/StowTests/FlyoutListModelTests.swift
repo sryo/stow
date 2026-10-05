@@ -158,7 +158,7 @@ final class FlyoutListViewTests: XCTestCase {
         window.contentView = rail
         window.orderFront(nil)
         windows.append(window)
-        rail.configure(workspaces: [RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)],
+        rail.configure(workspaces: [RailView.WorkspaceEntry(id: UUID(), name: "Alpha", colorId: .ocean)],
                        selectedId: nil, colorId: .defaultColor(), items: items)
         return rail
     }

@@ -5,21 +5,14 @@ import AppKit
 
 // MARK: - Layout
 
-/// The gear heads the rail's column of workspace dots, each 12pt dot 18pt below the
-/// last, and the dashed "+" dot ends it.
+/// The gear heads the rail, the workspace chip (a 30pt tile over a "▾") sits under it,
+/// and a thin rule separates them from the items.
 enum RailLayout {
     static let railWidth: CGFloat = 52
     static let gearFrame = NSRect(x: 19, y: 13, width: 14, height: 14)
-    static let dotPitch: CGFloat = 18
-
-    static func dotCenterY(at index: Int) -> CGFloat {
-        gearFrame.minY + dotPitch * CGFloat(index + 1) + 6
-    }
-
-    /// The rule under the dots and the "+" dot that ends them (`count` workspaces).
-    static func dotsSeparatorY(count: Int) -> CGFloat {
-        gearFrame.minY + dotPitch * CGFloat(count + 2) + 4
-    }
+    static let chipTile: CGFloat = 30
+    static let chipFrame = NSRect(x: 7, y: 35, width: 38, height: 44)
+    static let separatorY: CGFloat = chipFrame.maxY + 6
 }
 
 // MARK: - Hover dwell

@@ -1,12 +1,10 @@
 import AppKit
 
 /// Pure geometry and index math for dragging items on the Elastic rail, and for dropping
-/// them on workspaces (rail dots, workspace tabs).
+/// them on workspace tabs.
 enum RailDrag {
     /// Distance the pointer must travel before a press becomes a drag.
     static let startThreshold: CGFloat = 4
-    /// Workspace dots are 12pt; a drop counts within this much of one.
-    static let dotTolerance: CGFloat = 8
 
     /// The gap (0...count) a drag at `dragY` points to, split at each cell's midpoint.
     static func targetSlot(dragY: CGFloat, cellFrames: [NSRect]) -> Int {
@@ -25,18 +23,6 @@ enum RailDrag {
         if slot < railIds.count, let index = itemIds.firstIndex(of: railIds[slot]) { return index }
         if let last = railIds.last, let index = itemIds.firstIndex(of: last) { return index + 1 }
         return 0
-    }
-
-    /// The place (0..<count) a workspace dot dragged to `y` takes: the nearest dot's.
-    static func dotSlot(y: CGFloat, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let slot = Int(((y - RailLayout.dotCenterY(at: 0)) / RailLayout.dotPitch).rounded())
-        return min(max(slot, 0), count - 1)
-    }
-
-    /// The workspace whose dot is under `point`, or nil for the current one or empty space.
-    static func workspaceDrop(at point: NSPoint, dots: [(UUID, NSRect)], current: UUID) -> UUID? {
-        workspaceTarget(at: point, targets: dots, current: current, tolerance: dotTolerance)
     }
 
     /// The workspace whose shape (a rail dot, a workspace tab) is nearest `point` within

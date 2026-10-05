@@ -2,8 +2,8 @@ import AppKit
 
 /// Runs the rail for MainViewController: the workspace rail (RailView) takes over from the
 /// page chrome at rail width, and its callbacks go on to the main window. The rail has no
-/// Settings page: its gear opens the app sheet beside it, and a right-click on a dot opens
-/// the workspace editor.
+/// Settings page: its gear opens the app sheet beside it. Its workspace chip lists the
+/// workspaces, and a right-click on it opens the workspace editor.
 @MainActor
 final class RailCoordinator {
     private unowned let main: MainViewController
@@ -48,8 +48,12 @@ final class RailCoordinator {
         guard main.elasticMode == .rail, !model.state.isSettingsSelected else { return }
         let ws = model.currentWorkspace
         let editor = main.workspaceEditor
+        let identities = WorkspaceTileIdentity.resolve(model.workspaces)
         railView.configure(
-            workspaces: model.workspaces.map { RailView.WorkspaceDot(id: $0.id, name: $0.name, color: editor.shownColor(of: $0).color) },
+            workspaces: model.workspaces.map {
+                RailView.WorkspaceEntry(id: $0.id, name: $0.name, colorId: editor.shownColor(of: $0),
+                                        identity: identities[$0.id] ?? .letter("?"))
+            },
             selectedId: ws.id,
             colorId: editor.shownColor(of: ws),
             items: ws.items
@@ -63,7 +67,6 @@ final class RailCoordinator {
             self?.main.editWorkspace(id, from: dot, edge: .besideWindow)
         }
         railView.onNewWorkspace = { [weak self] in self?.main.promptCreateWorkspace() }
-        railView.onReorderWorkspace = { [weak self] id, index in self?.model.reorderWorkspace(id: id, toIndex: index) }
         railView.onOpenLink = { [weak self] link in self?.main.links.openLink(link) }
         railView.onOpenFolder = { [weak self] folder in self?.main.links.openLinksInFolder(folder) }
         railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
@@ -75,7 +78,6 @@ final class RailCoordinator {
         }
         railView.onStowTab = { [weak self] in self?.main.stowFrontTab() }
         railView.onReorder = { [weak self] id, index in self?.model.moveNode(id: id, toParentId: nil, index: index) }
-        railView.onMoveToWorkspace = { [weak self] id, workspaceId in self?.model.moveNodeToWorkspace(id: id, workspaceId: workspaceId) }
         railView.onSettings = { [weak self] in self?.main.toggleAppSheet() }
         railView.onNodeMenu = { [weak self] node, cell in
             guard let self, let menu = self.main.nodeMenu(for: node) else { return }

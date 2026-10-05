@@ -1,7 +1,7 @@
 import AppKit
 
-/// The 258pt workspace editor: name, color, icon, "Opens in", then Open, Share…, Export…
-/// and Delete (which deletes at once, with an undo toast). Every change is reported at
+/// The 276pt workspace editor (as wide as the app sheet): name, color, icon, "Opens in",
+/// then Open, Share…, Export… and a trash button that deletes at once, with an undo toast. Every change is reported at
 /// once, so the workspace behind it updates as you edit. A new workspace, not created
 /// yet, shows only Create.
 @MainActor
@@ -26,7 +26,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         var isNew = false
     }
 
-    static let width: CGFloat = 258
+    static let width: CGFloat = 276
 
     var onRename: ((String) -> Void)?
     var onCommit: (() -> Void)?
@@ -59,7 +59,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let openButton = FlyoutButton("Open ↩", style: .primary)
     private let shareButton = FlyoutButton("Share…")
     private let exportButton = FlyoutButton("Export…")
-    private let deleteButton = FlyoutButton("Delete", style: .danger)
+    private let deleteButton = FlyoutButton(symbol: "trash", title: "Delete", style: .danger)
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 372))
@@ -122,7 +122,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         addSubview(exportButton)
         deleteButton.target = self
         deleteButton.action = #selector(deleteTapped)
-        deleteButton.toolTip = "Deletes now; Undo brings it back"
+        deleteButton.toolTip = "Delete: deletes now; Undo brings it back"
         addSubview(deleteButton)
     }
 
@@ -160,7 +160,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
         deleteButton.isEnabled = content.canDelete
         openButton.title = content.isNew ? "Create ↩" : "Open ↩"
         for button in [shareButton, exportButton, deleteButton] { button.isHidden = content.isNew }
-        deleteButton.toolTip = content.canDelete ? nil : "The only workspace can't be deleted"
+        deleteButton.toolTip = content.canDelete ? "Delete: deletes now; Undo brings it back" : "The only workspace can't be deleted"
         let symbolsShown = { (c: Content?) -> Bool in if case .symbol = c?.icon { return true } else { return false } }
         if previous == nil || symbolsShown(previous) != symbolsShown(content) {
             needsLayout = true

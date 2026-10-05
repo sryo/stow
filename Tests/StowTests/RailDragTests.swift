@@ -48,30 +48,6 @@ final class RailDragTests: XCTestCase {
         XCTAssertNil(RailDrag.modelIndex(forSlot: 2, moving: l2, railIds: rail, itemIds: items))
     }
 
-    // MARK: - workspace drop
-
-    func testWorkspaceDrop_hitsAnotherWorkspacesDot() {
-        let current = UUID(), other = UUID()
-        let dots = [(current, NSRect(x: 20, y: 14, width: 12, height: 12)),
-                    (other, NSRect(x: 20, y: 32, width: 12, height: 12))]
-        XCTAssertEqual(RailDrag.workspaceDrop(at: NSPoint(x: 26, y: 38), dots: dots, current: current), other)
-    }
-
-    func testWorkspaceDrop_toleratesNearMissesAroundSmallDots() {
-        let current = UUID(), other = UUID()
-        let dots = [(current, NSRect(x: 20, y: 14, width: 12, height: 12)),
-                    (other, NSRect(x: 20, y: 32, width: 12, height: 12))]
-        XCTAssertEqual(RailDrag.workspaceDrop(at: NSPoint(x: 14, y: 46), dots: dots, current: current), other)
-    }
-
-    func testWorkspaceDrop_currentWorkspaceAndEmptySpaceAreNil() {
-        let current = UUID(), other = UUID()
-        let dots = [(current, NSRect(x: 20, y: 14, width: 12, height: 12)),
-                    (other, NSRect(x: 20, y: 32, width: 12, height: 12))]
-        XCTAssertNil(RailDrag.workspaceDrop(at: NSPoint(x: 26, y: 20), dots: dots, current: current))
-        XCTAssertNil(RailDrag.workspaceDrop(at: NSPoint(x: 26, y: 200), dots: dots, current: current))
-    }
-
     // MARK: - text drop index
 
     func testTextDropIndex_beforeARailItemLandsBeforeItInItems() {

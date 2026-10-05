@@ -180,9 +180,9 @@ final class DropAndHintTests: XCTestCase {
 
     func testAnEmptyWorkspaceInTheRailShowsADropCellWithTheEmptyStateTip() {
         let rail = RailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
-        rail.configure(workspaces: [RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)],
+        rail.configure(workspaces: [RailView.WorkspaceEntry(id: UUID(), name: "Alpha", colorId: .ocean)],
                        selectedId: nil, colorId: .defaultColor(), items: [])
-        var dot = RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)
+        var dot = RailView.WorkspaceEntry(id: UUID(), name: "Alpha", colorId: .ocean)
         rail.configure(workspaces: [dot], selectedId: dot.id, colorId: .defaultColor(), items: [])
         let cells = rail.descendants(of: RailCell.self)
         XCTAssertEqual(cells.count, 1)
@@ -191,7 +191,7 @@ final class DropAndHintTests: XCTestCase {
         XCTAssertEqual(cell.tip.title, copy?.title)
         XCTAssertEqual(cell.tip.detail, copy?.message)
         // Items make it go away.
-        dot = RailView.WorkspaceDot(id: dot.id, name: "Alpha", color: .systemBlue)
+        dot = RailView.WorkspaceEntry(id: dot.id, name: "Alpha", colorId: .ocean)
         let link = Link(id: UUID(), title: "GitHub", url: "https://github.com", faviconPath: nil)
         rail.configure(workspaces: [dot], selectedId: dot.id, colorId: .defaultColor(), items: [.link(link)])
         XCTAssertFalse(rail.descendants(of: RailCell.self).contains { if case .empty = $0.kind { return true }; return false })

@@ -66,7 +66,8 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
             guard targetPageIndex >= 1 else { return }
             // The rail keeps its dots; only the items under them change to the incoming page's.
             let index = RailSwipe.workspaceIndex(forPage: targetPageIndex, workspaceCount: main.model.workspaces.count)
-            main.railView.previewItems(index.map { main.model.workspaces[$0].items } ?? [])
+            main.railView.previewItems(index.map { main.model.workspaces[$0].items } ?? [],
+                                       workspace: index.map { main.model.workspaces[$0].id })
             return
         }
         if targetPageIndex == 0 {

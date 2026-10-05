@@ -99,7 +99,7 @@ final class OptionReturnTests: XCTestCase {
 
     func testOptionReturnInAFlyoutWithoutOpenAllDoesNothing() {
         var ran: [String] = []
-        let list = FlyoutListView(title: "Workspaces", rows: [], footer: TablineController.chipFooter { ran.append("edit") })
+        let list = FlyoutListView(title: "Workspaces", rows: [], footer: WorkspaceListFlyout.footer(edit: { ran.append("edit") }, newWorkspace: { ran.append("new") }))
         list.insertNewlineIgnoringFieldEditor(nil)
         XCTAssertEqual(ran, [], "⌥↩ in the workspace list opened the editor")
     }

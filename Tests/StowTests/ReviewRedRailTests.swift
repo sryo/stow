@@ -8,11 +8,11 @@ import StowShared
 final class ReviewRedRailTests: XCTestCase {
     private let github = Link(id: UUID(), title: "GitHub", url: "https://github.com/sryo", faviconPath: nil)
 
-    private func dot(_ name: String) -> RailView.WorkspaceDot {
-        RailView.WorkspaceDot(id: UUID(), name: name, color: .systemBlue)
+    private func dot(_ name: String) -> RailView.WorkspaceEntry {
+        RailView.WorkspaceEntry(id: UUID(), name: name, colorId: .ocean)
     }
 
-    private func rail(items: [Node], dots: [RailView.WorkspaceDot]? = nil) -> RailView {
+    private func rail(items: [Node], dots: [RailView.WorkspaceEntry]? = nil) -> RailView {
         let view = RailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
         let dots = dots ?? [dot("Alpha")]
         view.configure(workspaces: dots, selectedId: dots.first?.id, colorId: .defaultColor(), items: items)
@@ -48,28 +48,13 @@ final class ReviewRedRailTests: XCTestCase {
 
     // MARK: patterns-13
 
-    func testRailDotTooltipNamesTheRealWorkspaceShortcut() {
+    func testRailChipTipNamesTheRealWorkspaceShortcut() {
         let view = rail(items: [], dots: [dot("Alpha")])
-        let tip = view.descendants(of: NSButton.self).compactMap(\.toolTip).first { $0.hasPrefix("Alpha") }
+        let tip = view.workspaceChip.railTip?.text
         let expected = workspaceShortcutGlyph() + "1"
         XCTAssertEqual(expected, "⌘1", "precondition: AppMenus binds Workspace 1 to ⌘1")
         XCTAssertTrue(tip?.contains(expected) == true,
-                      "patterns-13: rail dot tooltip is \(tip ?? "nil"), but the shortcut is \(expected)")
-    }
-
-    func testNewDotsSitInTheirOwnPlacesBeforeHoverIsReread() {
-        // configure() re-reads the hover right after rebuilding the dots. An unclipped
-        // button's visible rect is the whole rail, so a pointer resting on the gear
-        // "hovered" every dot and the last one's tip stuck beside the rail.
-        let names = ["Alpha", "Beta", "Gamma"]
-        let view = rail(items: [], dots: names.map(dot))
-        let dots = view.subviews.compactMap { $0 as? NSButton }.filter { names.contains($0.accessibilityLabel() ?? "") }
-        XCTAssertEqual(dots.count, names.count)
-        for (i, b) in dots.enumerated() {
-            XCTAssertEqual(b.frame.midY, RailLayout.dotCenterY(at: i), accuracy: 0.5, "dot \(i) isn't in its place yet")
-            XCTAssertEqual(b.frame.width, 20, accuracy: 0.5)
-            XCTAssertTrue(b.bounds.contains(b.visibleRect), "dot \(i)'s hover area spills past it: \(b.visibleRect)")
-        }
+                      "patterns-13: the rail chip's tip is \(tip ?? "nil"), but the shortcut is \(expected)")
     }
 
     func testTheRailsGlyphButtonsUseTheRailTipNotTheSystemTooltip() {
@@ -81,9 +66,7 @@ final class ReviewRedRailTests: XCTestCase {
             XCTAssertNil(glyph.toolTip, "\(glyph.accessibilityLabel() ?? "") still shows the system tooltip")
             XCTAssertNotNil(glyph.accessibilityHelp(), "the tip's words stay available to VoiceOver")
         }
-        let plus = view.newWorkspaceButton
-        XCTAssertNil(plus.toolTip, "the \"+\" dot uses the rail tip too")
-        XCTAssertEqual(plus.accessibilityHelp(), "New workspace… · ⌘N")
+        XCTAssertNil(view.workspaceChip.toolTip, "the workspace chip uses the rail tip too")
     }
 
     // MARK: patterns-9 / modes-14

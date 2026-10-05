@@ -132,6 +132,9 @@ final class MainViewController: NSViewController {
         tabline.onEditWorkspace = { [weak self] id, view, rect in
             self?.editWorkspace(id, from: view, rect: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
         }
+        tabline.onNewWorkspace = { [weak self] view, rect in
+            self?.beginNewWorkspace(from: view, rect: rect, edge: tabline.flyoutEdge == .above ? .above : .below)
+        }
         tabline.startIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(tintModeChanged), name: .stowTintModeChanged, object: nil)
         nodeListViewController.tintMode = StowTheme.displayTint
@@ -916,21 +919,21 @@ final class MainViewController: NSViewController {
     }
 
     /// "New workspace…": the editor on a workspace that exists only once it's committed,
-    /// with its name empty and focused, beside the rail's "+" dot or under the title "+".
+    /// with its name empty and focused, beside the rail's workspace chip or under the
+    /// title "+".
     func beginNewWorkspace(moving nodeIds: [UUID] = []) {
-        let anchor: NSView
-        let edge: WorkspaceEditorEdge
         if elasticMode == .rail {
-            anchor = railView.newWorkspaceButton
-            edge = .besideWindow
+            beginNewWorkspace(moving: nodeIds, from: railView.workspaceChip, edge: .besideWindow)
         } else if !titleAddButton.isHidden {
-            anchor = titleAddButton
-            edge = .below
+            beginNewWorkspace(moving: nodeIds, from: titleAddButton, edge: .below)
         } else {
-            anchor = workspaceSwitcher
-            edge = .below
+            beginNewWorkspace(moving: nodeIds, from: workspaceSwitcher, edge: .below)
         }
-        workspaceEditor.beginNew(moving: nodeIds, placement: anchoredPlacement(anchor, rect: nil, edge: edge))
+    }
+
+    /// "New workspace…" anchored on `view` (`rect` in it, or its bounds).
+    func beginNewWorkspace(moving nodeIds: [UUID] = [], from view: NSView, rect: NSRect? = nil, edge: WorkspaceEditorEdge) {
+        workspaceEditor.beginNew(moving: nodeIds, placement: anchoredPlacement(view, rect: rect, edge: edge))
     }
 
     private func anchoredPlacement(_ view: NSView, rect: NSRect?, edge: WorkspaceEditorEdge) -> () -> WorkspaceEditorController.Placement? {

@@ -2,11 +2,10 @@ import AppKit
 
 // MARK: - Glyph buttons
 
-/// The rail's small drawn controls: the gear, the dashed "+" tile of an empty workspace
-/// and the dashed "+" dot that ends the workspace dots.
+/// The rail's small drawn controls: the gear and the dashed "+" tile of an empty workspace.
 @MainActor
 final class RailGlyphButton: FocusableControl {
-    enum Glyph { case gear, addTile, addDot }
+    enum Glyph { case gear, addTile }
 
     let glyph: Glyph
     var colors = StowTheme.colors(for: .settingsBackground) { didSet { needsDisplay = true } }
@@ -43,7 +42,6 @@ final class RailGlyphButton: FocusableControl {
         switch glyph {
         case .gear: drawGear()
         case .addTile: drawAddTile()
-        case .addDot: drawAddDot()
         }
         if showsBadge { drawBadge() }
         if isFocused {
@@ -102,30 +100,6 @@ final class RailGlyphButton: FocusableControl {
         plus.move(to: NSPoint(x: c.x, y: c.y - 5.5))
         plus.line(to: NSPoint(x: c.x, y: c.y + 5.5))
         plus.lineWidth = 1.3
-        plus.lineCapStyle = .round
-        plus.stroke()
-    }
-
-    /// A dashed 12pt circle with a small "+", the size of a workspace dot; it swells on
-    /// hover like the dots do.
-    private func drawAddDot() {
-        let d: CGFloat = isHovered ? 15 : 12
-        let c = NSPoint(x: bounds.midX, y: bounds.midY)
-        let ink = isHovered ? colors.inkPrimary : colors.inkSecondary
-        ink.setStroke()
-        let circle = NSBezierPath(ovalIn: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d).insetBy(dx: 0.6, dy: 0.6))
-        circle.lineWidth = 1.2
-        // 8 dashes round the circle, so the gaps fall evenly at any size.
-        let dash = (circle.bounds.width * .pi) / 16
-        circle.setLineDash([dash, dash], count: 2, phase: 0)
-        circle.stroke()
-        let arm = d * 0.22
-        let plus = NSBezierPath()
-        plus.move(to: NSPoint(x: c.x - arm, y: c.y))
-        plus.line(to: NSPoint(x: c.x + arm, y: c.y))
-        plus.move(to: NSPoint(x: c.x, y: c.y - arm))
-        plus.line(to: NSPoint(x: c.x, y: c.y + arm))
-        plus.lineWidth = 1.2
         plus.lineCapStyle = .round
         plus.stroke()
     }

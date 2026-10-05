@@ -141,6 +141,8 @@ final class TablineController {
     /// The shared workspace editor for a workspace, anchored on `rect` in `view`: a
     /// right-click on the chip or on a row of its list, or the list's "Edit Workspace…".
     var onEditWorkspace: ((UUID, NSView, NSRect) -> Void)?
+    /// New workspace… from the chip's list, anchored on `rect` in `view`.
+    var onNewWorkspace: ((NSView, NSRect) -> Void)?
 
     private var panel: NSPanel?
     let strip = TablineStripView()
@@ -492,15 +494,23 @@ final class TablineController {
 
     /// Opens the list for a strip item below it, or closes it when it's already open.
     private func showList(_ id: OpenList, under rect: NSRect) {
-        guard let panel, let content = listContent(for: id) else { return }
+        guard let panel, let list = makeList(for: id) else { return }
         flyout.toggle(id: id) {
-            let list = FlyoutListView(title: content.title, detail: content.detail, sections: content.sections,
-                                      footer: content.footer)
             let anchor = panel.convertToScreen(strip.convert(rect, to: nil))
             // The Tabline never takes focus from the browser: its lists are for the pointer.
             flyout.show(list, id: id, anchor: anchor, edge: flyoutEdge, topInset: 0, parent: panel, takeKeyboard: false)
             installOutsideClickMonitor()
         }
+    }
+
+    private func makeList(for id: OpenList) -> FlyoutListView? {
+        guard let content = listContent(for: id) else { return nil }
+        return FlyoutListView(title: content.title, detail: content.detail, sections: content.sections, footer: content.footer)
+    }
+
+    /// The chip's workspace list, as the strip shows it (and the rail's chip shows it too).
+    func chipList() -> FlyoutListView? {
+        makeList(for: .chip)
     }
 
     private struct ListContent {
@@ -517,11 +527,11 @@ final class TablineController {
             let list = content.workspaces.isEmpty
                 ? [TablineContent.WorkspaceEntry(id: content.workspaceId ?? UUID(), name: content.name, colorId: content.colorId)]
                 : content.workspaces
-            let rows = FlyoutListModel.rows(forWorkspaces: list.map { ($0.id, $0.name, $0.colorId) },
-                                            current: content.workspaceId ?? list.first?.id,
-                                            shortcut: { WorkspaceShortcut.label(position: $0) })
-            return ListContent(title: "Workspaces", detail: nil, sections: [FlyoutListSection(title: nil, rows: rows)],
-                               footer: Self.chipFooter { TablineController.shared.editWorkspace() })
+            let sections = WorkspaceListFlyout.sections(workspaces: list.map { ($0.id, $0.name, $0.colorId) },
+                                                        current: content.workspaceId ?? list.first?.id)
+            let footer = WorkspaceListFlyout.footer(edit: { TablineController.shared.editWorkspace() },
+                                                    newWorkspace: { TablineController.shared.newWorkspace() })
+            return ListContent(title: WorkspaceListFlyout.title, detail: nil, sections: sections, footer: footer)
         case .group(let folderId):
             guard let folder = entries.lazy.compactMap({ entry -> Folder? in
                 if case .group(let f, _) = entry, f.id == folderId { return f }
@@ -550,9 +560,11 @@ final class TablineController {
         }
     }
 
-    /// The chip's list ends with a way into the workspace editor, as the rail's dots have.
-    static func chipFooter(edit: @escaping () -> Void) -> [FlyoutListView.FooterButton] {
-        [FlyoutListView.FooterButton(title: "Edit Workspace…", action: edit)]
+    /// New workspace… from the chip's list: the editor on an empty, unnamed workspace,
+    /// anchored on the chip.
+    private func newWorkspace() {
+        flyout.closeAll()
+        onNewWorkspace?(strip, strip.rect(of: .chip) ?? .zero)
     }
 
     private func editWorkspace() {

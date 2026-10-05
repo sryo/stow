@@ -7,12 +7,11 @@ import AppKit
 final class RailLayoutTests: XCTestCase {
     typealias L = RailLayout
 
-    func testDotsSitUnderTheGearAndThePlusDotEndsThem() {
-        // Gear at 13, then one 12pt dot every 18pt; the "+" dot takes the next slot.
+    func testTheChipSitsUnderTheGearAndTheRuleUnderTheChip() {
         XCTAssertEqual(L.gearFrame, NSRect(x: 19, y: 13, width: 14, height: 14))
-        XCTAssertEqual(L.dotCenterY(at: 0), 37)
-        XCTAssertEqual(L.dotCenterY(at: 2), 73)
-        XCTAssertEqual(L.dotsSeparatorY(count: 4), 13 + 18 * 6 + 4, "the rule sits under the \"+\" dot")
+        XCTAssertGreaterThan(L.chipFrame.minY, L.gearFrame.maxY + 4)
+        XCTAssertEqual(L.chipFrame.midX, L.railWidth / 2)
+        XCTAssertGreaterThan(L.separatorY, L.chipFrame.maxY)
     }
 
     func testOneSwipeInTheRailMovesOnePage() {
@@ -357,7 +356,7 @@ final class RailTipAndHookTests: XCTestCase {
         Link(id: UUID(), title: title, url: "https://\(title.lowercased()).com", faviconPath: nil)
     }
 
-    private func rail(_ items: [Node], dots: [RailView.WorkspaceDot]) -> RailView {
+    private func rail(_ items: [Node], dots: [RailView.WorkspaceEntry]) -> RailView {
         let view = RailView(frame: NSRect(x: 0, y: 0, width: 52, height: 620))
         view.configure(workspaces: dots, selectedId: dots.first?.id, colorId: .defaultColor(), items: items)
         return view
@@ -369,7 +368,7 @@ final class RailTipAndHookTests: XCTestCase {
 
     func testRailCellsUseTheRailTipNotASystemTooltip() {
         let github = link("GitHub")
-        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", color: .systemBlue)])
+        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", colorId: .ocean)])
         let cell = subviews(of: view, RailCell.self).first
         XCTAssertNil(cell?.toolTip, "C7: the cell sets a system toolTip")
         XCTAssertEqual(cell?.tip, RailTipController.Tip(title: "GitHub", detail: "github.com"))
@@ -378,21 +377,20 @@ final class RailTipAndHookTests: XCTestCase {
 
     func testCellViewFindsTheCellForANode() {
         let github = link("GitHub")
-        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", color: .systemBlue)])
+        let view = rail([.link(github)], dots: [.init(id: UUID(), name: "Alpha", colorId: .ocean)])
         XCTAssertTrue(view.cellView(for: github.id) is RailCell)
         XCTAssertNil(view.cellView(for: UUID()))
     }
 
-    func testADotRightClickAsksForTheEditorOnItsWorkspace() {
-        let alpha = RailView.WorkspaceDot(id: UUID(), name: "Alpha", color: .systemBlue)
+    func testAChipRightClickAsksForTheEditorOnTheCurrentWorkspace() {
+        let alpha = RailView.WorkspaceEntry(id: UUID(), name: "Alpha", colorId: .ocean)
         let view = rail([], dots: [alpha])
         var edited: UUID?
-        let dot = subviews(of: view, NSButton.self).first { $0.toolTip?.hasPrefix("Alpha") == true }
-        XCTAssertEqual(dot?.toolTip, "Alpha · ⌘1", "the dot reports its tip text")
+        XCTAssertEqual(view.workspaceChip.railTip?.text, "Alpha · ⌘1", "the chip reports its tip text")
         view.onWorkspaceContextMenu = { id, _ in edited = id }
         let click = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        dot?.rightMouseDown(with: click)
+        view.workspaceChip.rightMouseDown(with: click)
         XCTAssertEqual(edited, alpha.id)
     }
 

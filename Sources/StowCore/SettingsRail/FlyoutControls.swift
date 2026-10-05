@@ -108,12 +108,14 @@ class FlyoutControl: FocusableControl {
 
 // MARK: - Button
 
-/// "Open ↩", "Delete…", "Record", "From Arc…": 24pt, radius 7, 12pt semibold.
+/// "Open ↩", "Delete…", "Record", "From Arc…": 24pt, radius 7, 12pt semibold. A symbol
+/// button (the editor's trash) is 28pt wide and names itself to VoiceOver.
 final class FlyoutButton: FlyoutControl {
     enum Style { case plain, primary, danger, dangerFilled }
 
     let style: Style
     private let label = NSTextField(labelWithString: "")
+    private var symbolView: NSImageView?
     private let height: CGFloat
 
     var title: String {
@@ -137,10 +139,23 @@ final class FlyoutButton: FlyoutControl {
         setAccessibilityLabel(title)
     }
 
+    /// A button showing only `symbol`; `title` is what VoiceOver reads.
+    convenience init(symbol: String, title: String, style: Style = .plain, height: CGFloat = 24) {
+        self.init(title, style: style, height: height)
+        label.isHidden = true
+        let image = NSImageView()
+        image.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+        image.setAccessibilityElement(false)
+        addSubview(image)
+        symbolView = image
+    }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: ceil(label.intrinsicContentSize.width) + 18, height: height)
+        if symbolView != nil { return NSSize(width: 28, height: height) }
+        return NSSize(width: ceil(label.intrinsicContentSize.width) + 18, height: height)
     }
 
     var fittingWidth: CGFloat { intrinsicContentSize.width }
@@ -149,6 +164,7 @@ final class FlyoutButton: FlyoutControl {
         super.layout()
         let h = label.intrinsicContentSize.height
         label.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+        symbolView?.frame = bounds
     }
 
     override func updateLayer() {
@@ -170,6 +186,7 @@ final class FlyoutButton: FlyoutControl {
         }
         layer?.backgroundColor = flyoutCG(fill)
         label.textColor = isEnabled ? ink : ink.withAlphaComponent(0.4)
+        symbolView?.contentTintColor = label.textColor
         applyFocusRing()
     }
 }
