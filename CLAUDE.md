@@ -117,7 +117,8 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **FooterButton** - The bottom bar's "+ Stow this tab" and Paste; drops its keycap, then its title, as the list narrows
 - **ListFlowLayout** - Custom NSCollectionViewLayout for vertical list
 - **ScrollWheelPageController** - Scroll-wheel page navigation for workspace switching
-- **RailView** - The 52pt rail: the gear (app sheet), workspace dots (drag to reorder, right-click or ⌃Return to edit), the dashed "+" dot (New workspace…), item cells and their flyouts
+- **RailView** - The 52pt rail: the gear (app sheet), the workspace chip (the Tabline's element: a click opens the shared workspace list, right-click or ⌃Return edits), item cells and their flyouts
+- **WorkspaceListFlyout** - The list both workspace chips open (rail and Tabline): workspaces with ✓ and ⌘1–9, then Edit Workspace… and New workspace…
 - **AppSheetFlyout** - The app sheet in a flyout hung off a gear: the rail's (beside the window) and the Tabline's (away from the strip's edge)
 - **TablineController** / **TablineStripView** - The active workspace as a strip of tabs riding the front browser window; **TablineLayout** places its parts (gear, chip, tabs, waterfilled titles) as a pure function
 - **OpenTabsMonitor** - One shared poll of the browsers' open tabs, for the open dots in the rail, list and Tabline
@@ -127,7 +128,7 @@ All models are Codable and use UUID-based identification. The Node enum uses cus
 - **FlyoutController** - A stack of FlyoutPanels (a root plus pushed children) with one outside-click monitor and Esc routing
 - **FlyoutListView** - The list inside a flyout (folder contents, tasks, snippets, workspaces), keyboard navigable
 - **TextFieldFlyout** - One-field flyout for rename, Edit URL and new folder/task names (shown through `ItemFlyouts`)
-- **WorkspaceEditorController** - The one workspace editor (name, colour, icon, Opens in, Open/Share/Export/Delete), owned by MainViewController. A right-click on any workspace opens it beside what was clicked: a rail dot, a Color Strip tab, a "More workspaces" row, the Tabline chip or a row in its list. "New workspace…" (⌘N, the title "+", the rail's "+" dot, a swipe past the last page) opens it on a workspace that's created only on commit (Esc creates nothing)
+- **WorkspaceEditorController** - The one workspace editor (name, colour, icon, Opens in, Open/Share/Export/Delete), owned by MainViewController. Share… pushes a **ShareCardView** beside it on the same flyout stack. A right-click on any workspace opens it beside what was clicked: a rail dot, a Color Strip tab, a "More workspaces" row, the Tabline chip or a row in its list. "New workspace…" (⌘N, the title "+", the rail's "+" dot, a swipe past the last page) opens it on a workspace that's created only on commit (Esc creates nothing)
 - **NodeMenu** - The native right-click menu for an item, in the list, the mosaic and the rail
 - **NewItemMenu** - The + / Add menu (folder, task, snippet, workspace, paste, import)
 - **Toast** - Bottom-of-window message with an optional action (copy, archive undo, stow failures)
