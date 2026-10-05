@@ -5,7 +5,6 @@ struct WorkspacePageView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
     @Binding var showingOverview: Bool
-    @State private var isSearchPresented = false
     @State private var scrollOffset: CGFloat = 0
     @State private var showingEmptyClipboard = false
     @State private var showingAddItem = false
@@ -26,7 +25,6 @@ struct WorkspacePageView: View {
             }
         )
         .background(interpolatedBackground(workspaces: workspaces).ignoresSafeArea())
-        .searchable(text: $viewModel.searchQuery, isPresented: $isSearchPresented, prompt: "Search")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -37,15 +35,6 @@ struct WorkspacePageView: View {
                 }
                 .disabled(viewModel.isSelecting)
                 .accessibilityLabel("Workspaces")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isSearchPresented = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                }
-                .disabled(viewModel.isSelecting)
-                .accessibilityLabel("Search")
             }
             ToolbarItem(placement: .primaryAction) {
                 if viewModel.isSelecting {

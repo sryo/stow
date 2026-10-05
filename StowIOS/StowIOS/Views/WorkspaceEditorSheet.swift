@@ -168,33 +168,21 @@ struct WorkspaceEditorSheet: View {
     private var actions: some View {
         VStack(spacing: 12) {
             Divider()
-            HStack(spacing: 8) {
-                Button("Open") {
-                    editor.open()
-                    dismiss()
-                    onOpen()
+            // One row while the four fit unbroken; with larger text, a full-width button each.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    openButton.fixedSize()
+                    shareButton.fixedSize()
+                    exportButton.fixedSize()
+                    Spacer(minLength: 0)
+                    deleteButton.fixedSize()
                 }
-                .buttonStyle(.borderedProminent)
-                if let url = editor.shareURL {
-                    ShareLink(item: url) { Text("Share…").lineLimit(1) }
-                        .buttonStyle(.bordered)
-                        .fixedSize()
+                VStack(spacing: 8) {
+                    openButton.frame(maxWidth: .infinity)
+                    shareButton.frame(maxWidth: .infinity)
+                    exportButton.frame(maxWidth: .infinity)
+                    deleteButton.frame(maxWidth: .infinity)
                 }
-                Button("Export…") {
-                    do {
-                        exportDocument = WorkspaceExportDocument(data: try editor.exportData())
-                        showingExporter = true
-                    } catch {
-                        exportError = error.localizedDescription
-                    }
-                }
-                .buttonStyle(.bordered)
-                Spacer(minLength: 0)
-                Button("Delete", role: .destructive) {
-                    if editor.delete(toasts: viewModel.undoToasts, undoManager: undoManager) { dismiss() }
-                }
-                .buttonStyle(.bordered)
-                .disabled(!editor.canDelete)
             }
             .controlSize(.regular)
             if !editor.canDelete {
@@ -204,6 +192,48 @@ struct WorkspaceEditorSheet: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
+    }
+
+    private var openButton: some View {
+        Button {
+            editor.open()
+            dismiss()
+            onOpen()
+        } label: {
+            Text("Open").lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+    }
+
+    @ViewBuilder private var shareButton: some View {
+        if let url = editor.shareURL {
+            ShareLink(item: url) { Text("Share…").lineLimit(1).frame(maxWidth: .infinity) }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private var exportButton: some View {
+        Button {
+            do {
+                exportDocument = WorkspaceExportDocument(data: try editor.exportData())
+                showingExporter = true
+            } catch {
+                exportError = error.localizedDescription
+            }
+        } label: {
+            Text("Export…").lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            if editor.delete(toasts: viewModel.undoToasts, undoManager: undoManager) { dismiss() }
+        } label: {
+            Text("Delete").lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!editor.canDelete)
     }
 
     private func sectionLabel(_ title: String) -> some View {
