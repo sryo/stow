@@ -144,16 +144,14 @@ final class TablineStripViewTests: XCTestCase {
         XCTAssertEqual(activated, .gear)
     }
 
-    func testNineteenEntriesUseMostOf1650Points() {
+    func testNineteenEntriesAreIconsButThePageYouAreOn() {
         let view = TablineStripView(frame: NSRect(x: 0, y: 0, width: 1650, height: 32))
         view.update(personalModel())
         XCTAssertTrue(view.hiddenEntryIndices.isEmpty)
         let rects = (0..<19).compactMap { view.rect(of: .tab($0)) ?? view.rect(of: .group($0)) }
         XCTAssertEqual(rects.count, 19)
-        XCTAssertGreaterThan(rects.last!.maxX, 1650 * 0.85, "the right half isn't left empty")
         let titled = (0..<18).filter { view.isTitled(.tab($0)) }
-        XCTAssertGreaterThan(titled.count, 9, "titles where they fit: \(titled)")
-        XCTAssertTrue(view.isTitled(.tab(3)), "the raised page keeps its title")
+        XCTAssertEqual(titled, [3], "only the raised page keeps its title")
     }
 
     func testRightClickOnTheChipAsksForTheWorkspaceEditor() {

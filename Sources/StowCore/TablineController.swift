@@ -927,6 +927,19 @@ enum TablinePaging {
         var neighbor: Int?
     }
 
+    /// The workspaces, then one more page: swiping onto it starts a new workspace, as
+    /// swiping past the window's last page does.
+    static func pageCount(workspaces: Int) -> Int { workspaces + 1 }
+
+    static func isNewWorkspace(page: Int, workspaces: Int) -> Bool { page == workspaces }
+
+    /// What slides in on the new-workspace page: an empty strip under its name.
+    static func newWorkspaceStrip() -> TablineStripModel {
+        var model = TablineStripModel()
+        model.name = "New workspace"
+        return model
+    }
+
     static func swipe(offset: CGFloat, current: Int, count: Int) -> Swipe? {
         let progress = offset - CGFloat(current)
         guard abs(progress) > 0.001 else { return nil }
@@ -936,7 +949,7 @@ enum TablinePaging {
 }
 
 extension TablineController: ScrollWheelPageDelegate {
-    func pagerPageCount() -> Int { model?.workspaces.count ?? 0 }
+    func pagerPageCount() -> Int { TablinePaging.pageCount(workspaces: model?.workspaces.count ?? 0) }
 
     func pagerCurrentPage() -> Int {
         model?.workspaces.firstIndex { $0.id == content.workspaceId } ?? 0
@@ -947,13 +960,20 @@ extension TablineController: ScrollWheelPageDelegate {
             return strip.endSwipe()
         }
         if swipe.neighbor != nil { closeFlyouts() }
-        strip.showSwipe(progress: swipe.progress, neighbor: swipe.neighbor.map { stripModel(for: model.workspaces[$0]) })
+        strip.showSwipe(progress: swipe.progress, neighbor: swipe.neighbor.map {
+            model.workspaces.indices.contains($0) ? stripModel(for: model.workspaces[$0]) : TablinePaging.newWorkspaceStrip()
+        })
     }
 
     func pagerDidSnapToPage(_ pageIndex: Int) {
-        if let model, pageIndex != pagerCurrentPage(), model.workspaces.indices.contains(pageIndex) {
+        strip.endSwipe()
+        guard let model, pageIndex != pagerCurrentPage() else { return }
+        if TablinePaging.isNewWorkspace(page: pageIndex, workspaces: model.workspaces.count) {
+            // The editor opens on a workspace made only on commit; Esc leaves things as they were.
+            newWorkspace()
+        } else if model.workspaces.indices.contains(pageIndex) {
             onSelectWorkspace?(model.workspaces[pageIndex].id)
         }
-        strip.endSwipe()
     }
 }
+

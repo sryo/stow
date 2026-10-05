@@ -14,6 +14,17 @@ final class TablineSwipeTests: XCTestCase {
         XCTAssertNil(TablinePaging.swipe(offset: 1, current: 1, count: 3), "at rest, no swipe")
     }
 
+    func testThePageAfterTheLastWorkspaceIsANewOne() {
+        XCTAssertEqual(TablinePaging.pageCount(workspaces: 3), 4)
+        XCTAssertEqual(TablinePaging.swipe(offset: 2.5, current: 2, count: 4), .init(progress: 0.5, neighbor: 3),
+                       "past the last workspace a new one slides in")
+        XCTAssertTrue(TablinePaging.isNewWorkspace(page: 3, workspaces: 3))
+        XCTAssertFalse(TablinePaging.isNewWorkspace(page: 2, workspaces: 3))
+        let placeholder = TablinePaging.newWorkspaceStrip()
+        XCTAssertEqual(placeholder.name, "New workspace")
+        XCTAssertTrue(placeholder.entries.isEmpty)
+    }
+
     func testAPagerOnlyTakesSwipesOverItsOwnWindow() {
         let pager = ScrollWheelPageController()
         let mine = NSWindow(contentRect: .init(x: 0, y: 0, width: 100, height: 40), styleMask: [], backing: .buffered, defer: true)

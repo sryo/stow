@@ -138,8 +138,8 @@ extension SiteGlyph {
 /// Left to right: the gear, the chip, a separator, the entries, "+n" when some don't fit,
 /// the ghost, and the pocket pinned to the right. The entries take the first tier that
 /// fits: full names, short names, or icons only. Whatever width the tier leaves goes back
-/// to the entries as titles: short names grow toward full ones, and in the icon tier the
-/// raised page and then the others in order get a short title while one fits.
+/// to the entries as titles: short names grow toward full ones, and in the icon tier only
+/// the raised page gets a title.
 struct TablineLayout {
     typealias Tier = TablineStripView.Tier
     typealias Kind = TablineStripView.Kind
@@ -229,15 +229,13 @@ struct TablineLayout {
         var tiers = Array(repeating: tier, count: visible)
         var spare = w - (tabsStart + entriesWidth(tier, count: visible) + trailing(tier))
 
-        // Icons only, with everything visible: titles for the raised page, then the rest in order.
-        if tier == .icon, visible == count {
-            let raised = input.raisedIndex.flatMap { (0..<visible).contains($0) ? $0 : nil }
-            let order = (raised.map { [$0] } ?? []) + (0..<visible).filter { $0 != raised }
-            for i in order {
-                let grow = input.entries[i].short - widths[i]
-                guard grow > 0, grow <= spare else { continue }
-                widths[i] += grow
-                tiers[i] = .short
+        // Icons only: the page you're on keeps its title, if it fits. Titling the rest in
+        // order would make some tabs named and others not, for no reason a person can see.
+        if tier == .icon, let raised = input.raisedIndex, (0..<visible).contains(raised) {
+            let grow = input.entries[raised].short - widths[raised]
+            if grow > 0, grow <= spare {
+                widths[raised] += grow
+                tiers[raised] = .short
                 spare -= grow
             }
         }

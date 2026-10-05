@@ -2,7 +2,7 @@ import XCTest
 @testable import StowCore
 
 /// The strip's layout as a pure function of measured widths: the gear before the chip,
-/// the three tiers, and spare width handed back as titles once only icons fit.
+/// the three tiers, and in the icon tier a title for the page you're on alone.
 final class TablineLayoutTests: XCTestCase {
     private typealias W = TablineLayout.EntryWidths
 
@@ -35,23 +35,21 @@ final class TablineLayoutTests: XCTestCase {
         XCTAssertEqual(item(layout, .tab(0))?.width, 110)
     }
 
-    func testIconTierHandsSpareWidthBackAsTitles() {
-        // 19 entries in 1650pt: short names (19 × 84) don't fit, so the strip is in the
-        // icon tier, but most of the width is still free.
+    func testIconTierTitlesOnlyThePageYouAreOn() {
+        // 19 entries in 1650pt: short names (19 × 84) don't fit, so every tab is an icon
+        // except the raised page, which keeps its name.
         let layout = TablineLayout.make(input(width: 1650, entries: 19, raised: 7))
         XCTAssertEqual(layout.tier, .icon)
         XCTAssertTrue(layout.hiddenEntryIndices.isEmpty)
         let tabs = layout.items.filter { if case .tab = $0.kind { return true }; return false }
         XCTAssertEqual(tabs.count, 19)
-        let titled = tabs.filter { $0.tier != .icon }
-        XCTAssertGreaterThan(titled.count, 9, "as many tabs as fit get a title")
-        XCTAssertLessThan(titled.count, 19)
-        XCTAssertEqual(item(layout, .tab(7))?.tier, .short, "the raised page is titled first")
-        XCTAssertEqual(tabs.first?.tier, .short, "then the tabs in order")
-        XCTAssertEqual(tabs.last?.tier, .icon)
-        let end = tabs.last.map { $0.x + $0.width } ?? 0
-        XCTAssertGreaterThan(end, 1650 * 0.9, "the strip fills instead of leaving half of it empty")
-        XCTAssertLessThanOrEqual(end, 1650 - TablineLayout.pad)
+        XCTAssertEqual(tabs.filter { $0.tier != .icon }.map(\.kind), [.tab(7)], "no tab gets a title just for coming first")
+        XCTAssertEqual(item(layout, .tab(7))?.width, 110, "with the room, its whole name")
+    }
+
+    func testIconTierWithNoRaisedPageIsAllIcons() {
+        let layout = TablineLayout.make(input(width: 1650, entries: 19))
+        XCTAssertTrue(layout.items.allSatisfy { $0.tier == .icon || $0.kind == .chip || $0.kind == .gear })
     }
 
     func testIconTierWaterfillNeverOverlapsAndKeepsOrder() {
