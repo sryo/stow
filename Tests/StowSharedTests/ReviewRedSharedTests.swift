@@ -103,9 +103,9 @@ final class ReviewRedSharedTests: XCTestCase {
     func testMacPublishesItsPageColorWhenICloudHasNone() {
         let cloud = RedMemoryStore()
         let local = scratchDefaults()
-        local.set("subtle", forKey: SyncedTintPreference.key)
+        local.set("off", forKey: SyncedTintPreference.key)
         SyncedTintPreference(local: local, cloud: cloud, notificationCenter: NotificationCenter()).start()
-        XCTAssertEqual(cloud.values[SyncedTintPreference.key], "subtle",
+        XCTAssertEqual(cloud.values[SyncedTintPreference.key], "off",
                        "patterns-12: the Mac's page color never reached an empty iCloud store")
     }
 }
