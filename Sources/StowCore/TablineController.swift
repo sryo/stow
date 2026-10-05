@@ -147,6 +147,8 @@ final class TablineController {
     var onNewWorkspace: ((NSView, NSRect) -> Void)?
 
     private var panel: NSPanel?
+    /// Two-finger swipes over the strip page workspaces, as over the window.
+    private let pager = ScrollWheelPageController()
     let strip = TablineStripView()
     private var trackTimer: Timer?
     private var hoverTimer: Timer?
@@ -373,6 +375,9 @@ final class TablineController {
         panel.hasShadow = true
         panel.contentView = strip
         self.panel = panel
+        pager.delegate = self
+        pager.maxPagesPerSwipe = 1
+        pager.attach(to: panel)
     }
 
     // MARK: - Content
@@ -389,16 +394,31 @@ final class TablineController {
         let ws = model.activeWorkspace
         content = TablineContent(workspaceId: ws.id, name: ws.name, colorId: ws.colorId, nodes: ws.items,
                                  workspaces: Self.workspaceEntries(model.workspaces))
-        entries = content.nodes.unarchived().compactMap { node in
+        entries = Self.entries(content.nodes)
+        pocket = Pocket.collect(content.nodes)
+        refreshStrip()
+        refreshOpenList()
+    }
+
+    static func entries(_ nodes: [Node]) -> [TablineEntry] {
+        nodes.unarchived().compactMap { node in
             switch node {
             case .link(let link): return .link(link)
             case .folder(let folder): return .group(folder, links: folder.children.flattenLinks())
             case .task, .snippet: return nil
             }
         }
-        pocket = Pocket.collect(content.nodes)
-        refreshStrip()
-        refreshOpenList()
+    }
+
+    /// Another workspace's strip, for sliding in during a swipe: its tabs and open dots.
+    fileprivate func stripModel(for workspace: Workspace) -> TablineStripModel {
+        var model = TablineStripModel()
+        model.name = workspace.name
+        model.colorId = workspace.colorId
+        model.entries = Self.entries(workspace.items)
+        model.pocketCount = Pocket.collect(workspace.items).count
+        model.liveIndices = Self.liveIndices(entries: model.entries, openKeys: monitor.openKeys)
+        return model
     }
 
     /// Recomputes raised, live and ghost from the latest browser state and redraws.
@@ -729,6 +749,7 @@ final class TablineController {
         strip.isLip = dock == .lip
         if target != lastFrame || !panel.isVisible {
             lastFrame = target
+            pager.pageWidth = max(160, min(320, target.width / 2))
             panel.setFrame(target, display: true)
             panel.invalidateShadow()
             panel.orderFrontRegardless()
@@ -896,5 +917,43 @@ final class TablineController {
 enum FrontWindowChoice {
     static func pick<Window>(focused: Window?, main: Window?, windows: [Window]) -> Window? {
         focused ?? main ?? windows.first
+    }
+}
+
+/// Reading the pager's offset as a swipe between the active workspace and a neighbour.
+enum TablinePaging {
+    struct Swipe: Equatable {
+        var progress: CGFloat
+        var neighbor: Int?
+    }
+
+    static func swipe(offset: CGFloat, current: Int, count: Int) -> Swipe? {
+        let progress = offset - CGFloat(current)
+        guard abs(progress) > 0.001 else { return nil }
+        let neighbor = current + (progress > 0 ? 1 : -1)
+        return Swipe(progress: progress, neighbor: (0..<count).contains(neighbor) ? neighbor : nil)
+    }
+}
+
+extension TablineController: ScrollWheelPageDelegate {
+    func pagerPageCount() -> Int { model?.workspaces.count ?? 0 }
+
+    func pagerCurrentPage() -> Int {
+        model?.workspaces.firstIndex { $0.id == content.workspaceId } ?? 0
+    }
+
+    func pagerDidUpdateOffset(_ offset: CGFloat) {
+        guard let model, let swipe = TablinePaging.swipe(offset: offset, current: pagerCurrentPage(), count: pagerPageCount()) else {
+            return strip.endSwipe()
+        }
+        if swipe.neighbor != nil { closeFlyouts() }
+        strip.showSwipe(progress: swipe.progress, neighbor: swipe.neighbor.map { stripModel(for: model.workspaces[$0]) })
+    }
+
+    func pagerDidSnapToPage(_ pageIndex: Int) {
+        if let model, pageIndex != pagerCurrentPage(), model.workspaces.indices.contains(pageIndex) {
+            onSelectWorkspace?(model.workspaces[pageIndex].id)
+        }
+        strip.endSwipe()
     }
 }

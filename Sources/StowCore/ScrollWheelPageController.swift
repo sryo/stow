@@ -46,6 +46,8 @@ final class ScrollWheelPageController {
     private var gestureStartPage: Int = 0
     private var lastScrollEventTime: TimeInterval = 0
     nonisolated(unsafe) private var eventMonitor: Any?
+    /// The window whose swipes page; the monitor sees every window's scroll events.
+    private weak var window: NSWindow?
     nonisolated(unsafe) private var snapTimer: Timer?
 
     // Snap animation state
@@ -58,6 +60,7 @@ final class ScrollWheelPageController {
 
     func attach(to window: NSWindow) {
         detach()
+        self.window = window
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self else { return event }
             return self.handleScrollEvent(event)
@@ -99,12 +102,19 @@ final class ScrollWheelPageController {
 
     // MARK: - Event Handling
 
+    /// Whether a scroll over `window` is this pager's to take.
+    func handles(window: NSWindow?) -> Bool {
+        guard let mine = self.window else { return true }
+        return window === mine
+    }
+
     private func handleScrollEvent(_ event: NSEvent) -> NSEvent? {
         guard isEnabled, let delegate else { return event }
 
         // Don't mutate pager state while the window is hidden — otherwise the
         // workspace appears on a different page than the user left it on.
         if let window = event.window, !window.isVisible { return event }
+        guard handles(window: event.window) else { return event }
 
         // Let scroll events over the excluded view pass through
         if let excluded = excludedView, trackingState == .idle,

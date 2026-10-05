@@ -98,7 +98,12 @@ xcrun actool Resources/AppIcon.icon \
     --minimum-deployment-target 14.0 \
     --app-icon AppIcon \
     --output-partial-info-plist .build/bundler/AppIcon-partial.plist \
-    --errors --warnings > /dev/null
+    --errors --warnings > .build/bundler/actool.log 2>&1 || true
+if [ ! -f "$APP_RESOURCES/Assets.car" ]; then
+    echo "❌ actool made no Assets.car (the Liquid Glass icon); see .build/bundler/actool.log"
+    cat .build/bundler/actool.log
+    exit 1
+fi
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$INFO_PLIST" &>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$INFO_PLIST" 2>/dev/null \

@@ -433,7 +433,13 @@ final class TablineStripView: NSView {
 
     override func isAccessibilityElement() -> Bool { false }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
-    override func accessibilityLabel() -> String? { "Tabline, \(model.name)" }
+    override func accessibilityLabel() -> String? { "Tabline, \(leadingName)" }
+
+    /// The workspace the strip reads as: the incoming one once a swipe is past half way.
+    private var leadingName: String {
+        if let swipe, abs(swipe.progress) > 0.5, let name = swipe.neighborName { return name }
+        return model.name
+    }
 
     /// One element per part, kept between queries: VoiceOver reads an element's role and
     /// label after asking for the children, and a fresh element would be gone by then.
@@ -474,21 +480,124 @@ final class TablineStripView: NSView {
         }
     }
 
+    // MARK: - Swipe
+
+    private struct Swipe {
+        var progress: CGFloat
+        var current: NSImage
+        var neighbor: NSImage?
+        var neighborName: String?
+        var neighborSurface: NSColor?
+        var neighborTabsX: CGFloat
+    }
+
+    private var swipe: Swipe?
+
+    /// How far a swipe has gone, in pages (positive: toward the next workspace), or nil at rest.
+    var swipeProgress: CGFloat? { swipe?.progress }
+
+    /// Mid-swipe: the tabs slide by `progress` pages and `neighbor`'s come in behind them
+    /// (none past either end, where only these move).
+    func showSwipe(progress: CGFloat, neighbor: TablineStripModel?) {
+        if swipe == nil {
+            swipe = Swipe(progress: progress, current: snapshot(of: self), neighbor: nil, neighborTabsX: tabsX)
+        }
+        if neighbor?.name != swipe?.neighborName || (neighbor == nil) != (swipe?.neighbor == nil) {
+            if let neighbor {
+                let renderer = TablineStripView(frame: bounds)
+                renderer.appearance = effectiveAppearance
+                renderer.update(neighbor)
+                swipe?.neighbor = snapshot(of: renderer)
+                swipe?.neighborName = neighbor.name
+                swipe?.neighborSurface = renderer.palette.surface
+                swipe?.neighborTabsX = renderer.tabsX
+            } else {
+                swipe?.neighbor = nil
+                swipe?.neighborName = nil
+                swipe?.neighborSurface = nil
+                swipe?.neighborTabsX = tabsX
+            }
+        }
+        swipe?.progress = progress
+        needsDisplay = true
+    }
+
+    func endSwipe() {
+        guard swipe != nil else { return }
+        swipe = nil
+        needsDisplay = true
+    }
+
+    /// Where the tabs begin: just past the separator after the chip.
+    private var tabsX: CGFloat { TablineLayout.chipX(gearWidth: M.gear) + chipWidth + M.gap + 5 }
+
+    /// The parts alone, without the strip's own background, so they slide over the blended one.
+    private var drawsPartsOnly = false
+
+    private func snapshot(of view: TablineStripView) -> NSImage {
+        let image = NSImage(size: view.bounds.size)
+        view.drawsPartsOnly = true
+        defer { view.drawsPartsOnly = false }
+        if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        return image
+    }
+
+    /// The gear and chip cross-fade in place; the tabs slide, the incoming ones following.
+    private func drawSwipe(_ swipe: Swipe, _ p: TablinePalette) {
+        let amount = min(1, abs(swipe.progress))
+        let surface = swipe.neighborSurface.flatMap { p.surface.blended(withFraction: amount, of: $0) } ?? p.surface
+        surface.setFill()
+        let shape = NSBezierPath(roundedRect: bounds, xRadius: M.radius, yRadius: M.radius)
+        shape.fill()
+
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: M.radius - 1, yRadius: M.radius - 1).addClip()
+        let split = max(tabsX, swipe.neighborTabsX)
+        let head = NSRect(x: 0, y: 0, width: split, height: bounds.height)
+        swipe.current.draw(in: head, from: head, operation: .sourceOver, fraction: 1 - amount, respectFlipped: true, hints: nil)
+        swipe.neighbor?.draw(in: head, from: head, operation: .sourceOver, fraction: amount, respectFlipped: true, hints: nil)
+
+        let tabs = NSRect(x: split, y: 0, width: bounds.width - split, height: bounds.height)
+        NSBezierPath(rect: tabs).addClip()
+        // Past either end only the current tabs move, held back like a rubber band.
+        let travel = tabs.width * (swipe.neighbor == nil ? 0.35 : 1)
+        let shift = -swipe.progress * travel
+        swipe.current.draw(in: tabs.offsetBy(dx: shift, dy: 0), from: tabs, operation: .sourceOver, fraction: 1,
+                           respectFlipped: true, hints: nil)
+        if let neighbor = swipe.neighbor {
+            let entry = (swipe.progress > 0 ? tabs.width : -tabs.width) + shift
+            neighbor.draw(in: tabs.offsetBy(dx: entry, dy: 0), from: tabs, operation: .sourceOver, fraction: 1,
+                          respectFlipped: true, hints: nil)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        NSColor.black.withAlphaComponent(0.18).setStroke()
+        let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.25, dy: 0.25), xRadius: M.radius, yRadius: M.radius)
+        ring.lineWidth = 0.5
+        ring.stroke()
+    }
+
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         let p = palette
+        if let swipe, !isLip, !drawsPartsOnly { return drawSwipe(swipe, p) }
         if isLip {
             p.surface.withAlphaComponent(0.9).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
             return
         }
-        p.surface.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: M.radius, yRadius: M.radius).fill()
-        NSColor.black.withAlphaComponent(0.18).setStroke()
-        let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.25, dy: 0.25), xRadius: M.radius, yRadius: M.radius)
-        ring.lineWidth = 0.5
-        ring.stroke()
+        if !drawsPartsOnly {
+            p.surface.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: M.radius, yRadius: M.radius).fill()
+            NSColor.black.withAlphaComponent(0.18).setStroke()
+            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.25, dy: 0.25), xRadius: M.radius, yRadius: M.radius)
+            ring.lineWidth = 0.5
+            ring.stroke()
+        }
 
         // separator after the chip
         let sepX = TablineLayout.chipX(gearWidth: M.gear) + chipWidth + M.gap + 4
