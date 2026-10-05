@@ -6,6 +6,7 @@ struct StowWidgetEntry: TimelineEntry {
     let date: Date
     let links: [StowShared.Link]
     let workspaceName: String
+    var workspaceId: UUID?
 }
 
 /// Each widget shows the workspace picked in Edit Widget; unconfigured widgets follow the
@@ -25,7 +26,8 @@ struct StowWidgetProvider: AppIntentTimelineProvider {
 
     private func entry(for configuration: SelectWorkspaceIntent) -> StowWidgetEntry {
         let content = WidgetContent.make(choice: configuration.workspace?.choice, state: AppGroup.makeStore().load())
-        return StowWidgetEntry(date: Date(), links: content.links, workspaceName: content.workspaceName)
+        return StowWidgetEntry(date: Date(), links: content.links, workspaceName: content.workspaceName,
+                               workspaceId: content.workspaceId)
     }
 }
 
@@ -52,7 +54,9 @@ struct StowWidgetEntryView: View {
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: family == .systemSmall ? 2 : 4), spacing: 6) {
                     ForEach(links) { link in
-                        if let url = URL(string: link.url) {
+                        // Through the app, like the Live Activity's tiles: the app selects
+                        // this widget's workspace and opens the link.
+                        if let url = StowActivityAttributes.deepLink(for: link.url, workspace: entry.workspaceId) {
                             SwiftUI.Link(destination: url) {
                                 VStack(spacing: 2) {
                                     if let favicon = FaviconImage.load(FaviconStorage.fileName(for: link, in: icons)) {

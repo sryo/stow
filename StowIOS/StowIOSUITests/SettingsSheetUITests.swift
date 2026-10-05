@@ -45,6 +45,12 @@ final class SettingsSheetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
     }
 
+    private func snap(_ name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["STOW_TOUR_DIR"] else { return }
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    }
+
     func testShowsThePlannedRowsWithTheirDefaults() {
         let app = launch(reset: true)
         openSettings(app)
@@ -61,14 +67,16 @@ final class SettingsSheetUITests: XCTestCase {
         XCTAssertEqual(island.value as? String, "1")
 
         XCTAssertTrue(showsValue(app).contains("Open workspace"), showsValue(app))
-        XCTAssertTrue(app.buttons["Full"].isSelected)
-        XCTAssertFalse(app.buttons["Soft"].isSelected)
+        XCTAssertTrue(app.buttons["Color"].isSelected)
+        XCTAssertFalse(app.buttons["Neutral"].isSelected)
+        XCTAssertFalse(app.buttons["Soft"].exists, "Soft is gone: page color is Color or Neutral")
 
         XCTAssertTrue(app.staticTexts["Sharing a link saves to the workspace you last opened. Pick another in the share sheet."].exists)
 
         // The sheet opens at the medium detent; pull it up to read the rest.
         sleep(1)
         expandSheet(app)
+        snap("15-settings-page-color-two-segments")
         sleep(1)
         XCTAssertTrue(app.staticTexts["Syncs with Stow on your Mac."].waitForExistence(timeout: 3))
 
@@ -81,9 +89,9 @@ final class SettingsSheetUITests: XCTestCase {
         var app = launch(reset: true)
         openSettings(app)
 
-        app.buttons["Soft"].tap()
-        XCTAssertTrue(app.buttons["Soft"].isSelected)
-        XCTAssertFalse(app.buttons["Full"].isSelected)
+        app.buttons["Neutral"].tap()
+        XCTAssertTrue(app.buttons["Neutral"].isSelected)
+        XCTAssertFalse(app.buttons["Color"].isSelected)
 
         app.buttons["settings.shows"].tap()
         XCTAssertTrue(app.navigationBars["Shows"].waitForExistence(timeout: 5))
@@ -98,8 +106,10 @@ final class SettingsSheetUITests: XCTestCase {
         XCTAssertEqual(island.value as? String, "0")
         XCTAssertFalse(app.buttons["settings.shows"].isEnabled)
 
-        app.buttons["None"].tap()
-        XCTAssertTrue(app.buttons["None"].isSelected)
+        app.buttons["Color"].tap()
+        XCTAssertTrue(app.buttons["Color"].isSelected)
+        app.buttons["Neutral"].tap()
+        XCTAssertTrue(app.buttons["Neutral"].isSelected)
 
         app.navigationBars["Settings"].buttons["Done"].tap()
         XCTAssertFalse(app.navigationBars["Settings"].waitForExistence(timeout: 2))
@@ -107,7 +117,7 @@ final class SettingsSheetUITests: XCTestCase {
         app.terminate()
         app = launch(reset: false)
         openSettings(app)
-        XCTAssertTrue(app.buttons["None"].isSelected)
+        XCTAssertTrue(app.buttons["Neutral"].isSelected)
         XCTAssertEqual(app.switches["settings.island"].value as? String, "0")
         XCTAssertTrue(showsValue(app).contains("Work"), showsValue(app))
     }

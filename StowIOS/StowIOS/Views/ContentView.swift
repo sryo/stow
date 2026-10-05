@@ -26,23 +26,12 @@ struct ContentView: View {
                     WorkspaceOverviewSheet()
                         .environmentObject(viewModel)
                 }
-                .alert("New Workspace", isPresented: $viewModel.showingNewWorkspaceAlert) {
-                    TextField("Workspace Name", text: $viewModel.newWorkspaceName)
-                    Button("Cancel", role: .cancel) {
-                        viewModel.newWorkspaceName = ""
-                    }
-                    Button("Create") {
-                        let name = viewModel.newWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        viewModel.newWorkspaceName = ""
-                        if !name.isEmpty {
-                            let id = viewModel.model.createWorkspace(name: name)
-                            viewModel.selectedWorkspaceId = id
-                        }
-                    }
-                } message: {
-                    Text("Enter a name for the new workspace")
-                }
             }
+        }
+        .undoToast(viewModel.undoToasts)
+        .sheet(item: $viewModel.workspaceEditor) { editor in
+            WorkspaceEditorSheet(editor: editor)
+                .environmentObject(viewModel)
         }
         .alert("Couldn't Save Data", isPresented: Binding(
             get: { viewModel.saveErrorMessage != nil },

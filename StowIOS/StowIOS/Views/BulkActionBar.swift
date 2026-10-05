@@ -6,6 +6,7 @@ import StowShared
 /// `NodeListViewController.bulk*` selectors.
 struct BulkActionBar: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @Environment(\.undoManager) private var undoManager
 
     @State private var showingMoveTarget = false
     @State private var showingNewFolderPrompt = false
@@ -42,9 +43,7 @@ struct BulkActionBar: View {
                 showingMoveTarget = true
             }
             actionButton(label: "Archive", systemImage: "archivebox", role: .destructive) {
-                for id in selectedIds {
-                    viewModel.model.archiveNode(id: id)
-                }
+                viewModel.archive(Array(selectedIds), undoManager: undoManager)
                 done()
             }
         }

@@ -53,19 +53,30 @@ final class ICloudStatusTests: XCTestCase {
 
 @MainActor
 final class PageColorTests: XCTestCase {
-    func testLabelsUseTheMacsWords() {
-        XCTAssertEqual(PageColor.options.map(\.title), ["Full", "Soft", "None"])
-        XCTAssertEqual(PageColor.options.map(\.tint), [.full, .subtle, .off])
+    func testTwoSegmentsColorAndNeutral() {
+        XCTAssertEqual(PageColor.options.map(\.title), ["Color", "Neutral"])
+        XCTAssertEqual(PageColor.options.map(\.tint), [.full, .off], "stored as the Mac's full and off")
     }
 
-    func testIncreaseContrastDropsFullToSoft() {
-        XCTAssertEqual(PageColor.effective(.full, increaseContrast: true), .subtle)
-        XCTAssertEqual(PageColor.effective(.full, increaseContrast: false), .full)
+    func testSoftShowsAsColor() {
+        XCTAssertEqual(PageColor.shown(.subtle), .full)
+        XCTAssertEqual(PageColor.shown(.full), .full)
+        XCTAssertEqual(PageColor.shown(.off), .off)
     }
 
-    func testIncreaseContrastLeavesSoftAndNoneAlone() {
-        XCTAssertEqual(PageColor.effective(.subtle, increaseContrast: true), .subtle)
-        XCTAssertEqual(PageColor.effective(.off, increaseContrast: true), .off)
+    func testIncreaseContrastNoLongerSoftensColor() {
+        XCTAssertEqual(PageColor.shown(.full), .full)
+    }
+
+    func testAStoredSoftShowsAsColor() {
+        let local = TestDefaults()
+        let cloud = TestDefaults()
+        defer { local.remove(); cloud.remove() }
+        cloud.defaults.set("subtle", forKey: "StowTintMode")
+        local.defaults.set("subtle", forKey: "StowTintMode")
+        let center = NotificationCenter()
+        let preference = SyncedTintPreference(local: local.defaults, cloud: cloud.defaults, notificationCenter: center)
+        XCTAssertEqual(PageColorStore(preference: preference, notificationCenter: center).tint, .full)
     }
 
     func testStorePublishesChangesFromTheSyncedPreference() {
@@ -84,6 +95,6 @@ final class PageColorTests: XCTestCase {
         // A change arriving from the Mac.
         cloud.defaults.set("subtle", forKey: "StowTintMode")
         preference.handleExternalChange(changedKeys: ["StowTintMode"])
-        XCTAssertEqual(store.tint, .subtle)
+        XCTAssertEqual(store.tint, .full, "a synced Soft shows as Color")
     }
 }

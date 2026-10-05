@@ -80,20 +80,15 @@ final class LiveTourUITests: XCTestCase {
         snap("03-settings-large")
         dump(app, "03-settings-large")
 
-        app.buttons["Soft"].tap()
+        app.buttons["Neutral"].tap()
         sleep(1)
-        snap("04-settings-soft")
+        snap("04-settings-neutral")
         closeSettings(app)
-        snap("05-page-soft")
+        snap("05-page-neutral")
 
         openSettings(app)
-        app.buttons["None"].tap()
-        closeSettings(app)
-        snap("06-page-none")
-
-        openSettings(app)
-        app.buttons["Full"].tap()
-        XCTAssertTrue(app.buttons["Full"].isSelected)
+        app.buttons["Color"].tap()
+        XCTAssertTrue(app.buttons["Color"].isSelected)
         closeSettings(app)
     }
 
