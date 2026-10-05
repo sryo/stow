@@ -151,7 +151,11 @@ final class TablineController {
     private var trackTimer: Timer?
     private var hoverTimer: Timer?
     private var lastFrame: NSRect = .zero
-    private var isRunning = false
+    private(set) var isRunning = false
+    /// Put away with Toggle Stow: it stays off screen while running.
+    private var isHiddenByUser = false
+    /// The strip started or stopped; Stow's window gives way to it while it runs.
+    var onRunningChanged: ((Bool) -> Void)?
     private var trackScheduled = false
     private var axObserver: AXNotificationObserver?
     private var observedWindow: AXUIElement?
@@ -254,7 +258,9 @@ final class TablineController {
                 MainActor.assumeIsolated { TablineController.shared.refreshStripSoon() }
             }.store(in: &monitorSubscriptions)
         }
+        let wasRunning = isRunning
         isRunning = true
+        if !wasRunning { onRunningChanged?(true) }
         if workspaceObservers.isEmpty { observeWorkspace() }
         refreshBrowserIds()
         updatePolling()
@@ -262,7 +268,9 @@ final class TablineController {
 
     private func stop() {
         closeFlyouts()
+        let wasRunning = isRunning
         isRunning = false
+        defer { if wasRunning { onRunningChanged?(false) } }
         for observer in workspaceObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             NotificationCenter.default.removeObserver(observer)
@@ -684,8 +692,19 @@ final class TablineController {
 
     // MARK: - Tracking the front browser window
 
+    func setHiddenByUser(_ hidden: Bool) {
+        isHiddenByUser = hidden
+        if hidden { hidePanel() } else { scheduleTrack() }
+    }
+
+    /// The gear's app sheet, for ⌘, while the strip stands in for the window.
+    func showSettings() {
+        guard isRunning, !settings.isOpen, let rect = strip.rect(of: .gear) else { return }
+        toggleSettings(from: rect)
+    }
+
     private func track() {
-        guard let panel else { return }
+        guard let panel, !isHiddenByUser else { return hidePanel() }
         guard let front = NSWorkspace.shared.frontmostApplication,
               let bundleId = front.bundleIdentifier,
               bundleId == ActiveBrowserTracker.shared.lastActiveBundleId,

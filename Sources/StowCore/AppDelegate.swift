@@ -11,7 +11,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     // Attachment state
     private var isAttachmentMode: Bool = false
     private var lastManualFrame: NSRect?
-    private var isUserHidden: Bool = false
+    /// The window, or the Tabline standing in for it: one on screen at a time.
+    private lazy var surface = StowSurface(
+        showWindow: { [weak self] in self?.revealWindow() },
+        hideWindow: { [weak self] in self?.window?.orderOut(nil) },
+        setTablineHidden: { TablineController.shared.setHiddenByUser($0) })
+    private var isUserHidden: Bool { surface.isUserHidden }
 
     // Save failures repeat on every mutation while the disk condition persists;
     // alert once per session and let os.log carry the rest.
@@ -35,6 +40,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         ImportCoordinator.shared.backups = BackupService(baseDirectory: Self.dataDirectory)
         scheduleBackups()
         AppPreferences.shared.startTintSync()
+        TablineController.shared.onRunningChanged = { [weak self] in self?.surface.tablineRunningChanged($0) }
         let mainViewController = MainViewController(model: model)
         self.mainViewController = mainViewController
 
@@ -80,8 +86,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
         ensureWindowVisible(window)
         window.delegate = self
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
+        if !surface.tablineRunning {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
 
         self.window = window
         ImportCoordinator.shared.window = window
@@ -214,7 +222,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showMainWindow(nil)
+        surface.reopen()
         return true
     }
 
@@ -244,6 +252,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc public func openPreferences(_ sender: Any?) {
         // Select the settings tab in the main window instead of opening a separate preferences window
+        if surface.tablineRunning { return TablineController.shared.showSettings() }
         guard let mainVC = mainViewController else { return }
         mainVC.toggleSettings()
         showMainWindow(nil)
@@ -349,19 +358,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func toggleStowWindow() {
-        guard let window = window else { return }
+        surface.toggle()
+    }
 
-        if isUserHidden || !window.isVisible {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            isUserHidden = false
-
-            if isAttachmentMode {
-                WindowAttachmentService.shared.forceUpdate()
-            }
-        } else {
-            window.orderOut(nil)
-            isUserHidden = true
+    private func revealWindow() {
+        guard let window else { return }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        if isAttachmentMode {
+            WindowAttachmentService.shared.forceUpdate()
         }
     }
 
@@ -643,7 +648,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func attachmentServiceShouldShowWindow(_ service: WindowAttachmentService) {
-        guard !isUserHidden else { return }
+        guard !isUserHidden, !surface.tablineRunning else { return }
         window?.orderFront(nil)
     }
 }
