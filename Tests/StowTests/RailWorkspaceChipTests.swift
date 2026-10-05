@@ -199,3 +199,19 @@ final class RailWorkspaceChipTests: XCTestCase {
         XCTAssertEqual(try rail().workspaceChip.content?.id, model.workspaces[0].id, "a swipe that snaps back puts it back")
     }
 }
+
+@MainActor
+final class WorkspaceListFooterTests: XCTestCase {
+    func testTheFootersButtonsFitTheList() {
+        let list = WorkspaceListFlyout.make(workspaces: [(UUID(), "Research", .ocean)], current: nil, edit: {}, newWorkspace: {})
+        list.frame.size = list.preferredSize
+        list.layoutSubtreeIfNeeded()
+        let buttons = list.descendants(of: FlyoutButton.self)
+        XCTAssertEqual(buttons.map(\.title), ["Edit Workspace…", "New workspace…"])
+        for button in buttons {
+            XCTAssertLessThanOrEqual(button.frame.maxX, list.bounds.width - FlyoutListView.Metrics.padding + 0.5, "\(button.title) is cut")
+            XCTAssertLessThanOrEqual(button.frame.maxY, list.bounds.height + 0.5)
+        }
+        XCTAssertFalse(buttons[0].frame.intersects(buttons[1].frame))
+    }
+}

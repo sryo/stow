@@ -176,8 +176,18 @@ final class FlyoutListView: NSView {
 
     var preferredSize: NSSize {
         var h = Metrics.padding + Metrics.headerHeight + Metrics.headerGap + rowsHeight + Metrics.padding
-        if !footerButtons.isEmpty { h += Metrics.separatorHeight + Metrics.footerHeight }
+        if !footerButtons.isEmpty {
+            let rows = CGFloat(footerStacks ? footerButtons.count : 1)
+            h += Metrics.separatorHeight + rows * Metrics.footerHeight + (rows - 1) * 6
+        }
         return NSSize(width: Metrics.width, height: ceil(h))
+    }
+
+    /// Footer buttons that don't fit side by side ("Edit Workspace…", "New workspace…")
+    /// take a full-width line each.
+    private var footerStacks: Bool {
+        let inner = Metrics.width - Metrics.padding * 2
+        return footerButtons.map(\.fittingWidth).reduce(0, +) + CGFloat(max(0, footerButtons.count - 1)) * 6 > inner
     }
 
     override func layout() {
@@ -195,10 +205,16 @@ final class FlyoutListView: NSView {
             separator.frame = NSRect(x: p, y: y + 8, width: inner, height: 0.5)
             y += Metrics.separatorHeight
             var x = p
+            let stacks = footerStacks
             for b in footerButtons {
-                let w = b.fittingWidth
-                b.frame = NSRect(x: x, y: y, width: w, height: Metrics.footerHeight)
-                x += w + 6
+                if stacks {
+                    b.frame = NSRect(x: p, y: y, width: inner, height: Metrics.footerHeight)
+                    y += Metrics.footerHeight + 6
+                } else {
+                    let w = b.fittingWidth
+                    b.frame = NSRect(x: x, y: y, width: w, height: Metrics.footerHeight)
+                    x += w + 6
+                }
             }
         }
     }
