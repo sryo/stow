@@ -27,15 +27,11 @@ struct WorkspaceExportDocument: FileDocument {
 struct WorkspaceOverviewSheet: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var renameWorkspaceId: UUID?
-    @State private var renameText = ""
-    @State private var deleteWorkspaceId: UUID?
     @State private var showingSettings = false
-    @State private var exportDocument: WorkspaceExportDocument?
-    @State private var exportFilename = ""
-    @State private var showingExporter = false
     @State private var showingImporter = false
     @State private var transferErrorMessage: String?
+    /// The Edit Workspace sheet, on top of this one.
+    @State private var editor: WorkspaceEditorModel?
 
     var body: some View {
         NavigationStack {
@@ -45,75 +41,21 @@ struct WorkspaceOverviewSheet: View {
                         ForEach(viewModel.workspaces) { workspace in
                             WorkspaceCard(
                                 workspace: workspace,
-                                isSelected: workspace.id == viewModel.selectedWorkspaceId
-                            ) {
-                                viewModel.searchQuery = ""
-                                viewModel.selectWorkspace(id: workspace.id)
-                                dismiss()
-                            }
-                            .contextMenu {
-                                Button {
-                                    renameText = workspace.name
-                                    renameWorkspaceId = workspace.id
-                                } label: {
-                                    Label("Rename", systemImage: "pencil")
+                                isSelected: workspace.id == viewModel.selectedWorkspaceId,
+                                onTap: {
+                                    viewModel.searchQuery = ""
+                                    viewModel.selectWorkspace(id: workspace.id)
+                                    dismiss()
+                                },
+                                onEdit: {
+                                    editor = WorkspaceEditorModel(editing: workspace.id, in: viewModel.model)
                                 }
-
-                                Menu {
-                                    ForEach(WorkspaceColorId.allCases, id: \.name) { colorId in
-                                        Button {
-                                            viewModel.model.updateWorkspaceColor(id: workspace.id, colorId: colorId)
-                                        } label: {
-                                            Label {
-                                                Text(colorId.name)
-                                            } icon: {
-                                                Image(uiImage: WorkspaceDotView.image(colorId, isCurrent: workspace.colorId == colorId))
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    Label("Color", systemImage: "paintpalette")
-                                }
-
-                                if let shareURL = try? viewModel.model.shareWorkspace(id: workspace.id) {
-                                    ShareLink(item: shareURL) {
-                                        Label("Share Link", systemImage: "square.and.arrow.up")
-                                    }
-                                }
-
-                                Button {
-                                    do {
-                                        let data = try viewModel.model.exportWorkspace(id: workspace.id)
-                                        exportDocument = WorkspaceExportDocument(data: data)
-                                        exportFilename = workspace.name
-                                        showingExporter = true
-                                    } catch {
-                                        transferErrorMessage = error.localizedDescription
-                                    }
-                                } label: {
-                                    Label("Export File", systemImage: "square.and.arrow.down")
-                                }
-
-                                if viewModel.workspaces.count > 1 {
-                                    Divider()
-                                    Button(role: .destructive) {
-                                        if workspace.items.isEmpty {
-                                            viewModel.deleteWorkspace(id: workspace.id)
-                                        } else {
-                                            deleteWorkspaceId = workspace.id
-                                        }
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
+                            )
                         }
 
                         // "New Workspace" card
                         Button {
-                            let id = viewModel.model.createWorkspace(name: "Untitled")
-                            viewModel.selectedWorkspaceId = id
-                            dismiss()
+                            editor = WorkspaceEditorModel(creatingIn: viewModel.model)
                         } label: {
                             RoundedRectangle(cornerRadius: 16)
                                 .strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8]))
@@ -130,6 +72,7 @@ struct WorkspaceOverviewSheet: View {
                                 }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("workspaces.new")
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 16)
@@ -164,18 +107,16 @@ struct WorkspaceOverviewSheet: View {
                 }
             }
         }
+        .undoToast(viewModel.undoToasts)
         .sheet(isPresented: $showingSettings) {
             SettingsSheet()
         }
-        .fileExporter(
-            isPresented: $showingExporter,
-            document: exportDocument,
-            contentType: stowFileType,
-            defaultFilename: exportFilename
-        ) { result in
-            if case .failure(let error) = result {
-                transferErrorMessage = error.localizedDescription
-            }
+        .sheet(item: $editor, onDismiss: {
+            // A new workspace opens: this sheet steps aside for it, as a tap on a card does.
+            if editor?.createdId != nil { dismiss() }
+        }) { editor in
+            WorkspaceEditorSheet(editor: editor, onOpen: { dismiss() })
+                .environmentObject(viewModel)
         }
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.item]) { result in
             switch result {
@@ -202,35 +143,6 @@ struct WorkspaceOverviewSheet: View {
             Text(transferErrorMessage ?? "")
         }
         .presentationDetents([.medium])
-        .alert("Rename Workspace", isPresented: Binding(
-            get: { renameWorkspaceId != nil },
-            set: { if !$0 { renameWorkspaceId = nil } }
-        )) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) {
-                renameWorkspaceId = nil
-            }
-            Button("Rename") {
-                let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let id = renameWorkspaceId, !name.isEmpty {
-                    viewModel.model.renameWorkspace(id: id, newName: name)
-                }
-                renameWorkspaceId = nil
-            }
-        }
-        .confirmationDialog("Delete Workspace?", isPresented: Binding(
-            get: { deleteWorkspaceId != nil },
-            set: { if !$0 { deleteWorkspaceId = nil } }
-        ), titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let id = deleteWorkspaceId {
-                    viewModel.deleteWorkspace(id: id)
-                }
-                deleteWorkspaceId = nil
-            }
-        } message: {
-            Text("This will permanently delete this workspace and all its contents.")
-        }
     }
 }
 
@@ -243,9 +155,11 @@ private struct WorkspaceCard: View {
 
     private var background: UIColor { viewModel.background(for: workspace.colorId) }
     let onTap: () -> Void
+    let onEdit: () -> Void
 
+    /// Tap goes to the workspace; long-press edits it.
     var body: some View {
-        Button(action: onTap) {
+        Group {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     WorkspaceBadge(colorId: workspace.colorId, identity: viewModel.workspaceIdentities[workspace.id], size: 28)
@@ -291,7 +205,13 @@ private struct WorkspaceCard: View {
                     .strokeBorder(isSelected ? Color.primary.opacity(0.5) : Color.clear, lineWidth: 2)
             )
         }
-        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .onTapGesture(perform: onTap)
+        .editsWorkspaceOnLongPress(onEdit)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(workspace.name)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("workspace.card")
     }
 
     private func iconName(for node: Node) -> String {

@@ -7,9 +7,12 @@ import StowShared
 @MainActor
 final class AppViewModel: ObservableObject {
     let model: AppModel
-    @Published var showingNewWorkspaceAlert = false
-    @Published var newWorkspaceName = ""
     @Published var searchQuery = ""
+    /// The Edit Workspace sheet opened from a page (its title, or swiping past the last
+    /// one) or the iPad sidebar. The Workspaces sheet presents its own.
+    @Published var workspaceEditor: WorkspaceEditorModel?
+    /// The one Undo toast.
+    let undoToasts = UndoToastCenter()
     // Save failures repeat on every mutation while the disk condition
     // persists; alert once per session and let os.log carry the rest.
     @Published var saveErrorMessage: String?
@@ -219,12 +222,15 @@ final class AppViewModel: ObservableObject {
         model.selectWorkspace(id: id)
     }
 
-    func createWorkspace(name: String) {
-        model.createWorkspace(name: name)
+    /// Opens the Edit Workspace sheet on a workspace.
+    func editWorkspace(id: UUID) {
+        workspaceEditor = WorkspaceEditorModel(editing: id, in: model)
     }
 
-    func deleteWorkspace(id: UUID) {
-        model.deleteWorkspace(id: id)
+    /// Opens the Edit Workspace sheet with an empty, focused name; nothing exists until
+    /// it's created there.
+    func beginNewWorkspace() {
+        workspaceEditor = WorkspaceEditorModel(creatingIn: model)
     }
 
     // MARK: - Items
@@ -238,24 +244,14 @@ final class AppViewModel: ObservableObject {
         pendingRenameId = model.addFolder(name: NodeDefaults.folderName, parentId: parentId)
     }
 
-    /// Archives the items, undoable with shake or three-finger swipe.
+    /// Archives the items with an Undo toast; shake or a three-finger swipe undoes too.
     func archive(_ ids: [UUID], undoManager: UndoManager?) {
-        let ids = ids.filter { model.nodeById($0)?.isArchived == false }
-        guard !ids.isEmpty else { return }
-        for id in ids { model.archiveNode(id: id) }
-        undoManager?.registerUndo(withTarget: self) { viewModel in
-            for id in ids { viewModel.model.unarchiveNode(id: id) }
-        }
-        undoManager?.setActionName("Archive")
+        ItemUndo.archive(ids, model: model, toasts: undoToasts, undoManager: undoManager)
     }
 
-    /// Deletes the item for good, undoable while the app runs; its icon files stay on
-    /// disk until the next launch's cleanup so an undo brings it back whole.
+    /// Deletes the item for good with an Undo toast; its icon files stay on disk until the
+    /// toast is gone so an undo brings it back whole.
     func deletePermanently(_ id: UUID, undoManager: UndoManager?) {
-        guard let removed = model.permanentlyDeleteNode(id: id, keepFavicons: undoManager != nil) else { return }
-        undoManager?.registerUndo(withTarget: self) { viewModel in
-            viewModel.model.restoreNode(removed)
-        }
-        undoManager?.setActionName("Delete")
+        ItemUndo.deletePermanently(id, model: model, toasts: undoToasts, undoManager: undoManager)
     }
 }

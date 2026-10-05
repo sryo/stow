@@ -21,9 +21,8 @@ struct WorkspacePageView: View {
                 set: { if let id = $0 { viewModel.selectWorkspace(id: id) } }
             ),
             scrollOffset: $scrollOffset,
-            onAddNewTriggered: {
-                let id = viewModel.model.createWorkspace(name: "Untitled")
-                viewModel.selectedWorkspaceId = id
+            onNewWorkspaceRequested: {
+                viewModel.beginNewWorkspace()
             }
         )
         .background(interpolatedBackground(workspaces: workspaces).ignoresSafeArea())

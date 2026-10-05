@@ -9,10 +9,15 @@
 /* Begin PBXBuildFile section */
 		A1000001 /* StowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001 /* StowApp.swift */; };
 		A1000002 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002 /* AppViewModel.swift */; };
+		ZFEF7D8D6A1F3BC6BBF251B7 /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = YFEF7D8D6A1F3BC6BBF251B7 /* DeepLink.swift */; };
+		Z894A3EE1A88A937DEFDC747 /* UndoToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y894A3EE1A88A937DEFDC747 /* UndoToast.swift */; };
+		Z04DF84F7C2862FD4EFFF9F7 /* WorkspaceEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y04DF84F7C2862FD4EFFF9F7 /* WorkspaceEditorModel.swift */; };
 		A1000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003 /* ContentView.swift */; };
 		A1000004 /* WorkspaceSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* WorkspaceSidebarView.swift */; };
 		A1000006 /* WorkspaceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* WorkspaceRow.swift */; };
 		C12D0001 /* WorkspaceDotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12D0002 /* WorkspaceDotView.swift */; };
+		Z624AECB1D14C1991000FB63 /* UndoToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y624AECB1D14C1991000FB63 /* UndoToastView.swift */; };
+		ZF7CB27BC063E8937E685843 /* WorkspaceEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = YF7CB27BC063E8937E685843 /* WorkspaceEditorSheet.swift */; };
 		A1000007 /* NodeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* NodeListView.swift */; };
 		A1000008 /* WorkspacePageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* WorkspacePageView.swift */; };
 		A1000009 /* StowShared in Frameworks */ = {isa = PBXBuildFile; productRef = D1000001 /* StowShared */; };
@@ -42,6 +47,8 @@
 		X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X759387879FFABF26212B51D /* ShareSheetModelTests.swift */; };
 		X539E6B7814724812428AF26 /* WidgetIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */; };
 		XBD177B771BC281FB13C0301 /* SettingsLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */; };
+		Z40F060EAC21A39E412A44D0 /* UndoToastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y40F060EAC21A39E412A44D0 /* UndoToastTests.swift */; };
+		ZD705D0677AF67C85246E6BC /* WorkspaceEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = YD705D0677AF67C85246E6BC /* WorkspaceEditorTests.swift */; };
 		X12244C5330BE4BA9A00DD35 /* SettingsSheetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */; };
 		X7EB8638B87994E7561980AC /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = X4B834C7BDD407C97BAC011E /* AppGroup.swift */; };
 		XF753821B39E7E043B17F429 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = X4B834C7BDD407C97BAC011E /* AppGroup.swift */; };
@@ -63,6 +70,7 @@
 		X7F2FB597657DCD873C86AAA /* LiveActivityLookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */; };
 		X4383FEFD9478E536D5BA38A /* RowSwipeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */; };
 		XF784B866B5060C3DD069927 /* PagingSwipeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */; };
+		Z83A99FA202A0AE7DBE8ECC6 /* EditWorkspaceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y83A99FA202A0AE7DBE8ECC6 /* EditWorkspaceUITests.swift */; };
 		XCD45F114419F554762DC0CE /* WorkspaceBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */; };
 		X254627CF316F4E45816EE80 /* WorkspaceBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = X188DEECD0CCEC201D022F61 /* WorkspaceBadge.swift */; };
 		XA1C0N00000000000000B001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = XA1C0N00000000000000F001 /* AppIcon.icon */; };
@@ -119,10 +127,15 @@
 /* Begin PBXFileReference section */
 		B1000001 /* StowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StowApp.swift; sourceTree = "<group>"; };
 		B1000002 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		YFEF7D8D6A1F3BC6BBF251B7 /* DeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
+		Y894A3EE1A88A937DEFDC747 /* UndoToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoToast.swift; sourceTree = "<group>"; };
+		Y04DF84F7C2862FD4EFFF9F7 /* WorkspaceEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorModel.swift; sourceTree = "<group>"; };
 		B1000003 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B1000004 /* WorkspaceSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarView.swift; sourceTree = "<group>"; };
 		B1000006 /* WorkspaceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRow.swift; sourceTree = "<group>"; };
 		C12D0002 /* WorkspaceDotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDotView.swift; sourceTree = "<group>"; };
+		Y624AECB1D14C1991000FB63 /* UndoToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoToastView.swift; sourceTree = "<group>"; };
+		YF7CB27BC063E8937E685843 /* WorkspaceEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorSheet.swift; sourceTree = "<group>"; };
 		B1000007 /* NodeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeListView.swift; sourceTree = "<group>"; };
 		B1000008 /* WorkspacePageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePageView.swift; sourceTree = "<group>"; };
 		B1000010 /* NodeRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRowView.swift; sourceTree = "<group>"; };
@@ -155,6 +168,8 @@
 		X759387879FFABF26212B51D /* ShareSheetModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetModelTests.swift; sourceTree = "<group>"; };
 		X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetIntentTests.swift; sourceTree = "<group>"; };
 		X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLogicTests.swift; sourceTree = "<group>"; };
+		Y40F060EAC21A39E412A44D0 /* UndoToastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoToastTests.swift; sourceTree = "<group>"; };
+		YD705D0677AF67C85246E6BC /* WorkspaceEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorTests.swift; sourceTree = "<group>"; };
 		X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheetUITests.swift; sourceTree = "<group>"; };
 		X4B834C7BDD407C97BAC011E /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroup.swift; sourceTree = "<group>"; };
 		XB301EE6B6DDFD256A1C1BDA /* WorkspaceChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChoice.swift; sourceTree = "<group>"; };
@@ -170,6 +185,7 @@
 		X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityLookTests.swift; sourceTree = "<group>"; };
 		X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowSwipeTests.swift; sourceTree = "<group>"; };
 		X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PagingSwipeUITests.swift; sourceTree = "<group>"; };
+		Y83A99FA202A0AE7DBE8ECC6 /* EditWorkspaceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditWorkspaceUITests.swift; sourceTree = "<group>"; };
 		X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBadgeTests.swift; sourceTree = "<group>"; };
 		X188DEECD0CCEC201D022F61 /* WorkspaceBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBadge.swift; sourceTree = "<group>"; };
 		XA1C0N00000000000000F001 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = ../Resources/AppIcon.icon; sourceTree = SOURCE_ROOT; };
@@ -248,6 +264,9 @@
 			isa = PBXGroup;
 			children = (
 				B1000002 /* AppViewModel.swift */,
+				YFEF7D8D6A1F3BC6BBF251B7 /* DeepLink.swift */,
+				Y894A3EE1A88A937DEFDC747 /* UndoToast.swift */,
+				Y04DF84F7C2862FD4EFFF9F7 /* WorkspaceEditorModel.swift */,
 				B1000022 /* LiveActivityController.swift */,
 				X51065A161A8D63DDC19CE89 /* LiveActivitySettings.swift */,
 				XEE91CC7229F300D3CDDD729 /* ICloudStatus.swift */,
@@ -264,6 +283,8 @@
 				B1000004 /* WorkspaceSidebarView.swift */,
 				B1000006 /* WorkspaceRow.swift */,
 				C12D0002 /* WorkspaceDotView.swift */,
+				Y624AECB1D14C1991000FB63 /* UndoToastView.swift */,
+				YF7CB27BC063E8937E685843 /* WorkspaceEditorSheet.swift */,
 				B1000007 /* NodeListView.swift */,
 				B1000010 /* NodeRowView.swift */,
 				B1000011 /* AddItemView.swift */,
@@ -344,6 +365,8 @@
 				X759387879FFABF26212B51D /* ShareSheetModelTests.swift */,
 				X72504998E5074B7DF11B08D /* WidgetIntentTests.swift */,
 				X0D2B82C5C2168F0732B22A6 /* SettingsLogicTests.swift */,
+				Y40F060EAC21A39E412A44D0 /* UndoToastTests.swift */,
+				YD705D0677AF67C85246E6BC /* WorkspaceEditorTests.swift */,
 				X2D6AEF7096581119A401217 /* LiveActivityLookTests.swift */,
 				X00D7CEA7DA50C27CF2B1872 /* RowSwipeTests.swift */,
 				X0DA99C130BB044ECD7E95F4 /* WorkspaceBadgeTests.swift */,
@@ -358,6 +381,7 @@
 				X28CD5FC6EABEF5F335CA2D0 /* SettingsSheetUITests.swift */,
 				XA003675434C260E19135454 /* LiveTourUITests.swift */,
 				X76016458A08F4FE8C82AB27 /* PagingSwipeUITests.swift */,
+				Y83A99FA202A0AE7DBE8ECC6 /* EditWorkspaceUITests.swift */,
 				X1E13A6C046FBB3CDCCE6E64 /* IdentityTourUITests.swift */,
 			);
 			path = StowIOSUITests;
@@ -565,10 +589,15 @@
 			files = (
 				A1000001 /* StowApp.swift in Sources */,
 				A1000002 /* AppViewModel.swift in Sources */,
+				ZFEF7D8D6A1F3BC6BBF251B7 /* DeepLink.swift in Sources */,
+				Z894A3EE1A88A937DEFDC747 /* UndoToast.swift in Sources */,
+				Z04DF84F7C2862FD4EFFF9F7 /* WorkspaceEditorModel.swift in Sources */,
 				A1000003 /* ContentView.swift in Sources */,
 				A1000004 /* WorkspaceSidebarView.swift in Sources */,
 				A1000006 /* WorkspaceRow.swift in Sources */,
 				C12D0001 /* WorkspaceDotView.swift in Sources */,
+				Z624AECB1D14C1991000FB63 /* UndoToastView.swift in Sources */,
+				ZF7CB27BC063E8937E685843 /* WorkspaceEditorSheet.swift in Sources */,
 				A1000007 /* NodeListView.swift in Sources */,
 				A1000010 /* NodeRowView.swift in Sources */,
 				A1000011 /* AddItemView.swift in Sources */,
@@ -631,6 +660,8 @@
 				X2B0905313756AFA732B3E48 /* ShareSheetModelTests.swift in Sources */,
 				X539E6B7814724812428AF26 /* WidgetIntentTests.swift in Sources */,
 				XBD177B771BC281FB13C0301 /* SettingsLogicTests.swift in Sources */,
+				Z40F060EAC21A39E412A44D0 /* UndoToastTests.swift in Sources */,
+				ZD705D0677AF67C85246E6BC /* WorkspaceEditorTests.swift in Sources */,
 				X7F2FB597657DCD873C86AAA /* LiveActivityLookTests.swift in Sources */,
 				X4383FEFD9478E536D5BA38A /* RowSwipeTests.swift in Sources */,
 				XCD45F114419F554762DC0CE /* WorkspaceBadgeTests.swift in Sources */,
@@ -645,6 +676,7 @@
 				X12244C5330BE4BA9A00DD35 /* SettingsSheetUITests.swift in Sources */,
 				XE37F82EA5005D259A6436FB /* LiveTourUITests.swift in Sources */,
 				XF784B866B5060C3DD069927 /* PagingSwipeUITests.swift in Sources */,
+				Z83A99FA202A0AE7DBE8ECC6 /* EditWorkspaceUITests.swift in Sources */,
 				X075758981E08BED4384408D /* IdentityTourUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

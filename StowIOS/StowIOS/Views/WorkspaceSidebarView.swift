@@ -14,14 +14,16 @@ struct WorkspaceSidebarView: View {
             ForEach(viewModel.workspaces) { workspace in
                 WorkspaceRow(workspace: workspace)
                     .tag(workspace.id)
+                    .editsWorkspaceOnLongPress { viewModel.editWorkspace(id: workspace.id) }
             }
         }
         .navigationTitle("Workspaces")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: { viewModel.createWorkspace(name: "Untitled") }) {
+                Button(action: { viewModel.beginNewWorkspace() }) {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel("New Workspace")
             }
         }
     }
