@@ -57,7 +57,8 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
 
     var onOffsetChanged: ((CGFloat) -> Void)?
     var onPageSnapped: ((Int) -> Void)?
-    var onAddNewTriggered: (() -> Void)?
+    /// Swiping past the last workspace asks for a new one (the Edit Workspace sheet).
+    var onNewWorkspaceRequested: (() -> Void)?
     var onSearchTextChanged: ((String) -> Void)?
 
     // MARK: - State
@@ -411,13 +412,21 @@ final class WorkspacePagerViewController: UIViewController, UIScrollViewDelegate
         scrollView.contentOffset.x = snapTargetOffset
         currentPageIndex = snapTargetPage
 
-        // Detect landing on add-new page (last page)
-        let workspacePageCount = pageControllers.count - 1
-        if snapTargetPage >= workspacePageCount {
-            onAddNewTriggered?()
-        } else {
-            onPageSnapped?(snapTargetPage)
+        switch Self.landing(onPage: snapTargetPage, pageCount: pageControllers.count) {
+        case .workspace(let index): onPageSnapped?(index)
+        case .newWorkspace: onNewWorkspaceRequested?()
         }
+    }
+
+    enum Landing: Equatable {
+        case workspace(Int)
+        /// The page past the last workspace: ask for a new one, never create it here.
+        case newWorkspace
+    }
+
+    /// The last page is the "New Workspace" page; every other page is a workspace.
+    static func landing(onPage page: Int, pageCount: Int) -> Landing {
+        page >= pageCount - 1 ? .newWorkspace : .workspace(page)
     }
 
     private func cancelDisplayLink() {

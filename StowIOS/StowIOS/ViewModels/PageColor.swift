@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import StowShared
 
-/// Page color: Full / Soft / None, the same words and the same synced value as the Mac.
+/// Page color: Color or Neutral, stored as the Mac's synced "full" and "off".
 enum PageColor {
     struct Option: Hashable {
         let tint: StowTheme.TintMode
@@ -10,14 +10,13 @@ enum PageColor {
     }
 
     static let options = [
-        Option(tint: .full, title: "Full"),
-        Option(tint: .subtle, title: "Soft"),
-        Option(tint: .off, title: "None"),
+        Option(tint: .full, title: "Color"),
+        Option(tint: .off, title: "Neutral"),
     ]
 
-    /// Increase Contrast drops Full to Soft instead of adding another setting.
-    static func effective(_ preference: StowTheme.TintMode, increaseContrast: Bool) -> StowTheme.TintMode {
-        increaseContrast && preference == .full ? .subtle : preference
+    /// The retired Soft ("subtle", still stored by older Macs) shows and draws as Color.
+    static func shown(_ preference: StowTheme.TintMode) -> StowTheme.TintMode {
+        preference == .subtle ? .full : preference
     }
 }
 
@@ -31,19 +30,19 @@ final class PageColorStore: ObservableObject {
 
     init(preference: SyncedTintPreference, notificationCenter: NotificationCenter = .default) {
         self.preference = preference
-        tint = preference.tint
+        tint = PageColor.shown(preference.tint)
         observer = notificationCenter.addObserver(
             forName: SyncedTintPreference.didChangeNotification, object: preference, queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.tint = self.preference.tint
+                self.tint = PageColor.shown(self.preference.tint)
             }
         }
     }
 
     func set(_ tint: StowTheme.TintMode) {
         preference.set(tint)
-        self.tint = preference.tint
+        self.tint = PageColor.shown(preference.tint)
     }
 }

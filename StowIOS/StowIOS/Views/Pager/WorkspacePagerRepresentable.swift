@@ -6,7 +6,7 @@ struct WorkspacePagerRepresentable: UIViewControllerRepresentable {
     let viewModel: AppViewModel
     @Binding var selectedWorkspaceId: UUID?
     @Binding var scrollOffset: CGFloat
-    let onAddNewTriggered: () -> Void
+    let onNewWorkspaceRequested: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -35,8 +35,8 @@ struct WorkspacePagerRepresentable: UIViewControllerRepresentable {
                 coordinator.isUpdatingFromSnap = false
             }
         }
-        vc.onAddNewTriggered = { [weak coordinator] in
-            coordinator?.parent.onAddNewTriggered()
+        vc.onNewWorkspaceRequested = { [weak coordinator] in
+            coordinator?.parent.onNewWorkspaceRequested()
         }
 
         let addNewView = AnyView(AddNewPageView())

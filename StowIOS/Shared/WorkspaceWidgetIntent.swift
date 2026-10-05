@@ -59,6 +59,7 @@ struct SelectWorkspaceIntent: WidgetConfigurationIntent {
 
 /// What a widget draws for a given choice.
 struct WidgetContent {
+    var workspaceId: UUID? = nil
     let workspaceName: String
     let colorHex: String?
     let links: [StowShared.Link]
@@ -68,6 +69,7 @@ struct WidgetContent {
             return WidgetContent(workspaceName: "Stow", colorHex: nil, links: [])
         }
         return WidgetContent(
+            workspaceId: workspace.id,
             workspaceName: workspace.name,
             colorHex: StowTheme.RGB(workspace.colorId.color).hex,
             links: workspace.items.flattenLinks().filter { !$0.isArchived }

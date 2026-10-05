@@ -78,13 +78,26 @@ struct StowActivityAttributes: ActivityAttributes {
     static let urlScheme = "stow"
     static let openHost = "open"
 
-    /// `stow://open?url=<encoded>`, which the app forwards to the system.
-    static func deepLink(for url: String) -> URL? {
+    /// `stow://open?url=<encoded>[&workspace=<id>]`, which the app forwards to the system
+    /// after selecting the workspace. A bare host gets https://, as rows open it.
+    static func deepLink(for url: String, workspace: UUID? = nil) -> URL? {
         var components = URLComponents()
         components.scheme = urlScheme
         components.host = openHost
-        components.queryItems = [URLQueryItem(name: "url", value: url)]
+        let hasScheme = url.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:(?![0-9])", options: .regularExpression) != nil
+        let target = hasScheme ? url : "https://\(url)"
+        components.queryItems = [URLQueryItem(name: "url", value: target)]
+        if let workspace { components.queryItems?.append(URLQueryItem(name: "workspace", value: workspace.uuidString)) }
         return components.url
+    }
+
+    /// The workspace a `stow://open` deep link asks to select, if any.
+    static func workspace(ofDeepLink url: URL) -> UUID? {
+        guard url.scheme == urlScheme, url.host == openHost,
+              let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "workspace" })?.value
+        else { return nil }
+        return UUID(uuidString: value)
     }
 
     /// The web URL a `stow://open` deep link carries, limited to http(s) so a crafted
