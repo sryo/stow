@@ -21,7 +21,9 @@ enum WorkspaceDeletion {
 /// Export…: one workspace, with its favicons, to a .stow file the importer reads back.
 @MainActor
 enum WorkspaceExport {
-    /// Asks where to save, as a sheet on `window` when there is one, then writes.
+    /// Asks where to save, as a sheet on `window` when it's a titled window, then writes.
+    /// Stow comes to the front first, so the panel can't open behind the browser (the
+    /// Tabline's strip never activates Stow).
     static func run(_ workspaceId: UUID, model: AppModel, in window: NSWindow?) {
         guard let workspace = model.workspaces.first(where: { $0.id == workspaceId }) else { return }
         let panel = NSSavePanel()
@@ -39,7 +41,9 @@ enum WorkspaceExport {
                 alert.runModal()
             }
         }
-        if let window {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window, window.styleMask.contains(.titled) {
+            window.makeKeyAndOrderFront(nil)
             panel.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(panel.runModal())

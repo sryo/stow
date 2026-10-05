@@ -39,6 +39,10 @@ final class WorkspaceEditorController: NSObject {
     private let flyoutId: AnyHashable = "workspaceEditor"
     let panel = FlyoutPanel()
     let editor = WorkspaceEditorView()
+    /// Share…'s card, pushed beside the editor on the same stack.
+    let sharePanel = FlyoutPanel()
+    let shareCard = ShareCardView()
+    private let shareId: AnyHashable = "workspaceShare"
     private(set) var editingId: UUID?
     private var placement: (() -> Placement?)?
     private weak var parentWindow: NSWindow?
@@ -80,6 +84,7 @@ final class WorkspaceEditorController: NSObject {
     }
 
     var isOpen: Bool { editingId != nil && flyouts.isOpen(id: flyoutId) }
+    var isShareOpen: Bool { flyouts.isOpen(id: shareId) }
     /// Whether the card is naming a workspace that doesn't exist yet.
     var isNew: Bool { draft != nil && editingId == draft?.id }
 
@@ -284,18 +289,7 @@ final class WorkspaceEditorController: NSObject {
             if self.isNew { return self.commit() }
             self.onOpenWorkspace?(id)
         }
-        editor.onShare = { [weak self] in
-            guard let self, !self.isNew, let id = self.editingId,
-                  let ws = self.model.workspaces.first(where: { $0.id == id }) else { return }
-            do {
-                SharePanel.show(url: try self.model.shareWorkspace(id: id), workspaceName: ws.name)
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "Share failed"
-                alert.informativeText = error.localizedDescription
-                alert.runModal()
-            }
-        }
+        editor.onShare = { [weak self] in self?.showShare() }
         editor.onExport = { [weak self] in
             guard let self, !self.isNew, let id = self.editingId else { return }
             self.export(id, self.parentWindow)
@@ -310,6 +304,31 @@ final class WorkspaceEditorController: NSObject {
             WorkspaceDeletion.delete(id, model: self.model, in: self.parentWindow)
             self.onClose?()
         }
+    }
+
+    // MARK: Share
+
+    /// Share…: the link in a card beside the editor, its arrow on the Share… button. A
+    /// second Share… closes it again.
+    func showShare() {
+        guard !isNew, let id = editingId, let ws = model.workspaces.first(where: { $0.id == id }) else { return }
+        if isShareOpen { return flyouts.close(id: shareId) }
+        let link: String
+        do {
+            link = try model.shareWorkspace(id: id)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Share failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+            return
+        }
+        shareCard.configure(link: link, workspaceName: ws.name)
+        sharePanel.level = panel.level
+        let button = editor.shareButton
+        let anchor = button.window.map { $0.convertToScreen(button.convert(button.bounds, to: nil)) } ?? panel.frame
+        flyouts.push(sharePanel, id: shareId, content: shareCard, size: NSSize(width: ShareCardView.width, height: ShareCardView.height),
+                     anchor: anchor, topInset: 24)
     }
 
     // MARK: Custom colour

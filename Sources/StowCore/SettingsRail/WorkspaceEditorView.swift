@@ -57,7 +57,7 @@ final class WorkspaceEditorView: RailFlippedView, NSTextFieldDelegate {
     private let profileHint = FlyoutLabel.wrapping("", size: 11)
     private let footerLine = NSView()
     private let openButton = FlyoutButton("Open ↩", style: .primary)
-    private let shareButton = FlyoutButton("Share…")
+    let shareButton = FlyoutButton("Share…")
     private let exportButton = FlyoutButton("Export…")
     private let deleteButton = FlyoutButton(symbol: "trash", title: "Delete", style: .danger)
 
