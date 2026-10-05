@@ -37,7 +37,6 @@ final class AppViewModel: ObservableObject {
     private var isSyncEnabled = false
     private var modelChangeSubscription: AnyCancellable?
     private var pageColorSubscription: AnyCancellable?
-    private var contrastObserver: NSObjectProtocol?
 
     init() {
         Self.migrateSyncStateIfNeeded()
@@ -104,11 +103,6 @@ final class AppViewModel: ObservableObject {
         pageColorSubscription = pageColorStore.$tint
             .dropFirst()
             .sink { [weak self] _ in self?.objectWillChange.send() }
-        contrastObserver = NotificationCenter.default.addObserver(
-            forName: UIAccessibility.darkerSystemColorsStatusDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.objectWillChange.send() }
-        }
 
         // Initialize iCloud sync. Fixture runs stay local so seed data never
         // reaches the signed-in iCloud account.
@@ -164,10 +158,8 @@ final class AppViewModel: ObservableObject {
     /// The synced choice, as the Settings picker shows it.
     var pageColor: StowTheme.TintMode { pageColorStore.tint }
 
-    /// What pages draw: the choice, softened under Increase Contrast.
-    var effectiveTint: StowTheme.TintMode {
-        PageColor.effective(pageColorStore.tint, increaseContrast: UIAccessibility.isDarkerSystemColorsEnabled)
-    }
+    /// What pages draw.
+    var effectiveTint: StowTheme.TintMode { pageColorStore.tint }
 
     func setPageColor(_ tint: StowTheme.TintMode) {
         pageColorStore.set(tint)

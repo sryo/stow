@@ -1,7 +1,7 @@
 import SwiftUI
 import StowShared
 
-/// Full / Soft / None as a segmented control whose segments preview the open workspace's
+/// Color / Neutral as a segmented control whose segments preview the open workspace's
 /// page in each mode, as in the approved mockup.
 struct PageColorPicker: View {
     let selection: StowTheme.TintMode
