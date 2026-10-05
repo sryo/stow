@@ -362,12 +362,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func revealWindow() {
-        guard let window else { return }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        if isAttachmentMode {
-            WindowAttachmentService.shared.forceUpdate()
-        }
+        WindowRevealer(
+            isAttached: { [weak self] in self?.isAttachmentMode ?? false },
+            orderFront: { [weak self] in self?.window?.orderFront(nil) },
+            makeKeyAndActivate: { [weak self] in
+                self?.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            },
+            placeOnBrowser: { WindowAttachmentService.shared.forceUpdate() }
+        ).reveal()
     }
 
     // MARK: - URL Handling
@@ -652,3 +655,4 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window?.orderFront(nil)
     }
 }
+
