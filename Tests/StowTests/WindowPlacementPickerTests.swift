@@ -86,8 +86,9 @@ final class WindowPlacementPickerTests: XCTestCase {
         XCTAssertEqual(picker.bracketFrames.browser, NSRect(x: 170, y: 0, width: 82, height: 16))
         XCTAssertEqual(picker.cards[0].frame, NSRect(x: 0, y: 21, width: 80, height: 75))
         XCTAssertEqual(picker.cards[0].illustration.frame, NSRect(x: 4, y: 4, width: 72, height: 48))
-        // Description: 7pt below; Floating takes 61pt (two lines, 1pt, two lines), as in the design.
-        XCTAssertEqual(picker.height(forWidth: 252), 96 + 7 + 61, accuracy: 1)
+        // Description: 7pt below, with room for the tallest caption a hover can bring
+        // (five lines), so the rows below never move.
+        XCTAssertEqual(picker.height(forWidth: 252), 96 + 7 + 76, accuracy: 1)
     }
 
     func testPageGeometryMatchesTheDesign() {
@@ -193,17 +194,22 @@ final class WindowPlacementPickerTests: XCTestCase {
         XCTAssertFalse(picker.descriptionShown.isPreview, "the chosen card doesn't say Click to use")
     }
 
-    func testHoveringNeverShrinksTheSheetUnderThePointer() {
-        let picker = makePicker()
-        let resting = picker.height(forWidth: 252)
-        picker.pointerMoved(inside: true)
-        picker.hover(.onTop)
-        XCTAssertEqual(picker.height(forWidth: 252), resting, "On top's shorter caption keeps Floating's height")
-        picker.hover(nil)
-        XCTAssertEqual(picker.height(forWidth: 252), resting)
-        picker.pointerMoved(inside: false)
-        picker.placement = WindowPlacement(dock: .none, keepsOnTop: true, lastEdge: .left)
-        XCTAssertLessThan(picker.height(forWidth: 252), resting, "once the pointer leaves, On top's own height")
+    func testTheCaptionKeepsOneHeightSoHoveringMovesNothing() {
+        for hasAccessibility in [true, false] {
+            let picker = makePicker()
+            picker.hasAccessibility = hasAccessibility
+            let resting = picker.height(forWidth: 252)
+            for chosen in [WindowPlacement(dock: .none, keepsOnTop: false, lastEdge: .left),
+                           WindowPlacement(dock: .none, keepsOnTop: true, lastEdge: .left)] {
+                picker.placement = chosen
+                for hovered in [nil] + AppWindowMode.allCases.map(Optional.some) {
+                    picker.pointerMoved(inside: hovered != nil)
+                    picker.hover(hovered)
+                    XCTAssertEqual(picker.height(forWidth: 252), resting,
+                                   "hovering \(String(describing: hovered)) over \(chosen.mode) moved the rows below")
+                }
+            }
+        }
     }
 
     // MARK: Motion

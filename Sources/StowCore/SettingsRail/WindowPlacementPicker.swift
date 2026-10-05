@@ -143,6 +143,14 @@ final class WindowPlacementPicker: NSView {
 
     private func refreshDescription() {
         let shown = descriptionShown
+        let ink2 = PlacementColors.inkSecondary(surface)
+        fill(descriptionText, with: shown)
+        previewTag.isHidden = !shown.isPreview || usesRows
+        previewTag.paragraphs = [.init(runs: [PlacementRun(text: WindowPlacementCopy.previewTag, font: PlacementFonts.ui(10, 600),
+                                                           color: ink2, kern: 0.2)], lineHeight: 15)]
+    }
+
+    private func fill(_ text: PlacementText, with shown: WindowPlacementCopy.Description) {
         let ink = PlacementColors.ink(surface), ink2 = PlacementColors.inkSecondary(surface)
         let body = PlacementFonts.ui(11.5)
         var paragraphs = [PlacementText.Paragraph(runs: [
@@ -157,11 +165,22 @@ final class WindowPlacementPicker: NSView {
             paragraphs.append(.init(runs: [PlacementRun(text: note, font: PlacementFonts.ui(11.5, 600), color: PlacementColors.warning)],
                                     lineHeight: 15, spacingBefore: 1))
         }
-        descriptionText.paragraphs = paragraphs
-        previewTag.isHidden = !shown.isPreview || usesRows
-        previewTag.paragraphs = [.init(runs: [PlacementRun(text: WindowPlacementCopy.previewTag, font: PlacementFonts.ui(10, 600),
-                                                           color: ink2, kern: 0.2)], lineHeight: 15)]
-        descriptionText.exclusion = shown.isPreview ? NSSize(width: previewTagWidth + 6, height: 15) : nil
+        text.paragraphs = paragraphs
+        text.exclusion = shown.isPreview ? NSSize(width: previewTagWidth + 6, height: 15) : nil
+    }
+
+    /// The tallest caption any card can show at this width, chosen or previewed, so
+    /// hovering never moves what's below.
+    private func captionHeight(forWidth width: CGFloat) -> CGFloat {
+        let probe = PlacementText()
+        var tallest: CGFloat = 0
+        for shown in AppWindowMode.allCases {
+            for selected in AppWindowMode.allCases {
+                fill(probe, with: WindowPlacementCopy.description(shown: shown, selected: selected, hasAccessibility: hasAccessibility))
+                tallest = max(tallest, probe.height(forWidth: width))
+            }
+        }
+        return tallest
     }
 
     private var previewTagWidth: CGFloat {
@@ -317,7 +336,7 @@ final class WindowPlacementPicker: NSView {
             // .desc: 7pt below, 2pt in, at least 47pt.
             y += 7
             let textWidth = width - 4
-            let h = max(47, descriptionText.height(forWidth: textWidth), reservedDescriptionHeight)
+            let h = max(47, captionHeight(forWidth: textWidth))
             place(descriptionText, NSRect(x: 2, y: y, width: textWidth, height: h))
             let tag = previewTagWidth
             place(previewTag, NSRect(x: 2 + textWidth - tag, y: y, width: tag, height: 15))
