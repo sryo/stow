@@ -91,7 +91,7 @@ final class RailWorkspaceChipTests: XCTestCase {
         XCTAssertEqual(list.rows.map(\.title), model.workspaces.map(\.name))
         XCTAssertEqual(list.rows.filter(\.isChecked).map(\.id), [model.workspaces[0].id.uuidString], "✓ on the current one")
         XCTAssertEqual(list.rows.map(\.trailing), ["⌘1", "⌘2"])
-        XCTAssertEqual(footer(list).map(\.title), ["Edit Workspace…", "New workspace…"])
+        XCTAssertEqual(footer(list).map(\.title), ["Edit workspace…", "New workspace…"])
 
         let tabline = try XCTUnwrap(TablineController.shared.chipList(), "the Tabline builds the same list")
         XCTAssertTrue(type(of: tabline) == type(of: list))
@@ -121,7 +121,7 @@ final class RailWorkspaceChipTests: XCTestCase {
         let rail = try rail()
         rail.workspaceChip.performAction()
         var list = try XCTUnwrap(rail.flyout.rootList)
-        try XCTUnwrap(footer(list).first { $0.title == "Edit Workspace…" }).performAction()
+        try XCTUnwrap(footer(list).first { $0.title == "Edit workspace…" }).performAction()
         XCTAssertEqual(editor.editingId, model.currentWorkspace.id)
         XCTAssertFalse(editor.isNew)
         editor.close()
@@ -139,7 +139,7 @@ final class RailWorkspaceChipTests: XCTestCase {
     func testTheTablineChipListOffersNewWorkspaceToo() {
         var ran: [String] = []
         let footer = WorkspaceListFlyout.footer(edit: { ran.append("edit") }, newWorkspace: { ran.append("new") })
-        XCTAssertEqual(footer.map(\.title), ["Edit Workspace…", "New workspace…"])
+        XCTAssertEqual(footer.map(\.title), ["Edit workspace…", "New workspace…"])
         footer.forEach { $0.action() }
         XCTAssertEqual(ran, ["edit", "new"])
     }
@@ -207,7 +207,7 @@ final class WorkspaceListFooterTests: XCTestCase {
         list.frame.size = list.preferredSize
         list.layoutSubtreeIfNeeded()
         let buttons = list.descendants(of: FlyoutButton.self)
-        XCTAssertEqual(buttons.map(\.title), ["Edit Workspace…", "New workspace…"])
+        XCTAssertEqual(buttons.map(\.title), ["Edit workspace…", "New workspace…"])
         for button in buttons {
             XCTAssertLessThanOrEqual(button.frame.maxX, list.bounds.width - FlyoutListView.Metrics.padding + 0.5, "\(button.title) is cut")
             XCTAssertLessThanOrEqual(button.frame.maxY, list.bounds.height + 0.5)

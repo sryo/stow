@@ -15,7 +15,7 @@ enum WorkspaceListFlyout {
     }
 
     static func footer(edit: @escaping () -> Void, newWorkspace: @escaping () -> Void) -> [FlyoutListView.FooterButton] {
-        [FlyoutListView.FooterButton(title: "Edit Workspace…", action: edit),
+        [FlyoutListView.FooterButton(title: "Edit workspace…", action: edit),
          FlyoutListView.FooterButton(title: "New workspace…", action: newWorkspace)]
     }
 

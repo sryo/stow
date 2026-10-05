@@ -183,7 +183,7 @@ final class FlyoutListView: NSView {
         return NSSize(width: Metrics.width, height: ceil(h))
     }
 
-    /// Footer buttons that don't fit side by side ("Edit Workspace…", "New workspace…")
+    /// Footer buttons that don't fit side by side ("Edit workspace…", "New workspace…")
     /// take a full-width line each.
     private var footerStacks: Bool {
         let inner = Metrics.width - Metrics.padding * 2

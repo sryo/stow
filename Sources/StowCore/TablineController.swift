@@ -139,7 +139,7 @@ final class TablineController {
     /// A group's "Open all". When nil, each of its links opens through `onOpenLink`.
     var onOpenFolder: ((Folder) -> Void)?
     /// The shared workspace editor for a workspace, anchored on `rect` in `view`: a
-    /// right-click on the chip or on a row of its list, or the list's "Edit Workspace…".
+    /// right-click on the chip or on a row of its list, or the list's "Edit workspace…".
     var onEditWorkspace: ((UUID, NSView, NSRect) -> Void)?
     /// New workspace… from the chip's list, anchored on `rect` in `view`.
     var onNewWorkspace: ((NSView, NSRect) -> Void)?
