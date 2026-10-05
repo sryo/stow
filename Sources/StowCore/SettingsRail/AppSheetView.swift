@@ -44,7 +44,7 @@ final class AppSheetView: RailFlippedView {
 
     // Appearance
     private let tintLabel = FlyoutLabel.text("Page color", size: 11.5, color: FlyoutColors.inkSecondary)
-    private var tintControl: FlyoutSegmented!
+    private(set) var tintControl: FlyoutSegmented!
     private var tintSwatches: [TintSwatch] = []
 
     let footer = AppSheetFooterView(showsVersion: false)
@@ -109,7 +109,7 @@ final class AppSheetView: RailFlippedView {
         allShortcuts.target = self
         allShortcuts.action = #selector(showAllShortcuts(_:))
 
-        let tints = StowTheme.TintMode.allCases
+        let tints = StowTheme.TintMode.choices
         tintSwatches = tints.map { TintSwatch(tint: $0) }
         tintControl = FlyoutSegmented(zip(tints.map(AppPreferences.tintTitle), tintSwatches).map { .init(title: $0, leading: $1) },
                                       selected: tints.firstIndex(of: preferences.tint) ?? 0, accessibilityLabel: "Page color")
@@ -169,7 +169,7 @@ final class AppSheetView: RailFlippedView {
         } else {
             loginDetail.stringValue = ""
         }
-        tintControl.selectedIndex = StowTheme.TintMode.allCases.firstIndex(of: preferences.tint) ?? 0
+        tintControl.selectedIndex = StowTheme.TintMode.choices.firstIndex(of: preferences.tint) ?? 0
         footer.refresh()
         refreshKeyboardHelp()
     }

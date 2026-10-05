@@ -19,10 +19,12 @@ extension NSUbiquitousKeyValueStore: StringKeyValueStore {
     }
 }
 
-/// Page color (Full / Soft / None) is the one app preference that follows the user to
+/// Page color (Color / Neutral) is the one app preference that follows the user to
 /// every device. The local copy stays under the key `StowTheme.preferredTint` already
 /// reads, and the same key in iCloud key-value storage carries it between the Mac and
 /// the iPhone. Both apps must share one KVS identifier (`$(TeamIdentifierPrefix)com.stow.app`).
+/// The stored values stay "full" and "off"; a "subtle" left by the old Soft choice reads as
+/// "full" and is written back as "full" to both stores.
 @MainActor
 public final class SyncedTintPreference {
     public static let key = "StowTintMode"
@@ -52,8 +54,9 @@ public final class SyncedTintPreference {
     }
 
     public func set(_ tint: StowTheme.TintMode) {
-        local.setString(tint.rawValue, forKey: Self.key)
-        cloud.setString(tint.rawValue, forKey: Self.key)
+        let value = (Self.decode(tint.rawValue) ?? .full).rawValue
+        local.setString(value, forKey: Self.key)
+        cloud.setString(value, forKey: Self.key)
         cloud.synchronize()
         postChange()
     }
@@ -74,23 +77,33 @@ public final class SyncedTintPreference {
         cloud.synchronize()
 
         if let remote = Self.decode(cloud.string(forKey: Self.key)) {
-            if remote != Self.decode(local.string(forKey: Self.key)) {
+            if remote.rawValue != cloud.string(forKey: Self.key) {
+                cloud.setString(remote.rawValue, forKey: Self.key)
+                cloud.synchronize()
+            }
+            if remote.rawValue != local.string(forKey: Self.key) {
+                let changed = remote != Self.decode(local.string(forKey: Self.key))
                 local.setString(remote.rawValue, forKey: Self.key)
-                postChange()
+                if changed { postChange() }
             }
         } else if let mine = Self.decode(local.string(forKey: Self.key)) {
+            if mine.rawValue != local.string(forKey: Self.key) { local.setString(mine.rawValue, forKey: Self.key) }
             cloud.setString(mine.rawValue, forKey: Self.key)
             cloud.synchronize()
         }
     }
 
     public func handleExternalChange(changedKeys: [String]) {
-        guard changedKeys.contains(Self.key),
-              let remote = Self.decode(cloud.string(forKey: Self.key)),
-              remote != Self.decode(local.string(forKey: Self.key))
-        else { return }
+        guard changedKeys.contains(Self.key), let remote = Self.decode(cloud.string(forKey: Self.key)) else { return }
+        // An older device's Soft comes back as Color, for every device.
+        if remote.rawValue != cloud.string(forKey: Self.key) {
+            cloud.setString(remote.rawValue, forKey: Self.key)
+            cloud.synchronize()
+        }
+        guard remote.rawValue != local.string(forKey: Self.key) else { return }
+        let changed = remote != Self.decode(local.string(forKey: Self.key))
         local.setString(remote.rawValue, forKey: Self.key)
-        postChange()
+        if changed { postChange() }
     }
 
     private func postChange() {
@@ -98,6 +111,6 @@ public final class SyncedTintPreference {
     }
 
     private static func decode(_ raw: String?) -> StowTheme.TintMode? {
-        raw.flatMap(StowTheme.TintMode.init(rawValue:))
+        StowTheme.TintMode.chosen(from: raw)
     }
 }

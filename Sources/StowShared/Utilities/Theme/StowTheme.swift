@@ -22,18 +22,29 @@ public enum StowTheme {
 
     /// How much of the workspace color the window shows.
     public enum TintMode: String, Codable, CaseIterable, Sendable {
-        /// The workspace color is the window background.
+        /// Color: the workspace color is the window background.
         case full
-        /// A light wash of the workspace color over a neutral surface.
+        /// A light wash of the workspace color over a neutral surface. No longer offered:
+        /// a stored or synced "subtle" is read as `full`.
         case subtle
-        /// Neutral surface; the hue appears only in the workspace dot.
+        /// Neutral: the system surface; the hue appears only in the workspace's own marks.
         case off
+
+        /// What Page color offers, on the Mac and the iPhone: Color and Neutral.
+        public static let choices: [TintMode] = [.full, .off]
+
+        /// The choice a stored value stands for: Soft, which can't be chosen any more,
+        /// reads as Color; an unknown value is nil.
+        public static func chosen(from raw: String?) -> TintMode? {
+            guard let tint = raw.flatMap(TintMode.init(rawValue:)) else { return nil }
+            return tint == .subtle ? .full : tint
+        }
     }
 
-    /// The user's tint preference. Full is the default.
+    /// The user's tint preference. Color is the default.
     public static var preferredTint: TintMode {
-        get { UserDefaults.standard.string(forKey: "StowTintMode").flatMap(TintMode.init(rawValue:)) ?? .full }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "StowTintMode") }
+        get { TintMode.chosen(from: UserDefaults.standard.string(forKey: "StowTintMode")) ?? .full }
+        set { UserDefaults.standard.set((TintMode.chosen(from: newValue.rawValue) ?? .full).rawValue, forKey: "StowTintMode") }
     }
 
     // MARK: - Color math

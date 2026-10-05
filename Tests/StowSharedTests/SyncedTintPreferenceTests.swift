@@ -37,10 +37,10 @@ final class SyncedTintPreferenceTests: XCTestCase {
 
     func testSettingWritesLocallyAndToICloud() {
         let preference = makePreference()
-        preference.set(.subtle)
-        XCTAssertEqual(local.string(forKey: "StowTintMode"), "subtle")
-        XCTAssertEqual(cloud.values["StowTintMode"], "subtle")
-        XCTAssertEqual(preference.tint, .subtle)
+        preference.set(.off)
+        XCTAssertEqual(local.string(forKey: "StowTintMode"), "off")
+        XCTAssertEqual(cloud.values["StowTintMode"], "off")
+        XCTAssertEqual(preference.tint, .off)
         XCTAssertGreaterThan(cloud.synchronizeCount, 0)
     }
 
@@ -61,18 +61,18 @@ final class SyncedTintPreferenceTests: XCTestCase {
     }
 
     func testStartPushesTheLocalChoiceWhenICloudHasNone() {
-        local.setString("subtle", forKey: "StowTintMode")
+        local.setString("off", forKey: "StowTintMode")
         let preference = makePreference()
         preference.start()
-        XCTAssertEqual(cloud.values["StowTintMode"], "subtle")
+        XCTAssertEqual(cloud.values["StowTintMode"], "off")
     }
 
     func testStartIgnoresAnUnknownICloudValue() {
-        local.setString("subtle", forKey: "StowTintMode")
+        local.setString("off", forKey: "StowTintMode")
         cloud.values["StowTintMode"] = "neon"
         let preference = makePreference()
         preference.start()
-        XCTAssertEqual(preference.tint, .subtle)
+        XCTAssertEqual(preference.tint, .off)
     }
 
     func testExternalChangeFromTheMacIsPulledIn() {
@@ -87,10 +87,66 @@ final class SyncedTintPreferenceTests: XCTestCase {
     }
 
     func testExternalChangeToOtherKeysIsIgnored() {
+        local.setString("off", forKey: "StowTintMode")
+        let preference = makePreference()
+        cloud.values["StowTintMode"] = "full"
+        preference.handleExternalChange(changedKeys: ["somethingElse"])
+        XCTAssertEqual(preference.tint, .off)
+    }
+
+    // MARK: Soft is gone: it reads as Color
+
+    func testAStoredSoftReadsAsColor() {
+        local.setString("subtle", forKey: "StowTintMode")
+        XCTAssertEqual(makePreference().tint, .full)
+    }
+
+    func testStartMovesSoftToFullInBothStores() {
+        local.setString("subtle", forKey: "StowTintMode")
+        cloud.values["StowTintMode"] = "subtle"
+        let preference = makePreference()
+        preference.start()
+        XCTAssertEqual(preference.tint, .full)
+        XCTAssertEqual(local.string(forKey: "StowTintMode"), "full")
+        XCTAssertEqual(cloud.values["StowTintMode"], "full", "the value syncs back as full")
+    }
+
+    func testStartPublishesALocalSoftAsFull() {
         local.setString("subtle", forKey: "StowTintMode")
         let preference = makePreference()
-        cloud.values["StowTintMode"] = "off"
-        preference.handleExternalChange(changedKeys: ["somethingElse"])
-        XCTAssertEqual(preference.tint, .subtle)
+        preference.start()
+        XCTAssertEqual(cloud.values["StowTintMode"], "full")
+    }
+
+    func testSoftFromAnotherDeviceArrivesAsFullAndSyncsBack() {
+        local.setString("off", forKey: "StowTintMode")
+        let preference = makePreference()
+        preference.start()
+        cloud.values["StowTintMode"] = "subtle"
+        preference.handleExternalChange(changedKeys: ["StowTintMode"])
+        XCTAssertEqual(preference.tint, .full)
+        XCTAssertEqual(local.string(forKey: "StowTintMode"), "full")
+        XCTAssertEqual(cloud.values["StowTintMode"], "full")
+    }
+
+    func testSoftCantBeChosen() {
+        let preference = makePreference()
+        preference.set(.subtle)
+        XCTAssertEqual(local.string(forKey: "StowTintMode"), "full")
+        XCTAssertEqual(cloud.values["StowTintMode"], "full")
+    }
+
+    func testThePageColorChoicesAreColorAndNeutral() {
+        XCTAssertEqual(StowTheme.TintMode.choices, [.full, .off])
+        XCTAssertEqual(StowTheme.TintMode.chosen(from: "subtle"), .full)
+        XCTAssertEqual(StowTheme.TintMode.chosen(from: "off"), .off)
+        XCTAssertNil(StowTheme.TintMode.chosen(from: "neon"))
+    }
+
+    func testStowThemeReadsAStoredSoftAsColor() {
+        let saved = UserDefaults.standard.string(forKey: "StowTintMode")
+        defer { UserDefaults.standard.set(saved, forKey: "StowTintMode") }
+        UserDefaults.standard.set("subtle", forKey: "StowTintMode")
+        XCTAssertEqual(StowTheme.preferredTint, .full)
     }
 }

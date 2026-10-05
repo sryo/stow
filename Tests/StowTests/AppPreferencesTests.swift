@@ -286,8 +286,15 @@ final class AppPreferencesTests: XCTestCase {
 
     // MARK: Page color
 
-    func testPageColorSegmentsReadFullSoftNone() {
-        XCTAssertEqual(StowTheme.TintMode.allCases.map(AppPreferences.tintTitle), ["Full", "Soft", "None"])
+    func testPageColorOffersColorAndNeutral() {
+        XCTAssertEqual(StowTheme.TintMode.choices.map(AppPreferences.tintTitle), ["Color", "Neutral"])
+    }
+
+    func testTheSheetsPageColorControlHasTwoOptions() {
+        for style in [AppSheetView.Style.flyout, .page] {
+            let sheet = AppSheetView(style: style, preferences: preferences)
+            XCTAssertEqual(sheet.tintControl.titles, ["Color", "Neutral"], "\(style)")
+        }
     }
 
     private func preferences(tint: SyncedTintPreference) -> AppPreferences {
@@ -298,9 +305,9 @@ final class AppPreferencesTests: XCTestCase {
     func testPageColorIsPublishedToICloud() {
         let local = scratchDefaults(), cloud = scratchDefaults()
         let prefs = preferences(tint: SyncedTintPreference(local: local, cloud: cloud))
-        prefs.setTint(.subtle)
-        XCTAssertEqual(cloud.string(forKey: SyncedTintPreference.key), "subtle")
-        XCTAssertEqual(prefs.tint, .subtle)
+        prefs.setTint(.off)
+        XCTAssertEqual(cloud.string(forKey: SyncedTintPreference.key), "off")
+        XCTAssertEqual(prefs.tint, .off)
     }
 
     func testPageColorChosenOnAnotherDeviceRepaints() {
@@ -314,9 +321,11 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(prefs.tint, .off)
     }
 
-    func testIncreaseContrastDropsFullToSoft() {
-        XCTAssertEqual(AppPreferences.displayTint(preferred: .full, increaseContrast: true), .subtle)
+    func testIncreaseContrastKeepsColor() {
+        XCTAssertEqual(AppPreferences.displayTint(preferred: .full, increaseContrast: true), .full,
+                       "the palettes meet the contrast floors in full colour")
         XCTAssertEqual(AppPreferences.displayTint(preferred: .full, increaseContrast: false), .full)
         XCTAssertEqual(AppPreferences.displayTint(preferred: .off, increaseContrast: true), .off)
+        XCTAssertEqual(AppPreferences.displayTint(preferred: .subtle, increaseContrast: false), .full, "Soft draws as Color")
     }
 }

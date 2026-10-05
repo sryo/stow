@@ -73,17 +73,18 @@ final class AppPreferences {
 
     // MARK: Page color
 
+    /// Page color's two choices: Color and Neutral.
     static func tintTitle(_ tint: StowTheme.TintMode) -> String {
         switch tint {
-        case .full: return "Full"
-        case .subtle: return "Soft"
-        case .off: return "None"
+        case .full, .subtle: return "Color"
+        case .off: return "Neutral"
         }
     }
 
-    /// Increase Contrast drops a full page color to Soft, so text keeps its contrast.
+    /// The page color to draw with. Increase Contrast doesn't change it: the palettes meet
+    /// the contrast floors in full colour. A stored Soft draws as Color.
     static func displayTint(preferred: StowTheme.TintMode, increaseContrast: Bool) -> StowTheme.TintMode {
-        preferred == .full && increaseContrast ? .subtle : preferred
+        StowTheme.TintMode.chosen(from: preferred.rawValue) ?? .full
     }
 
     /// The user's choice, as the segment shows it.
@@ -375,7 +376,7 @@ final class AppPreferences {
 }
 
 extension StowTheme {
-    /// The page color to draw with: the user's choice, softened under Increase Contrast.
+    /// The page color to draw with: the user's choice, Color or Neutral.
     @MainActor
     static var displayTint: TintMode {
         AppPreferences.displayTint(preferred: preferredTint,

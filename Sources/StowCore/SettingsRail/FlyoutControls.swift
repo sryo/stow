@@ -206,6 +206,7 @@ final class FlyoutSegmented: FlyoutControl {
     private var pills: [CALayer] = []
     var selectedIndex: Int { didSet { needsDisplay = true; needsLayout = true } }
     var onChange: ((Int) -> Void)?
+    var titles: [String] { segments.map(\.title) }
     private var trackedIndex: Int?
 
     init(_ segments: [Segment], selected: Int, accessibilityLabel: String) {
