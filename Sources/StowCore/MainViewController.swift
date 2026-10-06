@@ -719,16 +719,9 @@ final class MainViewController: NSViewController {
                 model.setArchiveExpanded(workspaceId: workspace.id, isExpanded: false)
             }
 
-            var kind = EmptyStateKind.resolve(
-                activeCount: activeItems.count,
-                archivedCount: archivedItems.leafCount(),
-                query: isSearching ? searchField.text : "",
-                matchedCount: filteredNodes.count,
-                archivedMatchedCount: archivedMatchCount,
-                isArchiveExpanded: workspace.isArchiveExpanded,
-                isFirstLaunch: !hasAddedFirstItem && model.workspaces.count == 1,
-                hasArcData: Self.hasArcData
-            )
+            var kind = emptyStateKind(
+                activeItems: activeItems, archivedItems: archivedItems, filteredCount: filteredNodes.count,
+                archivedMatchCount: archivedMatchCount, workspace: workspace)
             let showArchivedMatches = isSearching && revealArchivedMatches && archivedMatchCount > 0
             if showArchivedMatches { kind = .none }
 
@@ -1102,6 +1095,42 @@ final class MainViewController: NSViewController {
     }
 
     /// Tells VoiceOver once per query, after typing pauses, that nothing matched.
+    private func emptyStateKind(activeItems: [Node], archivedItems: [Node], filteredCount: Int,
+                                archivedMatchCount: Int, workspace: Workspace) -> EmptyStateKind {
+        let isSearching = searchCoordinator.isSearchActive
+        return EmptyStateKind.resolve(
+            activeCount: activeItems.count,
+            archivedCount: archivedItems.leafCount(),
+            query: isSearching ? searchField.text : "",
+            matchedCount: filteredCount,
+            archivedMatchedCount: archivedMatchCount,
+            isArchiveExpanded: workspace.isArchiveExpanded,
+            isFirstLaunch: !hasAddedFirstItem && model.workspaces.count == 1,
+            hasArcData: Self.hasArcData
+        )
+    }
+
+    /// Mid-swipe, the incoming page shows its own empty state (nil: a page with none, like "+").
+    func previewEmptyState(for workspace: Workspace?) {
+        guard let workspace else {
+            nodeListViewController.showEmptyState(nil, workspaceName: "", animated: false)
+            return
+        }
+        let activeItems = workspace.items.unarchived()
+        let archivedItems = workspace.items.archivedLeaves()
+        let isSearching = searchCoordinator.isSearchActive
+        let archivedMatchCount = isSearching
+            ? searchCoordinator.filter(nodes: archivedItems, includeArchived: true).leafCount() : 0
+        var kind = emptyStateKind(
+            activeItems: activeItems, archivedItems: archivedItems,
+            filteredCount: searchCoordinator.filter(nodes: activeItems).count,
+            archivedMatchCount: archivedMatchCount, workspace: workspace)
+        if isSearching && revealArchivedMatches && archivedMatchCount > 0 { kind = .none }
+        nodeListViewController.showEmptyState(
+            EmptyStateCopy.make(kind, workspaceName: workspace.name, isTouch: false),
+            workspaceName: workspace.name, animated: false)
+    }
+
     private func announceNoMatches() {
         noMatchesAnnouncement?.cancel()
         let work = DispatchWorkItem { [weak self] in

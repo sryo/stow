@@ -78,9 +78,13 @@ final class PageSwipeCoordinator: ScrollWheelPageDelegate {
             let workspace = main.model.workspaces[workspaceIdx]
             let filteredNodes = main.searchCoordinator.filter(nodes: workspace.items)
             main.nodeListViewController.isSearchActive = main.searchCoordinator.isSearchActive
+            main.nodeListViewController.workspaceColor = workspace.colorId
             main.nodeListViewController.reloadData(with: filteredNodes, forceExpand: false, animated: false)
+            main.previewEmptyState(for: workspace)
+        } else {
+            // The add-new page has no content of its own.
+            main.previewEmptyState(for: nil)
         }
-        // Add-new page: no content to show
     }
 
     private func beginSwipeTransition() {
