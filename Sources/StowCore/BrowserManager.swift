@@ -61,6 +61,10 @@ enum BrowserManager {
         NSWorkspace.shared.open(url)
     }
 
+    static func isBrowser(_ bundleId: String) -> Bool {
+        bundleId != Bundle.main.bundleIdentifier && installedBrowsers().contains { $0.bundleId == bundleId }
+    }
+
     static func isRunning(bundleId: String) -> Bool {
         return NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleId }
     }

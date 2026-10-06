@@ -15,6 +15,24 @@ protocol WindowAttachmentServiceDelegate: AnyObject {
     func attachmentServiceShouldShowWindow(_ service: WindowAttachmentService)
 }
 
+/// What Attached mode does when an app comes to the front.
+enum AttachmentActivation {
+    enum Response: Equatable {
+        /// Sit beside this browser and show.
+        case attach(String)
+        /// Stay as is (Stow itself came forward from the browser).
+        case keep
+        case hide
+    }
+
+    static func respond(to bundleId: String?, currentBrowser: String?, lastFrontmost: String?,
+                        stow: String?, isBrowser: (String) -> Bool) -> Response {
+        if let bundleId, bundleId == currentBrowser || isBrowser(bundleId) { return .attach(bundleId) }
+        if bundleId == stow { return lastFrontmost == currentBrowser ? .keep : .hide }
+        return .hide
+    }
+}
+
 @MainActor
 final class WindowAttachmentService {
     static let shared = WindowAttachmentService()
@@ -443,27 +461,26 @@ final class WindowAttachmentService {
                 guard let self = self else { return }
 
                 let bundleId = app.bundleIdentifier
+                let stow = Bundle.main.bundleIdentifier
 
-                if bundleId == self.currentBrowserBundleId {
-                    // Browser became active - attach and show
-                    print("WindowAttachmentService: Browser activated, attaching")
+                switch AttachmentActivation.respond(to: bundleId, currentBrowser: self.currentBrowserBundleId,
+                                                    lastFrontmost: self.lastFrontmostBundleId, stow: stow,
+                                                    isBrowser: BrowserManager.isBrowser) {
+                case .attach(let browser):
+                    if browser != self.currentBrowserBundleId {
+                        self.cleanupObservers()
+                        self.cleanupAppObserver()
+                        self.browserWindowElement = nil
+                        self.lastBrowserFrame = nil
+                        self.lastStowFrame = nil
+                        self.currentBrowserBundleId = browser
+                    }
                     self.lastFrontmostBundleId = bundleId
                     self.attachToBrowser()
-                } else if bundleId == Bundle.main.bundleIdentifier {
-                    // Stow itself activated
-                    // If the previous app was the browser, keep Stow visible
-                    // This handles clicking between browser and Stow
-                    if self.lastFrontmostBundleId == self.currentBrowserBundleId {
-                        print("WindowAttachmentService: Stow activated, but browser was previous - keeping visible")
-                        return
-                    }
-                    // If previous app was not the browser, hide Stow
-                    print("WindowAttachmentService: Stow activated from non-browser app - hiding")
-                    self.delegate?.attachmentServiceShouldHideWindow(self)
-                } else {
-                    // Different app became active - hide Stow
-                    print("WindowAttachmentService: Different app activated - hiding")
-                    self.lastFrontmostBundleId = bundleId
+                case .keep:
+                    return
+                case .hide:
+                    if bundleId != stow { self.lastFrontmostBundleId = bundleId }
                     self.delegate?.attachmentServiceShouldHideWindow(self)
                 }
             }
