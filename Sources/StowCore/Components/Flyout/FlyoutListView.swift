@@ -444,6 +444,12 @@ final class FlyoutListRowView: NSView, NSDraggingSource {
 
     // MARK: Drawing
 
+    /// The open-tab dot, as the list and rail draw it: 4pt, just left of the glyph.
+    static func openDotRect(glyph: NSRect) -> NSRect {
+        NSRect(x: glyph.minX - 1.5 - 4, y: glyph.midY - 2, width: 4, height: 4)
+    }
+    static var openDotColor: NSColor { FlyoutColors.ink.withAlphaComponent(0.9) }
+
     override func draw(_ dirtyRect: NSRect) {
         let m = FlyoutListView.Metrics.self
         if isSelected {
@@ -452,6 +458,10 @@ final class FlyoutListRowView: NSView, NSDraggingSource {
         }
         let glyphRect = NSRect(x: 6, y: (bounds.height - m.glyph) / 2, width: m.glyph, height: m.glyph)
         drawGlyph(in: glyphRect)
+        if row.isOpen {
+            Self.openDotColor.setFill()
+            NSBezierPath(ovalIn: Self.openDotRect(glyph: glyphRect)).fill()
+        }
 
         var right = bounds.width - 6
         let trailingText = (isSelected ? row.hoverTrailing : nil) ?? row.trailing
@@ -473,12 +483,6 @@ final class FlyoutListRowView: NSView, NSDraggingSource {
                 check.draw(in: r)
                 right = r.minX - 8
             }
-        }
-        if row.isOpen {
-            let dot = NSRect(x: right - 6, y: bounds.midY - 3, width: 6, height: 6)
-            SettingsColors.success.setFill()
-            NSBezierPath(ovalIn: dot).fill()
-            right = dot.minX - 8
         }
 
         let done = isTask && row.isChecked
