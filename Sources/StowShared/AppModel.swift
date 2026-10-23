@@ -853,26 +853,15 @@ public final class AppModel {
         }
     }
 
-    /// Reorders workspaces based on sort orders received from CloudKit.
-    /// Items without a server sort order keep their current position (using their
-    /// array index as fallback). Server-ordered items win ties.
+    /// Reorders workspaces by the sort orders received from CloudKit. Workspaces without
+    /// one stay right after the workspace before them.
     public func reorderWorkspacesFromSync(sortOrders: [UUID: Int]) {
-        let indexed = state.workspaces.enumerated().map { (index, ws) -> (Workspace, Int, Int) in
-            if let serverOrder = sortOrders[ws.id] {
-                return (ws, serverOrder, 0) // server-ordered: priority 0 (wins ties)
-            } else {
-                return (ws, index, 1) // local-only: current index, priority 1
-            }
-        }
-        state.workspaces = indexed.sorted { a, b in
-            if a.1 != b.1 { return a.1 < b.1 }
-            return a.2 < b.2
-        }.map { $0.0 }
+        state.workspaces = SyncOrder.arrange(state.workspaces, id: \.id, orders: sortOrders)
         persist(notify: false)
     }
 
-    /// Reorders nodes within workspaces based on sort orders received from CloudKit.
-    /// Nodes without a sort order keep their current relative position.
+    /// Reorders nodes within workspaces by the sort orders received from CloudKit.
+    /// Nodes without one stay right after the node before them.
     public func reorderNodesFromSync(sortOrders: [UUID: Int]) {
         for index in state.workspaces.indices {
             reorderNodes(nodes: &state.workspaces[index].items, sortOrders: sortOrders)
@@ -881,22 +870,9 @@ public final class AppModel {
     }
 
     private func reorderNodes(nodes: inout [Node], sortOrders: [UUID: Int]) {
-        // Only sort if any node in this level has a sort order
-        let hasSortInfo = nodes.contains { sortOrders[$0.id] != nil }
-        if hasSortInfo {
-            let indexed = nodes.enumerated().map { (index, node) -> (Node, Int, Int) in
-                if let serverOrder = sortOrders[node.id] {
-                    return (node, serverOrder, 0)
-                } else {
-                    return (node, index, 1)
-                }
-            }
-            nodes = indexed.sorted { a, b in
-                if a.1 != b.1 { return a.1 < b.1 }
-                return a.2 < b.2
-            }.map { $0.0 }
+        if nodes.contains(where: { sortOrders[$0.id] != nil }) {
+            nodes = SyncOrder.arrange(nodes, id: \.id, orders: sortOrders)
         }
-        // Recurse into folders
         for i in nodes.indices {
             if case .folder(var folder) = nodes[i] {
                 reorderNodes(nodes: &folder.children, sortOrders: sortOrders)

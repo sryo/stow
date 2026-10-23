@@ -88,10 +88,12 @@ public enum RecordConverter {
     // MARK: - Node Tree -> Flat CKRecords
 
     /// Flattens a node tree into an array of (CKRecord, Node) tuples with parent references and sort orders.
+    /// Sort orders reuse `previousSortOrders` (the last ones uploaded) wherever they're still in order.
     public static func flattenNodes(
         nodes: [Node],
         workspaceId: UUID,
-        zoneID: CKRecordZone.ID
+        zoneID: CKRecordZone.ID,
+        previousSortOrders: [UUID: Int] = [:]
     ) -> [(CKRecord, Node)] {
         var results: [(CKRecord, Node)] = []
         flattenNodesRecursive(
@@ -99,6 +101,7 @@ public enum RecordConverter {
             workspaceId: workspaceId,
             parentNodeId: nil,
             zoneID: zoneID,
+            previousSortOrders: previousSortOrders,
             results: &results
         )
         return results
@@ -109,14 +112,16 @@ public enum RecordConverter {
         workspaceId: UUID,
         parentNodeId: UUID?,
         zoneID: CKRecordZone.ID,
+        previousSortOrders: [UUID: Int],
         results: inout [(CKRecord, Node)]
     ) {
-        for (index, node) in nodes.enumerated() {
+        let sortOrders = SyncOrder.assign(nodes.map(\.id), previous: previousSortOrders)
+        for node in nodes {
             let record = nodeToCKRecord(
                 node: node,
                 workspaceId: workspaceId,
                 parentNodeId: parentNodeId,
-                sortOrder: index,
+                sortOrder: sortOrders[node.id]!,
                 zoneID: zoneID
             )
             results.append((record, node))
@@ -127,6 +132,7 @@ public enum RecordConverter {
                     workspaceId: workspaceId,
                     parentNodeId: folder.id,
                     zoneID: zoneID,
+                    previousSortOrders: previousSortOrders,
                     results: &results
                 )
             }

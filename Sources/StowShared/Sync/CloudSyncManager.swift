@@ -288,6 +288,32 @@ public final class CloudSyncManager {
         lastKnownRecords.removeValue(forKey: recordID.recordName)
     }
 
+    /// The last-known server sort orders of `ids` that have a cached record.
+    private func cachedSortOrders(for ids: [UUID]) -> [UUID: Int] {
+        var orders: [UUID: Int] = [:]
+        for id in ids {
+            let recordID = CKRecord.ID(recordName: id.uuidString, zoneID: zoneID)
+            if let order = cachedRecord(for: recordID)?[CKNodeFields.sortOrder] as? Int {
+                orders[id] = order
+            }
+        }
+        return orders
+    }
+
+    private func allNodeIds(in nodes: [Node]) -> [UUID] {
+        var levels: [[UUID]] = []
+        collectLevels(nodes, into: &levels)
+        return levels.flatMap { $0 }
+    }
+
+    /// Each sibling list in the tree, in its current order.
+    private func collectLevels(_ nodes: [Node], into levels: inout [[UUID]]) {
+        levels.append(nodes.map(\.id))
+        for node in nodes {
+            if case .folder(let folder) = node { collectLevels(folder.children, into: &levels) }
+        }
+    }
+
     /// Compares user-defined field values between two records. Returns true if all fields in
     /// `newRecord` match `existingRecord`. Used to skip redundant uploads.
     private func recordFieldsMatch(_ existingRecord: CKRecord, _ newRecord: CKRecord) -> Bool {
@@ -418,11 +444,16 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             guard let model else { return [:] }
 
             var records: [CKRecord.ID: CKRecord] = [:]
+            let workspaceOrders = SyncOrder.assign(
+                model.workspaces.map(\.id),
+                previous: cachedSortOrders(for: model.workspaces.map(\.id))
+            )
 
-            for (index, workspace) in model.workspaces.enumerated() {
+            for workspace in model.workspaces {
+                let sortOrder = workspaceOrders[workspace.id]!
                 let newRecord = RecordConverter.workspaceToCKRecord(
                     workspace: workspace,
-                    sortOrder: index,
+                    sortOrder: sortOrder,
                     zoneID: zoneID
                 )
                 let recordID = newRecord.recordID
@@ -430,7 +461,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                 if let cached = cachedRecord(for: recordID) {
                     // Skip if field values haven't changed (avoids redundant server writes)
                     if recordFieldsMatch(cached, newRecord) {
-                        self.logger.info("[BATCH] skip unchanged workspace \(workspace.name, privacy: .public) sortOrder=\(index, privacy: .public)")
+                        self.logger.info("[BATCH] skip unchanged workspace \(workspace.name, privacy: .public) sortOrder=\(sortOrder, privacy: .public)")
                         continue
                     }
                     // Use cached record as base to preserve server change token
@@ -438,17 +469,18 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                         cached[key] = newRecord[key]
                     }
                     records[recordID] = cached
-                    self.logger.info("[BATCH] upload workspace \(workspace.name, privacy: .public) sortOrder=\(index, privacy: .public) (changed)")
+                    self.logger.info("[BATCH] upload workspace \(workspace.name, privacy: .public) sortOrder=\(sortOrder, privacy: .public) (changed)")
                 } else {
                     // New record — no cached version, must upload
                     records[recordID] = newRecord
-                    self.logger.info("[BATCH] upload workspace \(workspace.name, privacy: .public) sortOrder=\(index, privacy: .public) (new)")
+                    self.logger.info("[BATCH] upload workspace \(workspace.name, privacy: .public) sortOrder=\(sortOrder, privacy: .public) (new)")
                 }
 
                 let flatNodes = RecordConverter.flattenNodes(
                     nodes: workspace.items,
                     workspaceId: workspace.id,
-                    zoneID: zoneID
+                    zoneID: zoneID,
+                    previousSortOrders: cachedSortOrders(for: allNodeIds(in: workspace.items))
                 )
                 for (newNodeRecord, node) in flatNodes {
                     let nodeRecordID = newNodeRecord.recordID
@@ -662,12 +694,20 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         }
         logger.info("[REORDER] pendingNodeSortOrders count=\(self.pendingNodeSortOrders.count, privacy: .public)")
 
-        // Apply accumulated sort orders from all batches
+        // Apply accumulated sort orders from all batches, against the latest known orders
+        // of everything else so unsent local moves stay where they are.
         if !pendingWorkspaceSortOrders.isEmpty {
-            model.reorderWorkspacesFromSync(sortOrders: pendingWorkspaceSortOrders)
+            let ids = model.workspaces.map(\.id)
+            model.reorderWorkspacesFromSync(sortOrders: SyncOrder.merge(
+                levels: [ids], known: cachedSortOrders(for: ids), fetched: pendingWorkspaceSortOrders
+            ))
         }
         if !pendingNodeSortOrders.isEmpty {
-            model.reorderNodesFromSync(sortOrders: pendingNodeSortOrders)
+            var levels: [[UUID]] = []
+            for workspace in model.workspaces { collectLevels(workspace.items, into: &levels) }
+            model.reorderNodesFromSync(sortOrders: SyncOrder.merge(
+                levels: levels, known: cachedSortOrders(for: levels.flatMap { $0 }), fetched: pendingNodeSortOrders
+            ))
         }
 
         // Log state after reorder
