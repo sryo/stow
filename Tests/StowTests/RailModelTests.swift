@@ -98,6 +98,29 @@ final class HoverDwellTests: XCTestCase {
         XCTAssertEqual(dwell.previewed, b)
     }
 
+    func testOnceATipShowsTheNextOneShowsAtOnce() {
+        let (dwell, clock, log) = make()
+        dwell.pointerEntered(a)
+        clock.advance(by: 0.3)
+        dwell.pointerExited(a)
+        clock.advance(by: 0.05)
+        dwell.pointerEntered(b)
+        XCTAssertEqual(dwell.previewed, b)
+        XCTAssertEqual(log(), [a, nil, b])
+    }
+
+    func testAfterAPauseOffTheColumnTheDwellComesBack() {
+        let (dwell, clock, _) = make()
+        dwell.pointerEntered(a)
+        clock.advance(by: 0.3)
+        dwell.pointerExited(a)
+        clock.advance(by: HoverDwell.warmWindow + 0.01)
+        dwell.pointerEntered(b)
+        XCTAssertNil(dwell.previewed)
+        clock.advance(by: 0.23)
+        XCTAssertEqual(dwell.previewed, b)
+    }
+
     func testLeavingClearsThePreviewAtOnce() {
         let (dwell, clock, log) = make()
         dwell.pointerEntered(a)

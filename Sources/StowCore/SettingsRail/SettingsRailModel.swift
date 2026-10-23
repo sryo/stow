@@ -49,16 +49,19 @@ final class MainQueueDwellClock: DwellClock {
 }
 
 /// Resting on a rail cell shows its tip after a short dwell, so running the pointer down
-/// the column doesn't strobe. Keyboard focus shows it at once.
+/// the column doesn't strobe. Keyboard focus shows it at once, and so does the next cell
+/// within `warmWindow` of a tip closing: once one tip is up, moving along reads them.
 @MainActor
 final class HoverDwell {
     static let defaultDelay: TimeInterval = 0.22
+    static let warmWindow: TimeInterval = 0.3
 
     var onPreview: ((UUID?) -> Void)?
     private(set) var previewed: UUID?
     private let delay: TimeInterval
     private let clock: DwellClock
     private var pending: (id: UUID, token: DwellToken)?
+    private var warm: DwellToken?
 
     init(delay: TimeInterval = HoverDwell.defaultDelay, clock: DwellClock) {
         self.delay = delay
@@ -68,6 +71,11 @@ final class HoverDwell {
     func pointerEntered(_ id: UUID) {
         cancelPending()
         guard previewed != id else { return }
+        if warm != nil {
+            endWarm()
+            setPreview(id)
+            return
+        }
         let token = clock.schedule(after: delay) { [weak self] in
             guard let self, self.pending?.id == id else { return }
             self.pending = nil
@@ -78,7 +86,11 @@ final class HoverDwell {
 
     func pointerExited(_ id: UUID) {
         if pending?.id == id { cancelPending() }
-        if previewed == id { setPreview(nil) }
+        if previewed == id {
+            setPreview(nil)
+            endWarm()
+            warm = clock.schedule(after: Self.warmWindow) { [weak self] in self?.warm = nil }
+        }
     }
 
     func focusChanged(_ id: UUID?) {
@@ -88,7 +100,13 @@ final class HoverDwell {
 
     func reset() {
         cancelPending()
+        endWarm()
         previewed = nil
+    }
+
+    private func endWarm() {
+        if let warm { clock.cancel(warm) }
+        warm = nil
     }
 
     private func cancelPending() {
