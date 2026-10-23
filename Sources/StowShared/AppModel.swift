@@ -297,7 +297,7 @@ public final class AppModel {
 
     @discardableResult
     public func addLink(urlString: String, title: String, parentId: UUID?) -> UUID {
-        let link = Link(id: UUID(), title: title, url: urlString, faviconPath: nil)
+        let link = Link(id: UUID(), title: title, url: URLCanonical.cleaned(urlString), faviconPath: nil)
         let node = Node.link(link)
         insertNode(node, parentId: parentId)
         logger.debug("Added link \(title, privacy: .public) -> \(urlString, privacy: .public)")
@@ -597,7 +597,7 @@ public final class AppModel {
         if let existing = state.workspaces[index].items.flattenLinks().first(where: { URLCanonical.key($0.url) == key }) {
             return .alreadyPresent(existing.id)
         }
-        let link = Link(id: UUID(), title: title, url: url.absoluteString, faviconPath: nil)
+        let link = Link(id: UUID(), title: title, url: URLCanonical.cleaned(url.absoluteString), faviconPath: nil)
         state.workspaces[index].items.insert(.link(link), at: 0)
         persist()
         logger.debug("Stowed \(url.absoluteString, privacy: .public)")
