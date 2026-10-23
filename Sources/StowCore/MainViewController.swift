@@ -249,6 +249,12 @@ final class MainViewController: NSViewController {
         searchField.onMoveDown = { [weak self] in
             self?.nodeListViewController.focusList()
         }
+        searchField.onSubmit = { [weak self] text in
+            guard let self, let url = SearchBang.url(for: text) else { return false }
+            self.links.openLink(Link(id: UUID(), title: "", url: url.absoluteString, faviconPath: nil), newTab: true)
+            self.clearSearch()
+            return true
+        }
         searchField.onTextChange = { [weak self] text in
             self?.revealArchivedMatches = false
             self?.nodeListViewController.clearSelections()

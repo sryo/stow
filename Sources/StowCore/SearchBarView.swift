@@ -83,6 +83,8 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     var onTextChange: ((String) -> Void)?
     /// Down arrow in the field, used to move focus into the results.
     var onMoveDown: (() -> Void)?
+    /// Return in the field with its text; true when it was handled.
+    var onSubmit: ((String) -> Bool)?
 
     /// When set, colors come from the workspace palette instead of the style.
     var colors: StowTheme.Colors? {
@@ -318,6 +320,9 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
         if commandSelector == #selector(NSResponder.moveDown(_:)), let onMoveDown {
             onMoveDown()
             return true
+        }
+        if commandSelector == #selector(NSResponder.insertNewline(_:)), let onSubmit {
+            return onSubmit(textField.stringValue)
         }
         return false
     }
