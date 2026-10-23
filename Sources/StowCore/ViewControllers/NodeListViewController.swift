@@ -105,6 +105,11 @@ final class NodeListViewController: NSViewController {
     var onOpenFolderLinks: ((UUID) -> Void)?
     /// ⌥Return on a link: open it in a fresh tab, as ⌥-click does.
     var onOpenLinkInNewTab: ((UUID) -> Void)?
+    /// Says why a drop is refused, once per reason per drag.
+    lazy var dropRefusal = DropRefusal { [weak self] reason in
+        guard let window = self?.view.window else { return }
+        Toast.show(reason, in: window, duration: Toast.briefDuration)
+    }
     /// Middle-click on a link: open it in a new tab behind Stow.
     var onOpenLinkInBackground: ((UUID) -> Void)?
     /// A double-click on the list's empty space.
@@ -1552,6 +1557,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
         isDraggingItems = false
         hideDropIndicator()
         restoreDraggedItems()
+        dropRefusal.dragEnded()
     }
 
     /// Shows every on-screen item again. The collection view hides the dragged one, and
@@ -1567,19 +1573,23 @@ extension NodeListViewController: NSCollectionViewDelegate {
                         validateDrop draggingInfo: NSDraggingInfo,
                         proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                         dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
+        let isItemDrag = draggingInfo.draggingPasteboard.availableType(from: [nodePasteboardType]) != nil
         if isSearchActive {
             hideDropIndicator()
+            if isItemDrag { dropRefusal.note(DropRefusal.reason(searchActive: true, dragged: .links, staysInSection: true)) }
             return []
         }
 
         let indexPath = proposedDropIndexPath.pointee as IndexPath
-        let isItemDrag = draggingInfo.draggingPasteboard.availableType(from: [nodePasteboardType]) != nil
         if !isItemDrag, onDropText == nil || EmptyStateView.droppedText(from: draggingInfo)?.isEmpty != false {
             hideDropIndicator()
             return []
         }
         guard dropStaysInSection(indexPath, draggingInfo: draggingInfo) else {
             hideDropIndicator()
+            if let dragged = draggedRow(draggingInfo) {
+                dropRefusal.note(DropRefusal.reason(searchActive: false, dragged: dragged.section, staysInSection: false))
+            }
             return []
         }
         let draggedSection = draggedRow(draggingInfo)?.section ?? .links
