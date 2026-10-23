@@ -110,6 +110,8 @@ final class NodeListViewController: NSViewController {
         guard let window = self?.view.window else { return }
         Toast.show(reason, in: window, duration: Toast.briefDuration)
     }
+    /// When links were last opened here; nil leaves every link fresh (tests).
+    var recency: LinkRecency?
     /// Middle-click on a link: open it in a new tab behind Stow.
     var onOpenLinkInBackground: ((UUID) -> Void)?
     /// A double-click on the list's empty space.
@@ -1313,6 +1315,7 @@ extension NodeListViewController {
         let kind: NodeRowContent.Kind
         let title: String
         var isOpen = false
+        var isStale = false
         var codePreview: String?
         switch node {
         case .folder(let folder):
@@ -1332,6 +1335,7 @@ extension NodeListViewController {
             if !openKeys.isEmpty, let url = URL(string: link.url) {
                 isOpen = openKeys.contains(BrowserTabService.canonicalize(url))
             }
+            isStale = !isOpen && !isArchived && recency?.isStale(link.id) == true
         case .task(let task):
             title = task.title
             kind = .task(isCompleted: task.isCompleted, dueDate: task.dueDate)
@@ -1341,7 +1345,7 @@ extension NodeListViewController {
             codePreview = snippet.content
         }
         let content = NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived,
-                                     isOpen: isOpen, codePreview: codePreview)
+                                     isOpen: isOpen, isStale: isStale, codePreview: codePreview)
 
         // After the content: the cursor ring, and jump letters (a–z for the first 26
         // items), which appear only in jump mode.

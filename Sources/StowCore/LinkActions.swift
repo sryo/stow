@@ -24,6 +24,9 @@ final class LinkActions {
               window.occlusionState.contains(.visible) else { return false }
         return self.model.state.selectedWorkspaceId == id
     }
+    /// Where opens are noted, for fading links that go unopened; nil in tests.
+    var recency: LinkRecency?
+
     /// Opens a URL in a new tab behind the front app. Tests record instead.
     lazy var openBehind: (URL, LinkTarget) -> Void = { url, target in
         BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile, activates: false)
@@ -34,7 +37,13 @@ final class LinkActions {
     /// Middle-click: a new tab in the workspace's browser, left behind Stow.
     func openLinkInBackground(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
+        noteOpened(link)
         openBehind(url, LinkTarget.forWorkspace(model.activeWorkspaceId, forceNewTab: true))
+    }
+
+    /// Saved links only; a bang's search opens through here too.
+    private func noteOpened(_ link: Link) {
+        if model.nodeById(link.id) != nil { recency?.noteOpened(link.id) }
     }
 
     /// Opening this many links or more at once asks first.
@@ -53,6 +62,7 @@ final class LinkActions {
     /// choice from the link's menu.
     func openLink(_ link: Link, in override: OpensIn? = nil, newTab: Bool = false) {
         guard let url = URL(string: link.url) else { return }
+        noteOpened(link)
         let target = override.map {
             LinkTarget(bundleId: $0.bundleId, profile: $0.profile, focusesOpenTab: !newTab)
         } ?? LinkTarget.forWorkspace(model.activeWorkspaceId, forceNewTab: newTab || NSEvent.modifierFlags.contains(.option))
@@ -80,6 +90,7 @@ final class LinkActions {
     }
 
     private func openInBrowser(_ links: [Link]) {
+        links.forEach(noteOpened)
         let target = LinkTarget.forWorkspace(model.activeWorkspaceId)
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.

@@ -15,6 +15,8 @@ struct NodeRowContent {
     var isArchived: Bool
     /// The link's site is open in a browser tab.
     var isOpen: Bool = false
+    /// A link not opened on this Mac for a while: it fades.
+    var isStale: Bool = false
     /// First lines of a snippet, for mosaic tiles.
     var codePreview: String? = nil
 
@@ -337,6 +339,8 @@ final class NodeRowView: BaseView {
         }
         openDot.layer?.backgroundColor = resolvedCGColor(metrics.titleColor.withAlphaComponent(0.9))
         openDot.isHidden = !content.isOpen
+        iconView.alphaValue = content.isStale ? 0.5 : 1
+        editableTitle.alphaValue = content.isStale ? 0.6 : 1
         applyElasticMode(metrics.mode, content: content)
         needsLayout = true
 
@@ -429,6 +433,7 @@ final class NodeRowView: BaseView {
         }
         if content.isOpen { parts.append("open in browser") }
         if content.isArchived { parts.append("archived") }
+        if content.isStale { parts.append("not opened lately") }
         if isSelected { parts.append("selected") }
         return parts.joined(separator: ", ")
     }

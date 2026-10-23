@@ -42,6 +42,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         AppPreferences.shared.startTintSync()
         TablineController.shared.onRunningChanged = { [weak self] in self?.surface.tablineRunningChanged($0) }
         let mainViewController = MainViewController(model: model)
+        mainViewController.links.recency = .shared
+        mainViewController.nodeListViewController.recency = .shared
         self.mainViewController = mainViewController
 
         let window = NSWindow(
@@ -224,6 +226,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         surface.reopen()
         return true
+    }
+
+    public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        guard let main = mainViewController else { return nil }
+        return DockMenu.make(model: main.model) { [weak self] id in
+            main.selectWorkspaceAndPage(id)
+            self?.surface.reopen()
+        }
     }
 
     // MARK: - Menu actions
