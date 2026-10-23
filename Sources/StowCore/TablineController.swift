@@ -199,6 +199,7 @@ final class TablineController {
     var flyoutEdge: FlyoutPanel.Edge { Self.flyoutEdge(for: edge) }
     private var lipFrame: NSRect = .zero
     private var peekFrame: NSRect = .zero
+    private var lipHover: LipHover?
 
     private struct Nudge {
         let window: AXUIElement
@@ -798,22 +799,15 @@ final class TablineController {
     private func checkLipHover() {
         // The peek stays out while a list or the app sheet hangs off it.
         guard !anyFlyoutOpen, lipFrame != .zero else { return }
-        let mouse = NSEvent.mouseLocation
-        switch dock {
-        case .lip:
-            // From just under the lip up through the notch band to the screen's top edge.
-            let hotzone = NSRect(x: lipFrame.minX, y: lipFrame.minY - 8, width: lipFrame.width, height: 120)
-            if hotzone.contains(mouse) {
-                dock = .peek
-                setPanelFrame(peekFrame)
-            }
-        case .peek:
-            if !peekFrame.insetBy(dx: -12, dy: -12).contains(mouse) {
-                dock = .lip
-                setPanelFrame(lipFrame)
-            }
-        default: break
+        if lipHover?.lipFrame != lipFrame || lipHover?.peekFrame != peekFrame {
+            lipHover = LipHover(lipFrame: lipFrame, peekFrame: peekFrame)
         }
+        guard dock == .lip || dock == .peek else { return }
+        let peeking = dock == .peek
+        let peeks = lipHover!.step(mouse: NSEvent.mouseLocation, at: ProcessInfo.processInfo.systemUptime, peeking: peeking)
+        guard peeks != peeking else { return }
+        dock = peeks ? .peek : .lip
+        setPanelFrame(peeks ? peekFrame : lipFrame)
     }
 
     // MARK: - Accessibility
