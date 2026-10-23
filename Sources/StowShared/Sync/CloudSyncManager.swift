@@ -643,13 +643,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             let recordID = deletion.recordID
             lastKnownRecords.removeValue(forKey: recordID.recordName)
 
-            if let uuid = UUID(uuidString: recordID.recordName) {
-                if model.workspaces.contains(where: { $0.id == uuid }) {
-                    model.deleteWorkspaceFromSync(id: uuid)
-                } else {
-                    model.deleteNodeFromAnyWorkspace(id: uuid)
-                }
-            }
+            deleteLocally(recordID)
         }
     }
 
@@ -772,11 +766,19 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                 clearCachedRecord(for: failedRecord.recordID)
 
             case .unknownItem:
-                // Record was deleted on server. Only re-upload if it still exists locally
-                // (user created it again). Otherwise accept the server deletion.
+                // The record isn't on the server any more.
                 clearCachedRecord(for: failedRecord.recordID)
-                if recordExistsInLocalModel(failedRecord.recordID) {
+                switch Self.resolveUnknownItem(
+                    sentFromServerCopy: failedRecord.recordChangeTag != nil,
+                    existsLocally: recordExistsInLocalModel(failedRecord.recordID)
+                ) {
+                case .reupload:
                     newPendingChanges.append(.saveRecord(failedRecord.recordID))
+                case .deleteLocally:
+                    deleteLocally(failedRecord.recordID)
+                    appliedServerRecord = true
+                case .drop:
+                    break
                 }
 
             default:
@@ -826,6 +828,29 @@ extension CloudSyncManager: CKSyncEngineDelegate {
     }
 
     // MARK: - Merge Helpers
+
+    enum UnknownItemResolution: Equatable {
+        case reupload
+        case deleteLocally
+        case drop
+    }
+
+    /// What to do when a save fails because the record isn't on the server. A save built
+    /// on a server copy means another device deleted it, and deletes win; one with no
+    /// server copy behind it is a record this device made (or restored) and goes up again.
+    nonisolated static func resolveUnknownItem(sentFromServerCopy: Bool, existsLocally: Bool) -> UnknownItemResolution {
+        guard existsLocally else { return .drop }
+        return sentFromServerCopy ? .deleteLocally : .reupload
+    }
+
+    private func deleteLocally(_ recordID: CKRecord.ID) {
+        guard let model, let uuid = UUID(uuidString: recordID.recordName) else { return }
+        if model.workspaces.contains(where: { $0.id == uuid }) {
+            model.deleteWorkspaceFromSync(id: uuid)
+        } else {
+            model.deleteNodeFromAnyWorkspace(id: uuid)
+        }
+    }
 
     private func recordExistsInLocalModel(_ recordID: CKRecord.ID) -> Bool {
         guard let model, let uuid = UUID(uuidString: recordID.recordName) else { return false }
