@@ -748,6 +748,20 @@ public final class AppModel {
         persist(notify: false)
     }
 
+    /// Gives a local workspace that was never uploaded the identity of a same-named one
+    /// already in iCloud (id, colour, icon), keeping its items, so the established
+    /// workspace isn't replaced by a new Mac's default.
+    public func adoptWorkspaceIdentityFromSync(remote: Workspace, replacingLocalId localId: UUID) {
+        guard let index = state.workspaces.firstIndex(where: { $0.id == localId }) else { return }
+        state.workspaces[index].id = remote.id
+        state.workspaces[index].name = remote.name
+        state.workspaces[index].colorId = remote.colorId
+        state.workspaces[index].icon = remote.icon
+        if state.selectedWorkspaceId == localId { state.selectedWorkspaceId = remote.id }
+        if lastWorkspaceId == localId { lastWorkspaceId = remote.id }
+        persist(notify: false)
+    }
+
     /// Merges metadata from a remote workspace into an existing local workspace with the same name.
     /// Merges browser profiles (remote wins for conflicts).
     public func mergeWorkspaceMetadataFromSync(remote: Workspace, intoWorkspaceId localId: UUID) {

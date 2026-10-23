@@ -36,6 +36,8 @@ public final class CloudSyncManager {
     private let zoneName = "StowZone"
 
     private var syncEngine: CKSyncEngine?
+    /// Holds local uploads until a fetch has read what's already in iCloud.
+    private var joinGate = JoinGate(joining: false)
     private var model: AppModel?
     private var isMergingRemoteChanges = false
     private var workspaceIdRedirects: [UUID: UUID] = [:]
@@ -117,10 +119,11 @@ public final class CloudSyncManager {
         // Ensure the custom zone exists
         syncEngine!.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
 
-        // Only upload all local data on first launch (no cached state).
-        // On subsequent launches, CKSyncEngine auto-fetches remote changes.
+        // On first launch (no cached state), upload local data only after the first fetch,
+        // so a new Mac's defaults merge into what's in iCloud instead of racing it.
         if savedStateSerialization == nil {
-            scheduleFullUpload()
+            joinGate.rejoin()
+            fetchChanges()
         }
 
         // Poll for changes while the app is in front (covers environments without push
@@ -215,7 +218,7 @@ public final class CloudSyncManager {
     // MARK: - Upload Scheduling
 
     public func scheduleLocalChanges() {
-        guard !isMergingRemoteChanges else { return }
+        guard !isMergingRemoteChanges, joinGate.allowsUploads else { return }
         guard let model, let syncEngine else { return }
 
         let wsDesc = model.workspaces.enumerated().map { "\($0):\($1.name)(\($1.items.count) items)" }.joined(separator: ", ")
@@ -548,7 +551,8 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             logger.info("iCloud account signed in")
             lastKnownRecords.removeAll()
             saveLastKnownRecords()
-            scheduleFullUpload()
+            joinGate.rejoin()
+            fetchChanges()
         case .signOut:
             logger.info("iCloud account signed out")
             isSignedOut = true
@@ -558,7 +562,8 @@ extension CloudSyncManager: CKSyncEngineDelegate {
             logger.info("iCloud account switched")
             lastKnownRecords.removeAll()
             saveLastKnownRecords()
-            scheduleFullUpload()
+            joinGate.rejoin()
+            fetchChanges()
         @unknown default:
             break
         }
@@ -717,6 +722,7 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         saveLastKnownRecords()
         Self.notifyMergeFinished(model)
         isMergingRemoteChanges = false
+        if joinGate.fetchFinished() { scheduleFullUpload() }
         recordSyncSuccess()
     }
 
@@ -819,7 +825,8 @@ extension CloudSyncManager: CKSyncEngineDelegate {
                 logger.info("Zone \(deletion.zoneID.zoneName, privacy: .public) \(String(describing: deletion.reason), privacy: .public) — resetting sync state")
                 lastKnownRecords.removeAll()
                 saveLastKnownRecords()
-                scheduleFullUpload()
+                joinGate.rejoin()
+                fetchChanges()
 
             case .deleted:
                 // Zone was programmatically deleted
@@ -834,6 +841,18 @@ extension CloudSyncManager: CKSyncEngineDelegate {
     }
 
     // MARK: - Merge Helpers
+
+    enum NameMatchResolution: Equatable {
+        case adoptRemote
+        case mergeIntoLocal
+    }
+
+    /// A remote workspace with a local one's name and a different id. A local workspace
+    /// that never reached iCloud (a new Mac's default) takes the remote's identity, so the
+    /// established workspace stays; two that were both uploaded merge into the local one.
+    nonisolated static func resolveNameMatch(localWasUploaded: Bool) -> NameMatchResolution {
+        localWasUploaded ? .mergeIntoLocal : .adoptRemote
+    }
 
     enum UnknownItemResolution: Equatable {
         case reupload
@@ -873,11 +892,20 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         if model.workspaces.contains(where: { $0.id == remote.id }) {
             model.updateWorkspaceFromSync(remote)
         } else if let existing = model.workspaces.first(where: { $0.name == remote.name }) {
-            // Same name, different UUID — merge into existing workspace and delete remote orphan
-            workspaceIdRedirects[remote.id] = existing.id
-            model.mergeWorkspaceMetadataFromSync(remote: remote, intoWorkspaceId: existing.id)
-            // Delete the orphaned remote workspace record from the server
-            scheduleDeletion(for: remote.id)
+            let existingRecordID = CKRecord.ID(recordName: existing.id.uuidString, zoneID: zoneID)
+            switch Self.resolveNameMatch(localWasUploaded: cachedRecord(for: existingRecordID) != nil) {
+            case .adoptRemote:
+                // Its nodes land straight in the adopted workspace; dedupe links against the local ones.
+                workspaceIdRedirects[remote.id] = remote.id
+                model.adoptWorkspaceIdentityFromSync(remote: remote, replacingLocalId: existing.id)
+                // Its items go up under the new id (a join uploads everything once it ends).
+                if joinGate.allowsUploads { scheduleFullUpload() }
+            case .mergeIntoLocal:
+                // Same name, different UUID — merge into existing workspace and delete remote orphan
+                workspaceIdRedirects[remote.id] = existing.id
+                model.mergeWorkspaceMetadataFromSync(remote: remote, intoWorkspaceId: existing.id)
+                scheduleDeletion(for: remote.id)
+            }
         } else {
             model.insertWorkspaceFromSync(remote)
         }
@@ -909,5 +937,23 @@ extension CloudSyncManager: CKSyncEngineDelegate {
         default:
             break
         }
+    }
+}
+
+/// Whether local changes may upload yet. Joining (first launch, a new account, a reset
+/// zone) holds them until a fetch finishes; that fetch's end triggers one full upload.
+struct JoinGate {
+    private var joining: Bool
+
+    init(joining: Bool) { self.joining = joining }
+
+    var allowsUploads: Bool { !joining }
+
+    mutating func rejoin() { joining = true }
+
+    /// Call when a fetch finishes. True once, when it ends a join.
+    mutating func fetchFinished() -> Bool {
+        defer { joining = false }
+        return joining
     }
 }
