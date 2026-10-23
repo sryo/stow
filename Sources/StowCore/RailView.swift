@@ -329,10 +329,23 @@ final class RailView: NSView {
         fab.apply(colors: colors)
     }
 
+    /// The page in the browser's active tab, for the selected fill on its link.
+    private var activePage: URL?
+
+    func setActivePage(_ url: URL?) {
+        activePage = url
+        applyOpenState()
+    }
+
     private func applyOpenState() {
-        for cell in cells {
-            guard case .link(let link, _) = cell.kind, let url = URL(string: link.url) else { continue }
+        let links = cells.compactMap { cell -> (RailCell, URL)? in
+            guard case .link(let link, _) = cell.kind, let url = URL(string: link.url) else { return nil }
+            return (cell, url)
+        }
+        let active = activePage.flatMap { page in URLMatch.bestSaved(for: page, among: links, url: \.1)?.0 }
+        for (cell, url) in links {
             cell.isOpen = openKeys.contains(BrowserTabService.canonicalize(url))
+            cell.isActive = cell === active
         }
     }
 
@@ -766,6 +779,14 @@ final class RailCell: BaseView {
             updateAccessibilityLabel()
         }
     }
+    /// The link's page is the browser's active tab: it takes the selected fill.
+    var isActive = false {
+        didSet {
+            guard isActive != oldValue else { return }
+            updateBackground()
+            updateAccessibilityLabel()
+        }
+    }
     /// The VoiceOver label before the open state is added.
     private var baseAccessibilityLabel = ""
 
@@ -888,7 +909,7 @@ final class RailCell: BaseView {
     @objc private func addTileTapped() { onActivate?() }
 
     private func updateAccessibilityLabel() {
-        setAccessibilityLabel(baseAccessibilityLabel + (isOpen ? ", open in browser" : ""))
+        setAccessibilityLabel(baseAccessibilityLabel + (isOpen ? ", open in browser" : "") + (isActive ? ", front tab" : ""))
     }
 
     private func setGlyph(_ symbol: String) {
@@ -951,7 +972,8 @@ final class RailCell: BaseView {
     private func updateBackground() {
         // The dashed tile draws its own hover.
         let lit = isDropTarget || (isHovered && addTile == nil)
-        backgroundLayer.backgroundColor = lit ? resolvedCGColor(colors.hover) : NSColor.clear.cgColor
+        backgroundLayer.backgroundColor = isActive ? resolvedCGColor(colors.multiSelected)
+            : lit ? resolvedCGColor(colors.hover) : NSColor.clear.cgColor
     }
 
     // The rail hovers while the app is active, not only in the key window.

@@ -110,6 +110,32 @@ final class NodeListViewController: NSViewController {
         guard let window = self?.view.window else { return }
         Toast.show(reason, in: window, duration: Toast.briefDuration)
     }
+    /// The page in the browser's active tab; its best-matching link takes the selected fill.
+    var activePageURL: URL? {
+        didSet {
+            guard activePageURL != oldValue else { return }
+            updateActiveLink()
+        }
+    }
+    private var activeLinkId: UUID?
+
+    private func updateActiveLink() {
+        let active = Self.activeLink(for: activePageURL, in: visibleRows)
+        guard active != activeLinkId else { return }
+        activeLinkId = active
+        reconfigureVisibleItems()
+    }
+
+    private static func activeLink(for activePageURL: URL?, in rows: [NodeListRow]) -> UUID? {
+        let links = rows.compactMap { row -> Link? in
+            if case .link(let link)? = row.node, !link.isArchived { return link }
+            return nil
+        }
+        return activePageURL.flatMap { page in
+            URLMatch.bestSaved(for: page, among: links.compactMap { link in URL(string: link.url).map { (link.id, $0) } }, url: \.1)?.0
+        }
+    }
+
     /// When links were last opened here; nil leaves every link fresh (tests).
     var recency: LinkRecency?
     /// Middle-click on a link: open it in a new tab behind Stow.
@@ -700,6 +726,7 @@ final class NodeListViewController: NSViewController {
     }
 
     private func applyVisibleRows(_ newRows: [NodeListRow]) {
+        activeLinkId = Self.activeLink(for: activePageURL, in: newRows)
         let animates = RailMotion.animates(windowVisible: collectionView.window != nil, swiping: false,
                                            reduceMotion: reduceMotion())
         if isSearchActive || !animates {
@@ -1316,6 +1343,7 @@ extension NodeListViewController {
         let title: String
         var isOpen = false
         var isStale = false
+        var isActive = false
         var codePreview: String?
         switch node {
         case .folder(let folder):
@@ -1336,6 +1364,7 @@ extension NodeListViewController {
                 isOpen = openKeys.contains(BrowserTabService.canonicalize(url))
             }
             isStale = !isOpen && !isArchived && recency?.isStale(link.id) == true
+            isActive = link.id == activeLinkId
         case .task(let task):
             title = task.title
             kind = .task(isCompleted: task.isCompleted, dueDate: task.dueDate)
@@ -1345,7 +1374,7 @@ extension NodeListViewController {
             codePreview = snippet.content
         }
         let content = NodeRowContent(kind: kind, title: title, depth: row.depth, isArchived: isArchived,
-                                     isOpen: isOpen, isStale: isStale, codePreview: codePreview)
+                                     isOpen: isOpen, isActive: isActive, isStale: isStale, codePreview: codePreview)
 
         // After the content: the cursor ring, and jump letters (a–z for the first 26
         // items), which appear only in jump mode.

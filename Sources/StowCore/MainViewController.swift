@@ -51,6 +51,7 @@ final class MainViewController: NSViewController {
     /// Open browser tabs, for the rail's and the list's open dots.
     private let openTabs = OpenTabsMonitor.shared
     private var openTabsSubscription: AnyCancellable?
+    private var frontPageSubscription: AnyCancellable?
     private var modelSubscription: AnyCancellable?
 
     // Page navigation
@@ -642,6 +643,9 @@ final class MainViewController: NSViewController {
                 }
             }
         }
+        frontPageSubscription = openTabs.$frontPage.removeDuplicates().sink { [weak self] page in
+            MainActor.assumeIsolated { self?.setActivePage(page?.url) }
+        }
         openTabsSubscription = openTabs.$openKeys.removeDuplicates().sink { [weak self] keys in
             MainActor.assumeIsolated {
                 self?.railView.setOpenKeys(keys)
@@ -1083,6 +1087,12 @@ final class MainViewController: NSViewController {
         }
         empty.menuProvider = { [weak self] in self?.makeAddBookmarksMenu() ?? NSMenu() }
         empty.onDropText = { [weak self] text in self?.importText(text) }
+    }
+
+    /// Gives the link whose page is the browser's active tab the selected fill.
+    func setActivePage(_ url: URL?) {
+        nodeListViewController.activePageURL = url
+        railView.setActivePage(url)
     }
 
     func clearSearch() {

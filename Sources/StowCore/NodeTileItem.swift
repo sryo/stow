@@ -44,6 +44,7 @@ private final class NodeTileView: BaseView {
     private let openDot = NSView()
     private var metrics = ListMetrics()
     private var isSelected = false
+    private var isActive = false
     private var style: Style = .link
     private var isOverdue = false
     private var isDone = false
@@ -89,6 +90,7 @@ private final class NodeTileView: BaseView {
     func configure(content: NodeRowContent, metrics: ListMetrics, isSelected: Bool) {
         self.metrics = metrics
         self.isSelected = isSelected
+        self.isActive = content.isActive
         titleLabel.stringValue = content.title
         titleLabel.font = metrics.linkTitleFont
         var meta = ""
@@ -142,7 +144,7 @@ private final class NodeTileView: BaseView {
                 .foregroundColor: metrics.secondaryColor,
             ]))
         }
-        let open = content.isOpen && style == .link ? ", open in browser" : ""
+        let open = (content.isOpen && style == .link ? ", open in browser" : "") + (content.isActive ? ", front tab" : "")
         setAccessibilityLabel("\(content.typeName), \(content.title)\(meta.isEmpty ? "" : ", \(meta)")\(open)")
         layer?.cornerRadius = style == .task ? 10 : 12
         iconView.layer?.cornerRadius = style == .link ? 7 : 0
@@ -209,8 +211,8 @@ private final class NodeTileView: BaseView {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let palette = isDark ? c.dark : c.light
         var tile = palette.surface.mix(.white, isDark ? 0.075 : 0.58)
-        if isSelected || isHovered {
-            tile = tile.mix(palette.inkPrimary, isSelected ? 0.12 : 0.065)
+        if isSelected || isActive || isHovered {
+            tile = tile.mix(palette.inkPrimary, isSelected || isActive ? 0.12 : 0.065)
         }
         layer?.backgroundColor = tile.platformColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? 2 : 0

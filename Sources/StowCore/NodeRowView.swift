@@ -15,6 +15,8 @@ struct NodeRowContent {
     var isArchived: Bool
     /// The link's site is open in a browser tab.
     var isOpen: Bool = false
+    /// The link's page is the browser's active tab: it takes the selected fill.
+    var isActive: Bool = false
     /// A link not opened on this Mac for a while: it fades.
     var isStale: Bool = false
     /// First lines of a snippet, for mosaic tiles.
@@ -434,6 +436,7 @@ final class NodeRowView: BaseView {
         if content.isOpen { parts.append("open in browser") }
         if content.isArchived { parts.append("archived") }
         if content.isStale { parts.append("not opened lately") }
+        if content.isActive { parts.append("front tab") }
         if isSelected { parts.append("selected") }
         return parts.joined(separator: ", ")
     }
@@ -498,7 +501,7 @@ final class NodeRowView: BaseView {
         let fill: NSColor
         if isEditing {
             fill = metrics.colors.raised
-        } else if isSelected {
+        } else if isSelected || content?.isActive == true {
             fill = metrics.selectedBackgroundColor
         } else if isHovered {
             fill = metrics.hoverBackgroundColor

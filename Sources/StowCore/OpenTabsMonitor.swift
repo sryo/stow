@@ -63,10 +63,15 @@ final class OpenTabsMonitor {
     private var isReadingTabs = false
     private var isReadingFront = false
 
+    /// The browser to read the front page of when the Tabline isn't riding one.
+    private let lastActiveBrowser: () -> String?
+
     /// A non-nil `seed` stands in for the browsers' open tabs.
-    init(reader: Reader, seed: Set<String>?) {
+    init(reader: Reader, seed: Set<String>?,
+         lastActiveBrowser: @escaping () -> String? = { ActiveBrowserTracker.shared.lastActiveBundleId }) {
         self.reader = reader
         self.seed = seed
+        self.lastActiveBrowser = lastActiveBrowser
         if let seed { openKeys = seed }
     }
 
@@ -120,15 +125,21 @@ final class OpenTabsMonitor {
         }
     }
 
+    /// The Tabline's browser, else (for the list) the browser last used.
+    private var frontPageBundleId: String? {
+        if demand.contains(.tabline), let frontBundleId { return frontBundleId }
+        return demand.contains(.list) ? lastActiveBrowser() : nil
+    }
+
     private func readFrontPage() {
-        guard demand.contains(.tabline), let bundleId = frontBundleId, !isReadingFront else { return }
+        guard let bundleId = frontPageBundleId, !isReadingFront else { return }
         isReadingFront = true
         queue.async { [reader] in
             let page = reader.browsersRunning() ? reader.frontPage(bundleId) : nil
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isReadingFront = false
-                guard self.frontBundleId == bundleId, page != self.frontPage else { return }
+                guard self.frontPageBundleId == bundleId, page != self.frontPage else { return }
                 self.frontPage = page
             }
         }

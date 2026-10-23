@@ -31,6 +31,17 @@ public enum URLMatch {
         return best?.item
     }
 
+    /// The saved item that best matches an open page, the first among equals.
+    public static func bestSaved<T>(for page: URL, among items: [T], url: (T) -> URL) -> T? {
+        var best: (item: T, score: Int)?
+        for item in items {
+            guard let score = score(saved: url(item), open: page), score > (best?.score ?? 0) else { continue }
+            best = (item, score)
+            if score == samePage { break }
+        }
+        return best?.item
+    }
+
     private struct Parts {
         let host: String
         let path: String

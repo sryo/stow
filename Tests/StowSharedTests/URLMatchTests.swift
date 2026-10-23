@@ -42,4 +42,12 @@ final class URLMatchTests: XCTestCase {
             .map { URL(string: $0)! }
         XCTAssertEqual(URLMatch.best(for: saved, among: tabs, url: { $0 }), tabs[1])
     }
+
+    func testTheSavedLinkForAPageIsTheBestRankedOne() {
+        let page = URL(string: "https://example.com/doc/42?view=9")!
+        let links = ["https://example.com/doc", "https://example.com/doc/42?view=1", "https://example.com/doc/42"]
+            .map { URL(string: $0)! }
+        XCTAssertEqual(URLMatch.bestSaved(for: page, among: links, url: { $0 }), links[2], "same path with its whole query beats a changed one")
+        XCTAssertNil(URLMatch.bestSaved(for: URL(string: "https://example.com/elsewhere")!, among: links, url: { $0 }))
+    }
 }

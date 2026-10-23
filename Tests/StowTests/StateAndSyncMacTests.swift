@@ -92,6 +92,19 @@ final class StateAndSyncMacTests: XCTestCase {
         monitor.setDemand(.list, false)
     }
 
+    func testTheListReadsTheFrontPageOfTheLastBrowserUsed() {
+        let page = OpenTabsMonitor.FrontPage(bundleId: "com.example.browser", url: URL(string: "https://example.com/a")!, title: "A")
+        let monitor = OpenTabsMonitor(reader: .init(
+            browsersRunning: { true },
+            openURLs: { [] },
+            frontPage: { $0 == page.bundleId ? page : nil }
+        ), seed: nil, lastActiveBrowser: { page.bundleId })
+        monitor.setDemand(.list, true)
+        harness.spin(0.3)
+        XCTAssertEqual(monitor.frontPage, page)
+        monitor.setDemand(.list, false)
+    }
+
     func testTheMonitorStaysIdleWithoutDemand() {
         let reads = ReadCounter()
         let monitor = OpenTabsMonitor(reader: .init(
