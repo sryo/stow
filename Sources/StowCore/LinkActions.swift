@@ -17,6 +17,10 @@ final class LinkActions {
     }
     /// Opens several links at once in the workspace's browser. Tests record instead.
     lazy var openMany: ([Link]) -> Void = { [weak self] links in self?.openInBrowser(links) }
+    /// Opening this many links or more at once asks first.
+    static let confirmThreshold = 15
+    /// Asks whether to open that many links. Tests answer instead.
+    lazy var confirmOpening: (Int) -> Bool = { [weak self] count in self?.askToOpen(count) ?? false }
 
     init(model: AppModel, window: @escaping () -> NSWindow?) {
         self.model = model
@@ -42,7 +46,17 @@ final class LinkActions {
     func openLinksInFolder(_ folder: Folder) {
         let links = folder.openableLinks
         guard !links.isEmpty else { return }
+        if links.count >= Self.confirmThreshold, !confirmOpening(links.count) { return }
         openMany(links)
+    }
+
+    private func askToOpen(_ count: Int) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Open \(count) links?"
+        alert.informativeText = "Each one opens in its own tab."
+        alert.addButton(withTitle: "Open \(count) Tabs")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func openInBrowser(_ links: [Link]) {

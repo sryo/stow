@@ -40,6 +40,35 @@ final class OpenAllTests: XCTestCase {
         XCTAssertEqual(opened, ["A", "C"])
     }
 
+    func testOpeningManyLinksAsksFirst() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-openall-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let links = LinkActions(model: AppModel(store: DataStore(baseDirectory: dir)), window: { nil })
+        var asked: [Int] = []
+        var opened = 0
+        links.openMany = { opened += $0.count }
+        links.confirmOpening = { asked.append($0); return false }
+        let many = Folder(id: UUID(), name: "Many", children: (0..<LinkActions.confirmThreshold).map { .link(link("L\($0)")) }, isExpanded: true)
+
+        links.openLinksInFolder(many)
+        XCTAssertEqual(asked, [LinkActions.confirmThreshold])
+        XCTAssertEqual(opened, 0, "declining opens nothing")
+
+        links.confirmOpening = { _ in true }
+        links.openLinksInFolder(many)
+        XCTAssertEqual(opened, LinkActions.confirmThreshold)
+    }
+
+    func testOpeningAFewLinksDoesNotAsk() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-openall-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let links = LinkActions(model: AppModel(store: DataStore(baseDirectory: dir)), window: { nil })
+        links.openMany = { _ in }
+        links.confirmOpening = { _ in XCTFail("asked for \(LinkActions.confirmThreshold - 1) links"); return false }
+        let few = Folder(id: UUID(), name: "Few", children: (0..<(LinkActions.confirmThreshold - 1)).map { .link(link("L\($0)")) }, isExpanded: true)
+        links.openLinksInFolder(few)
+    }
+
     func testTablineOpenAllSkipsArchivedLinks() {
         let tabline = TablineController.shared
         let savedFolder = tabline.onOpenFolder, savedLink = tabline.onOpenLink
