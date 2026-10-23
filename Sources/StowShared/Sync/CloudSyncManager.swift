@@ -749,13 +749,19 @@ extension CloudSyncManager: CKSyncEngineDelegate {
 
             switch failure.error.code {
             case .serverRecordChanged:
-                // Server has a newer version. Accept the server's data (server wins).
-                // Apply it to the local model like a fetch, then cache the server record.
+                // The server has a newer copy. Keep the fields this device changed since the
+                // copy it last knew, take the server's for the rest, and upload the merge.
                 if let serverRecord = failure.error.serverRecord {
+                    let base = cachedRecord(for: failedRecord.recordID)
+                    let serverCopy = serverRecord.copy() as! CKRecord
                     cacheRecord(serverRecord)
-                    applyServerRecord(serverRecord)
+                    let merged = RecordMerge.merge(base: base, ours: failedRecord, theirs: serverRecord)
+                    applyServerRecord(merged)
                     appliedServerRecord = true
-                    logger.info("Conflict for \(failedRecord.recordID.recordName, privacy: .public) - accepted server version")
+                    if !recordFieldsMatch(serverCopy, merged) {
+                        newPendingChanges.append(.saveRecord(failedRecord.recordID))
+                    }
+                    logger.info("Conflict for \(failedRecord.recordID.recordName, privacy: .public) - merged with server version")
                 }
 
             case .zoneNotFound:
