@@ -228,14 +228,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         return true
     }
 
-    public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        guard let main = mainViewController else { return nil }
-        return DockMenu.make(model: main.model) { [weak self] id in
-            main.selectWorkspaceAndPage(id)
-            self?.surface.reopen()
-        }
-    }
-
     // MARK: - Menu actions
 
     @objc public func showMainWindow(_ sender: Any?) {
