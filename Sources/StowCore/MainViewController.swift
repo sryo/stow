@@ -251,7 +251,7 @@ final class MainViewController: NSViewController {
         }
         searchField.onSubmit = { [weak self] text in
             guard let self, let url = SearchBang.url(for: text) else { return false }
-            self.links.openLink(Link(id: UUID(), title: "", url: url.absoluteString, faviconPath: nil), newTab: true)
+            self.links.openFront(url)
             self.clearSearch()
             return true
         }

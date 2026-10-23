@@ -31,6 +31,14 @@ final class LinkActions {
     lazy var openBehind: (URL, LinkTarget) -> Void = { url, target in
         BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile, activates: false)
     }
+    /// Opens a URL that isn't a saved link (a search bang) in a new tab of the workspace's
+    /// browser. Tests record instead.
+    lazy var openFront: (URL) -> Void = { [weak self] url in
+        guard let self else { return }
+        let target = LinkTarget.forWorkspace(self.model.activeWorkspaceId, forceNewTab: true)
+        BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile)
+    }
+
     /// Stows the front tab. Tests record instead.
     lazy var stowFront: () -> Void = { [weak self] in self?.stowFrontTab() }
 

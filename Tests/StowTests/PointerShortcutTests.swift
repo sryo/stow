@@ -68,3 +68,30 @@ final class RailMiddleClickTests: XCTestCase {
         XCTAssertEqual(opened, [link.id])
     }
 }
+
+@MainActor
+final class SearchSubmitTests: XCTestCase {
+    func testReturnInTheSearchFieldRunsABang() throws {
+        let harness = RedHarness()
+        defer { harness.tearDown() }
+        harness.host(width: 400)
+        var opened: [URL] = []
+        harness.controller.links.openBehind = { url, _ in opened.append(url) }
+        harness.controller.links.openFront = { url in opened.append(url) }
+
+        let field = try XCTUnwrap(harness.controller.searchField.descendants(of: NSTextField.self).first)
+        harness.window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(harness.window.makeFirstResponder(field))
+        field.currentEditor()?.insertText("!g stow")
+        harness.spin()
+        let returnKey = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: harness.window.windowNumber, context: nil,
+                                                       characters: "\r", charactersIgnoringModifiers: "\r",
+                                                       isARepeat: false, keyCode: 36))
+        harness.window.sendEvent(returnKey)
+        harness.spin()
+
+        XCTAssertEqual(opened.map(\.absoluteString), ["https://www.google.com/search?q=stow"])
+        XCTAssertEqual(harness.controller.searchField.text, "")
+    }
+}
