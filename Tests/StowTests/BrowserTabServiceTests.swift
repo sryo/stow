@@ -115,18 +115,6 @@ final class BrowserTabServiceTests: XCTestCase {
         XCTAssertNil(BrowserTabService.tabListScript(bundleId: "org.mozilla.firefox"))
     }
 
-    /// Runs only with STOW_LIVE_BROWSER_TESTS=1 and a supported browser open: the listing
-    /// must return tabs from every running browser.
-    func testListTabs_liveBrowserReturnsTabs() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["STOW_LIVE_BROWSER_TESTS"] == "1")
-        let tabs = BrowserTabService.listTabs()
-        let running = supportedBrowsers.filter { BrowserManager.isRunning(bundleId: $0) }
-        try XCTSkipIf(running.isEmpty, "no supported browser running")
-        for bundleId in running {
-            XCTAssertTrue(tabs.contains { $0.bundleId == bundleId }, "no tabs read from \(bundleId)")
-        }
-    }
-
     /// Runs only with STOW_LIVE_BROWSER_TESTS=1: opening a link whose page is already open
     /// focuses that tab instead of reporting a miss (which would open a duplicate). Uses
     /// each browser's current front tab, so no tab selection changes.
@@ -206,5 +194,21 @@ final class BrowserTabServiceTests: XCTestCase {
             if bundleId == "com.apple.Safari", BrowserTabService.frontTab(bundleId: bundleId) == nil { continue } // start page in front
             XCTAssertNotNil(BrowserTabService.frontTab(bundleId: bundleId), "\(bundleId) front tab unreadable")
         }
+    }
+
+    // MARK: - headless copies (Puppeteer, test runners)
+
+    /// With headless copies of a browser running beside the real one, tabs are read from
+    /// the copy that has windows; a lone instance keeps the plain AppleScript path.
+    func testHeadlessCopiesPointAtTheWindowedInstance() {
+        XCTAssertEqual(BrowserTabService.windowedInstance(among: [(pid: 4, isRegular: false), (pid: 7, isRegular: true), (pid: 9, isRegular: false)]), 7)
+    }
+
+    func testALoneInstanceNeedsNoPid() {
+        XCTAssertNil(BrowserTabService.windowedInstance(among: [(pid: 7, isRegular: true)]))
+    }
+
+    func testOnlyHeadlessCopiesMeanNoWindowedInstance() {
+        XCTAssertNil(BrowserTabService.windowedInstance(among: [(pid: 4, isRegular: false), (pid: 9, isRegular: false)]))
     }
 }

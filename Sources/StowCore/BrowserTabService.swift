@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ScriptingBridge
 
 public struct OpenTab: Equatable, Sendable {
     public let bundleId: String
@@ -106,6 +107,7 @@ public enum BrowserTabService {
 
     /// URL and title of the active tab in the front window of `bundleId`'s browser.
     public static func frontTab(bundleId: String) -> (url: URL, title: String)? {
+        if let bridge = chromiumBridge(bundleId: bundleId) { return bridgeFrontTab(bridge) }
         guard let script = frontTabScript(bundleId: bundleId), let output = runAppleScript(script) else { return nil }
         return parseFrontTab(output)
     }
@@ -180,6 +182,7 @@ public enum BrowserTabService {
     }
 
     private static func tabs(bundleId: String) -> [OpenTab] {
+        if let bridge = chromiumBridge(bundleId: bundleId) { return bridgeTabs(bridge, bundleId: bundleId) }
         guard let script = tabListScript(bundleId: bundleId) else { return [] }
         return parseRows(runAppleScript(script), bundleId: bundleId)
     }
@@ -187,6 +190,7 @@ public enum BrowserTabService {
     // MARK: - Focus
 
     static func focus(tab: OpenTab) -> Bool {
+        if let bridge = chromiumBridge(bundleId: tab.bundleId) { return bridgeFocus(bridge, tab: tab) }
         guard let script = focusScript(tab: tab) else { return false }
         // Focus scripts return no value, so success means "no error", not "some output".
         return runAppleScriptSucceeded(script)
@@ -239,6 +243,70 @@ public enum BrowserTabService {
             """
         }
         return script
+    }
+
+    // MARK: - Headless copies
+
+    /// The pid of the browser copy that has windows when headless copies of the same app
+    /// (Puppeteer, test runners) run beside it; nil for a lone instance, which AppleScript
+    /// reaches by name. AppleScript can't pick among copies and may land on a headless one.
+    static func windowedInstance(among instances: [(pid: pid_t, isRegular: Bool)]) -> pid_t? {
+        guard instances.count > 1 else { return nil }
+        return instances.first { $0.isRegular }?.pid
+    }
+
+    /// The windowed copy of a Chromium browser through ScriptingBridge, which addresses one
+    /// process by pid, when headless copies are running too.
+    private static func chromiumBridge(bundleId: String) -> (app: SBApplication, pid: pid_t)? {
+        guard chromiumBrowsers.contains(where: { $0.bundleId == bundleId }) else { return nil }
+        let instances = NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == bundleId }
+            .map { (pid: $0.processIdentifier, isRegular: $0.activationPolicy == .regular) }
+        guard let pid = windowedInstance(among: instances),
+              let app = SBApplication(processIdentifier: pid) else { return nil }
+        return (app, pid)
+    }
+
+    private static func bridgeWindows(_ app: SBApplication) -> [SBObject] {
+        ((app.value(forKey: "windows") as? SBElementArray)?.get() as? [SBObject]) ?? []
+    }
+
+    private static func bridgeTabs(_ bridge: (app: SBApplication, pid: pid_t), bundleId: String) -> [OpenTab] {
+        scriptLock.lock()
+        defer { scriptLock.unlock() }
+        var tabs: [OpenTab] = []
+        for window in bridgeWindows(bridge.app) {
+            guard let windowId = window.value(forKey: "id").map({ "\($0)" }),
+                  let list = window.value(forKey: "tabs") as? SBElementArray else { continue }
+            let urls = list.value(forKey: "URL") as? [String] ?? []
+            let titles = list.value(forKey: "title") as? [String] ?? []
+            for (i, string) in urls.enumerated() {
+                guard let url = URL(string: string) else { continue }
+                tabs.append(OpenTab(bundleId: bundleId, windowId: windowId, tabIndex: i + 1, url: url,
+                                    title: i < titles.count ? titles[i] : ""))
+            }
+        }
+        return tabs
+    }
+
+    private static func bridgeFrontTab(_ bridge: (app: SBApplication, pid: pid_t)) -> (url: URL, title: String)? {
+        scriptLock.lock()
+        defer { scriptLock.unlock() }
+        guard let front = bridgeWindows(bridge.app).first,
+              let tab = front.value(forKey: "activeTab") as? SBObject,
+              let url = tab.value(forKey: "URL") as? String else { return nil }
+        return parseFrontTab(url + "\t" + (tab.value(forKey: "title") as? String ?? ""))
+    }
+
+    private static func bridgeFocus(_ bridge: (app: SBApplication, pid: pid_t), tab: OpenTab) -> Bool {
+        scriptLock.lock()
+        defer { scriptLock.unlock() }
+        guard let window = bridgeWindows(bridge.app).first(where: { $0.value(forKey: "id").map { "\($0)" } == tab.windowId }) else {
+            return false
+        }
+        window.setValue(tab.tabIndex, forKey: "activeTabIndex")
+        window.setValue(1, forKey: "index")
+        return NSRunningApplication(processIdentifier: bridge.pid)?.activate() ?? false
     }
 
     // MARK: - AppleScript runner
