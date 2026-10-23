@@ -17,6 +17,13 @@ final class LinkActions {
     }
     /// Opens several links at once in the workspace's browser. Tests record instead.
     lazy var openMany: ([Link]) -> Void = { [weak self] links in self?.openInBrowser(links) }
+    /// Whether Stow's window is up on screen showing the workspace, so a stow there is
+    /// seen landing and needs no toast. Tests answer instead.
+    lazy var isShowingWorkspace: (UUID) -> Bool = { [weak self] id in
+        guard let self, let window = self.window(), window.isVisible,
+              window.occlusionState.contains(.visible) else { return false }
+        return self.model.state.selectedWorkspaceId == id
+    }
     /// Opening this many links or more at once asks first.
     static let confirmThreshold = 15
     /// Asks whether to open that many links. Tests answer instead.
@@ -109,6 +116,8 @@ final class LinkActions {
         switch result {
         case .added(let id):
             fetchTitleForNewLink(id: id, url: url)
+            if let workspace = model.workspaces.first(where: { $0.items.flattenIds().contains(id) }),
+               isShowingWorkspace(workspace.id) { return result }
             message = "Stowed in \(workspaceName(holding: id))"
         case .alreadyPresent(let id):
             message = "Already in \(workspaceName(holding: id))"

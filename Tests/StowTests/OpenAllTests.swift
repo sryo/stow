@@ -89,3 +89,44 @@ final class OpenAllTests: XCTestCase {
         XCTAssertNil(menu.items.first { $0.title == "Open all links" }, "offered to open a folder of archived links")
     }
 }
+
+/// A stow you can see land (Stow's window is up on that workspace) needs no toast;
+/// "Already in X" always shows.
+@MainActor
+final class StowToastVisibilityTests: XCTestCase {
+    private var dir: URL!
+    private var model: AppModel!
+    private var links: LinkActions!
+    private var toasts: [String] = []
+
+    override func setUp() async throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("stow-toast-\(UUID().uuidString)")
+        model = AppModel(store: DataStore(baseDirectory: dir))
+        links = LinkActions(model: model, window: { nil })
+        toasts = []
+        links.presentToast = { [unowned self] message, _ in self.toasts.append(message) }
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    func testAStowYouCanSeeLandHasNoToast() {
+        links.isShowingWorkspace = { _ in true }
+        links.stow(url: URL(string: "https://new.test")!, title: "New", into: nil)
+        XCTAssertEqual(toasts, [])
+    }
+
+    func testAStowOutOfSightSaysWhere() {
+        links.isShowingWorkspace = { _ in false }
+        links.stow(url: URL(string: "https://new.test")!, title: "New", into: nil)
+        XCTAssertEqual(toasts, ["Stowed in \(model.activeWorkspace.name)"])
+    }
+
+    func testAlreadySavedAlwaysSaysWhere() {
+        links.isShowingWorkspace = { _ in true }
+        _ = model.addLink(urlString: "https://old.test", title: "Old", parentId: nil)
+        links.stow(url: URL(string: "https://old.test")!, title: "Old", into: nil)
+        XCTAssertEqual(toasts, ["Already in \(model.activeWorkspace.name)"])
+    }
+}
