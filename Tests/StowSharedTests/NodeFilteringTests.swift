@@ -93,6 +93,37 @@ final class NodeFilteringTests: XCTestCase {
         XCTAssertEqual(result.count, 0, "Folder name itself isn't matched — only its descendants")
     }
 
+    // MARK: - Matching
+
+    private func titles(_ nodes: [Node]) -> [String] { nodes.map(\.displayName) }
+
+    func testALinkMatchesByItsAddress() {
+        let nodes = [makeLink("Team handbook", url: "https://notion.so/handbook"), makeLink("Other")]
+        XCTAssertEqual(titles(NodeFiltering.filter(nodes: nodes, query: "notion")), ["Team handbook"])
+    }
+
+    func testEveryWordMustMatchSomewhere() {
+        let nodes = [makeLink("Pull requests", url: "https://github.com/pulls"), makeLink("Pull-ups plan")]
+        XCTAssertEqual(titles(NodeFiltering.filter(nodes: nodes, query: "pull github")), ["Pull requests"])
+    }
+
+    func testInitialsMatchTheWordsOfATitle() {
+        let nodes = [makeLink("Google Docs"), makeLink("Good dogs list"), makeLink("Calendar")]
+        XCTAssertEqual(titles(NodeFiltering.filter(nodes: nodes, query: "gd")), ["Google Docs", "Good dogs list"])
+    }
+
+    func testAccentsAndCaseDontMatter() {
+        let nodes = [makeLink("Café menu"), makeLink("Tea")]
+        XCTAssertEqual(titles(NodeFiltering.filter(nodes: nodes, query: "CAFE")), ["Café menu"])
+    }
+
+    func testAMatchingFolderNameShowsItsItems() {
+        let folder = Node.folder(Folder(id: UUID(), name: "Recipes", children: [makeLink("Bread"), makeLink("Soup")], isExpanded: false))
+        guard case .folder(let shown)? = NodeFiltering.filter(nodes: [folder], query: "recip").first else { return XCTFail() }
+        XCTAssertEqual(titles(shown.children), ["Bread", "Soup"])
+        XCTAssertTrue(shown.isExpanded)
+    }
+
     // MARK: - Edge
 
     func testEmptyQueryMatchesNothing() {
