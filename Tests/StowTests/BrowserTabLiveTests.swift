@@ -38,6 +38,17 @@ final class BrowserTabLiveTests: XCTestCase {
             XCTAssertTrue(focused, "\(browser.appName): an open page was reported missing, so it would open twice")
             let front = await waitFor { BrowserTabService.frontTab(bundleId: browser.bundleId)?.url == saved }
             XCTAssertTrue(front, "\(browser.appName): focusing didn't bring the open page to the front")
+
+            // An app rewrote the page's view state (its query) since it was saved.
+            BrowserManager.open(url: cover, bundleId: browser.bundleId)
+            _ = await waitFor { BrowserTabService.frontTab(bundleId: browser.bundleId)?.url == cover }
+            let pathOnly = URL(string: "https://example.com/stow/\(marker)?view=old")!
+            BrowserManager.open(url: URL(string: "https://example.com/stow/\(marker)?view=new")!, bundleId: browser.bundleId)
+            _ = await waitFor { BrowserTabService.listTabs().contains { $0.url.absoluteString.hasSuffix("view=new") } }
+            BrowserManager.open(url: cover, bundleId: browser.bundleId)
+            _ = await waitFor { BrowserTabService.frontTab(bundleId: browser.bundleId)?.url == cover }
+            let refocused = await BrowserTabService.focusIfOpen(url: pathOnly, onlyIn: browser.bundleId)
+            XCTAssertTrue(refocused, "\(browser.appName): a page whose view state changed would open twice")
         }
     }
 

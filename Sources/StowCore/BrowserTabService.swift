@@ -60,7 +60,8 @@ public enum BrowserTabService {
         return tabs
     }
 
-    /// If `url` is open in any supported browser, focus that tab and return true.
+    /// If `url` is open in any supported browser, focus that tab and return true. The tab
+    /// is the best `URLMatch`: the same page, else the same page with changed view state.
     /// Returns false on miss or on focus failure — caller should fall through to
     /// `BrowserManager.open` in either case. Queries each running browser
     /// concurrently and returns on the first match; `cancelAll` only suppresses
@@ -68,41 +69,37 @@ public enum BrowserTabService {
     /// When `onlyIn` is set, only that browser's tabs are considered, so opening a link
     /// never pulls the user out of the browser they're working in.
     public static func focusIfOpen(url: URL, onlyIn onlyBundleId: String? = nil) async -> Bool {
-        let target = canonicalize(url)
         let allowed: (String) -> Bool = { onlyBundleId == nil || $0 == onlyBundleId }
         let match = await withTaskGroup(of: OpenTab?.self) { group -> OpenTab? in
             for bundleId in supportedBundleIds where allowed(bundleId) && BrowserManager.isRunning(bundleId: bundleId) {
-                group.addTask { tabs(bundleId: bundleId).first { canonicalize($0.url) == target } }
+                group.addTask { URLMatch.best(for: url, among: tabs(bundleId: bundleId), url: \.url) }
             }
+            // Each browser's best; the same page anywhere ends the search.
+            var candidates: [OpenTab] = []
             for await result in group {
-                if let hit = result {
+                guard let hit = result else { continue }
+                if URLMatch.score(saved: url, open: hit.url) == URLMatch.samePage {
                     group.cancelAll()
                     return hit
                 }
+                candidates.append(hit)
             }
-            return nil
+            return URLMatch.best(for: url, among: candidates, url: \.url)
         }
         guard let hit = match else { return false }
         return focus(tab: hit)
     }
 
-    /// Snapshot of every open tab across every running browser, keyed by
-    /// canonical URL (last writer wins on duplicates). For bulk lookups —
-    /// queries each browser exactly once instead of per-URL fan-out.
-    public static func tabsByCanonicalURL() async -> [String: OpenTab] {
-        let lists = await withTaskGroup(of: [OpenTab].self) { group -> [[OpenTab]] in
+    /// Every open tab across every running browser, each browser read once, for bulk lookups.
+    public static func allTabs() async -> [OpenTab] {
+        await withTaskGroup(of: [OpenTab].self) { group -> [OpenTab] in
             for bundleId in supportedBundleIds where BrowserManager.isRunning(bundleId: bundleId) {
                 group.addTask { tabs(bundleId: bundleId) }
             }
-            var collected: [[OpenTab]] = []
-            for await list in group { collected.append(list) }
+            var collected: [OpenTab] = []
+            for await list in group { collected.append(contentsOf: list) }
             return collected
         }
-        var map: [String: OpenTab] = [:]
-        for list in lists {
-            for tab in list { map[canonicalize(tab.url)] = tab }
-        }
-        return map
     }
 
     /// URL and title of the active tab in the front window of `bundleId`'s browser.

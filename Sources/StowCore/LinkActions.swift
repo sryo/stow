@@ -103,11 +103,11 @@ final class LinkActions {
         // One tabs snapshot covers every link — avoids 20 detached Tasks each
         // re-querying every running browser on bulk open.
         Task.detached(priority: .userInitiated) {
-            let tabs = await BrowserTabService.tabsByCanonicalURL()
+            let tabs = await BrowserTabService.allTabs()
             for link in links {
                 guard let url = URL(string: link.url) else { continue }
-                let key = BrowserTabService.canonicalize(url)
-                if target.focusesOpenTab, let tab = tabs[key], BrowserTabService.focus(tab: tab) { continue }
+                if target.focusesOpenTab, let tab = URLMatch.best(for: url, among: tabs, url: \.url),
+                   BrowserTabService.focus(tab: tab) { continue }
                 await MainActor.run { BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile) }
             }
         }
