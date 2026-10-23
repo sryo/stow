@@ -105,6 +105,10 @@ final class NodeListViewController: NSViewController {
     var onOpenFolderLinks: ((UUID) -> Void)?
     /// ⌥Return on a link: open it in a fresh tab, as ⌥-click does.
     var onOpenLinkInNewTab: ((UUID) -> Void)?
+    /// Middle-click on a link: open it in a new tab behind Stow.
+    var onOpenLinkInBackground: ((UUID) -> Void)?
+    /// A double-click on the list's empty space.
+    var onBackgroundDoubleClick: (() -> Void)?
     /// Shows the row actions for the row at an index. Nil pops up the row's menu; tests record.
     var rowActionsPresenter: ((Int) -> Void)?
     /// A one-off "Open in ▸" from a link's menu.
@@ -661,6 +665,15 @@ final class NodeListViewController: NSViewController {
             (item as? NodeCollectionViewItem)?.refreshHoverState()
         }
         updateShadows()
+    }
+
+    func middleClicked(item: Int) {
+        guard let row = row(at: IndexPath(item: item, section: 0)), case .link(let link)? = row.node else { return }
+        onOpenLinkInBackground?(link.id)
+    }
+
+    func backgroundDoubleClicked() {
+        onBackgroundDoubleClick?()
     }
 
     fileprivate func row(at indexPath: IndexPath) -> NodeListRow? {
@@ -1977,10 +1990,20 @@ private final class ContextMenuCollectionView: NSCollectionView {
         // If clicking on empty space, notify the callback
         if indexPath == nil {
             onBackgroundClick?()
+            if event.clickCount == 2 { parentViewController?.backgroundDoubleClicked() }
         }
 
         // Always call super to allow normal click handling
         super.mouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2,
+              let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        parentViewController?.middleClicked(item: indexPath.item)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

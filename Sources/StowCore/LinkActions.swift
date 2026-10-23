@@ -24,6 +24,19 @@ final class LinkActions {
               window.occlusionState.contains(.visible) else { return false }
         return self.model.state.selectedWorkspaceId == id
     }
+    /// Opens a URL in a new tab behind the front app. Tests record instead.
+    lazy var openBehind: (URL, LinkTarget) -> Void = { url, target in
+        BrowserManager.open(url: url, bundleId: target.bundleId, profile: target.profile, activates: false)
+    }
+    /// Stows the front tab. Tests record instead.
+    lazy var stowFront: () -> Void = { [weak self] in self?.stowFrontTab() }
+
+    /// Middle-click: a new tab in the workspace's browser, left behind Stow.
+    func openLinkInBackground(_ link: Link) {
+        guard let url = URL(string: link.url) else { return }
+        openBehind(url, LinkTarget.forWorkspace(model.activeWorkspaceId, forceNewTab: true))
+    }
+
     /// Opening this many links or more at once asks first.
     static let confirmThreshold = 15
     /// Asks whether to open that many links. Tests answer instead.

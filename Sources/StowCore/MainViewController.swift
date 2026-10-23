@@ -495,6 +495,11 @@ final class MainViewController: NSViewController {
             self.links.openLinksInFolder(folder)
         }
 
+        nodeListViewController.onOpenLinkInBackground = { [weak self] linkId in
+            guard let self, case .link(let link)? = self.model.nodeById(linkId) else { return }
+            self.links.openLinkInBackground(link)
+        }
+        nodeListViewController.onBackgroundDoubleClick = { [weak self] in self?.links.stowFront() }
         nodeListViewController.onOpenLinkInNewTab = { [weak self] linkId in
             guard let self, case .link(let link)? = self.model.nodeById(linkId) else { return }
             self.links.openLink(link, newTab: true)

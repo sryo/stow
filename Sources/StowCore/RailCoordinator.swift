@@ -69,6 +69,7 @@ final class RailCoordinator {
         railView.onNewWorkspace = { [weak self] in self?.main.promptCreateWorkspace() }
         railView.onOpenLink = { [weak self] link in self?.main.links.openLink(link) }
         railView.onOpenFolder = { [weak self] folder in self?.main.links.openLinksInFolder(folder) }
+        railView.onOpenLinkInBackground = { [weak self] link in self?.main.links.openLinkInBackground(link) }
         railView.onToggleTask = { [weak self] id in self?.model.toggleTaskCompletion(id: id) }
         railView.onCopySnippet = { [weak self] id in
             guard let self, case .snippet(let snippet)? = self.model.nodeById(id) else { return }

@@ -44,10 +44,12 @@ enum BrowserManager {
         return defaultBrowserBundleId()
     }
 
-    static func open(url: URL, bundleId targetBundleId: String? = nil, profile: String? = nil) {
+    /// `activates: false` opens it behind the front app.
+    static func open(url: URL, bundleId targetBundleId: String? = nil, profile: String? = nil, activates: Bool = true) {
         if let bundleId = targetBundleId ?? defaultBrowserBundleId(),
            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
             let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = activates
             if let profile = profile {
                 if isChromiumBased(bundleId) {
                     configuration.arguments = ["--profile-directory=\(profile)"]

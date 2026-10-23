@@ -19,6 +19,8 @@ final class RailView: NSView {
     /// "New workspace…" from the workspace list's footer.
     var onNewWorkspace: (() -> Void)?
     var onOpenLink: ((Link) -> Void)?
+    /// Middle-click on a link: open it in a new tab behind Stow.
+    var onOpenLinkInBackground: ((Link) -> Void)?
     var onOpenFolder: ((Folder) -> Void)?
     var onToggleTask: ((UUID) -> Void)?
     var onCopySnippet: ((UUID) -> Void)?
@@ -274,6 +276,10 @@ final class RailView: NSView {
             cell.onRightClick = { [weak self, weak cell] in
                 guard let self, let cell, let node = cell.node else { return }
                 self.onNodeMenu?(node, cell)
+            }
+            cell.onMiddleClick = { [weak self, weak cell] in
+                guard let self, case .link(let link)? = cell?.node else { return }
+                self.onOpenLinkInBackground?(link)
             }
             cell.onDrag = { [weak self, weak cell] phase, windowPoint in
                 guard let self, let cell else { return }
@@ -736,6 +742,7 @@ final class RailCell: BaseView {
     let kind: Kind
     var onActivate: (() -> Void)?
     var onRightClick: (() -> Void)?
+    var onMiddleClick: (() -> Void)?
     /// Drag phases with the pointer in window coordinates; only links and folders drag.
     var onDrag: ((DragPhase, NSPoint) -> Void)?
     /// The pointer entered (true) or left; the rail shows `tip` after a dwell.
@@ -957,6 +964,11 @@ final class RailCell: BaseView {
     override func handleHoverStateChanged() {
         updateBackground()
         onHover?(isHovered)
+    }
+
+    /// The middle button (buttonNumber 2); other extra buttons do nothing.
+    override func otherMouseUp(with event: NSEvent) {
+        if event.buttonNumber == 2, let onMiddleClick { onMiddleClick() } else { super.otherMouseUp(with: event) }
     }
 
     override func mouseDown(with event: NSEvent) {
